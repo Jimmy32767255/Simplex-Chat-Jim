@@ -61,5 +61,9 @@
   - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`、`apps/multiplatform/common/src/commonMain/resources/MR/{base,zh-rCN}/strings.xml`（新增 `collapse_verb`，复用已有的 `expand_verb`）。
   - 测试：`apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt` 扩充至 10 个用例（新增成员区与成员行可见性判定），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
 - [ ] 删除已保存的消息（长按一条消息点开信息的时候，允许在历史记录那里对任何历史记录进行仅客户端侧的删除）
+  - **暂缓（基于 7.0.4，经确认后跳过）**：已核实这条需求有两种理解，且成本差别很大，与用户确认后决定先跳过、继续其余条目。
+  - 理解一（删除「历史记录」标签页里列出的单个编辑版本）：核心（Haskell）的 `chat_item_versions` 表只有整条消息级的删除（`deleteChatItemVersions_`/`deleteMemberCIs` 按 `chat_item_id` 全删），`APIDeleteChatItem` 也只接受 `chatItemIds`，没有任何按单个版本删除的命令。要实现必须在核心新增命令，本机没有 cabal/stack/ghcup，核心无法编译与测试，因此和条目 3 一样只能暂缓。
+  - 理解二（在信息弹窗里删除整条消息、仅本机）：客户端已经具备该能力（长按菜单的「DeleteItemAction」→「仅为我删除」走 `CIDeleteMode.cidmInternal`，频道/群管理员走 `cidmHistory`），信息弹窗内没有必须补的缺口，单独加一个按钮收益有限。
+  - 日后如有核心构建环境且确认要做理解一，实现路径：核心新增「按 `chat_item_version_id` 删除单条版本」的命令（`Controller.hs` 的 API 命令 + `Store/Messages.hs` 删除函数 + `Library/Commands.hs` 处理）→ 客户端在 `ChatItemInfoView.ItemVersionView` 的下拉菜单里加「仅本机删除该版本」（必要时刷新 `apiGetChatItemInfo`）。
 - [ ] 成员头像旁边的网络状态图标（其实就是把用户 页面→服务器→网络状态 右边的那个会变色的点，也复制到私聊标题、主页用户名左侧以及群用户列表的用户名左边）
 - [ ] 反撤回（拒绝任何来自服务端的删除信息请求，比如管理员删除，也忽略限时消息超时自动删除，要能允许对每一个私聊/群设置）
