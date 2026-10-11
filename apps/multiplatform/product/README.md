@@ -164,6 +164,7 @@ Server configuration, proxy support, and connectivity.
 | Custom ICE servers | Configure WebRTC ICE/TURN servers | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/RTCServers.kt` |
 | Network timeouts | Configure connection timeout parameters | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/AdvancedNetworkSettings.kt` |
 | Server operators | Configure and manage SMP/XFTP server operators | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/OperatorView.kt` |
+| Server groups and notes | Organize manually added servers into named groups and attach a note to each, stored client-side only | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServersView.kt` |
 | Server status | View aggregate server connectivity status | `common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ServersSummaryView.kt` |
 | Network & servers hub | Central network configuration entry point | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt` |
 

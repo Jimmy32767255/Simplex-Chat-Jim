@@ -261,14 +261,14 @@ All functions below are `suspend fun` members of `ChatController` ([SimpleXAPI.k
 
 | Command | Parameters | Description | Line |
 |---------|-----------|-------------|------|
-| `getServerOperators` | `rh: Long?` | Get server operator conditions detail | [L1219](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1219) |
-| `setServerOperators` | `rh: Long?, operators: List<ServerOperator>` | Update the list of server operators | [L1226](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1226) |
-| `getUserServers` | `rh: Long?` | Get the user's configured servers per operator | [L1233](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1233) |
-| `setUserServers` | `rh: Long?, userServers: List<UserOperatorServers>` | Save user's configured servers per operator | [L1241](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1241) |
-| `validateServers` | `rh: Long?, userServers: List<UserOperatorServers>` | Validate server configuration for errors | [L1253](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1253) |
-| `getUsageConditions` | `rh: Long?` | Get current and accepted usage conditions | [L1261](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1261) |
-| `setConditionsNotified` | `rh: Long?, conditionsId: Long` | Mark conditions as shown to user | [L1268](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1268) |
-| `acceptConditions` | `rh: Long?, conditionsId: Long, operatorIds: List<Long>` | Accept usage conditions for operators | [L1275](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1275) |
+| `getServerOperators` | `rh: Long?` | Get server operator conditions detail | [L1318](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1318) |
+| `setServerOperators` | `rh: Long?, operators: List<ServerOperator>` | Update the list of server operators | [L1325](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1325) |
+| `getUserServers` | `rh: Long?` | Get the user's configured servers per operator | [L1332](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1332) |
+| `setUserServers` | `rh: Long?, userServers: List<UserOperatorServers>` | Save user's configured servers per operator | [L1340](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1340) |
+| `validateServers` | `rh: Long?, userServers: List<UserOperatorServers>` | Validate server configuration for errors | [L1352](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1352) |
+| `getUsageConditions` | `rh: Long?` | Get current and accepted usage conditions | [L1360](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1360) |
+| `setConditionsNotified` | `rh: Long?, conditionsId: Long` | Mark conditions as shown to user | [L1367](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1367) |
+| `acceptConditions` | `rh: Long?, conditionsId: Long, operatorIds: List<Long>` | Accept usage conditions for operators | [L1374](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1374) |
 
 The user's server list is edited entirely client-side and is only sent to the core on save: the
 settings view keeps a `List<UserOperatorServers>` state
@@ -277,18 +277,34 @@ validates it reactively with `validateServers_` and persists it with `setUserSer
 `saveServers`
 ([`NetworkAndServers.kt#L996`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt#L996)).
 Each entry of `smpServers`/`xftpServers` is a `UserServer`
-([`SimpleXAPI.kt#L4845`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L4845)).
+([`SimpleXAPI.kt#L4872`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L4872)).
+
+Because `ApiSetUserServers` serializes this list straight into `/_servers <userId> <json>` and the
+client list is parsed back out of the core's reply, `UserServer` is effectively a core-owned
+structure: a Kotlin-only field added to it would be dropped on the next round-trip. Client-only
+display metadata is therefore kept in a separate preference, keyed by the server address string:
+
+| Data | Type | Stored in | Notes |
+|---|---|---|---|
+| Server group and note | `Map<String, ServerMeta>` | `AppPreferences.serverMetadata` (`SharedPreferences` key `ServerMetadata`) | `ServerMeta(group: String? = null, note: String? = null)`; key is the exact `UserServer.server` string |
+
+`serverMetadata` is a `mkMapPreference`, so changes are visible to Compose through its `state`.
+`updatedServerMetadata` (pure) computes the new map — it drops the entry when the metadata is blank
+and moves the entry from the previous address to the new one when the address is edited — and
+`saveServerMetadata` writes it back. `serverGroup` normalizes a blank group to `null`. The fields are
+read only by `views/usersettings/networkAndServers/ProtocolServersView.kt` (list rendering) and
+`ProtocolServerView.kt` (edit form); nothing here is ever sent to the core.
 
 Adding a server by hand (`NewServerView.kt`) accepts several addresses at once. The address field
 is split by `serverAddresses`
-([`NewServerView.kt#L87`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L87))
+([`NewServerView.kt#L92`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L92))
 into distinct, trimmed, non-blank lines, and `addServer`
-([`NewServerView.kt#L111`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L111))
+([`NewServerView.kt#L116`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L116))
 creates one `UserServer` per address from the same template (so every server of the batch shares the
 entered settings), filing each one under the operator matched by `serverProtocolAndOperator`
-([`NewServerView.kt#L90`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L90)).
+([`NewServerView.kt#L95`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L95)).
 `CustomServer`
-([`ProtocolServerView.kt#L166`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServerView.kt#L166))
+([`ProtocolServerView.kt#L203`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServerView.kt#L203))
 validates every line in that mode (`allowMultipleAddresses = true`), hides the single-address QR
 code and disables the one-shot test row when more than one address is entered. Invalid lines don't
 block the valid ones — the valid addresses are added and the invalid ones are listed in the

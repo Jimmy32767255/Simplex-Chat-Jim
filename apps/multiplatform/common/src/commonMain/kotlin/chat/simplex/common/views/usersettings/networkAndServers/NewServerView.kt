@@ -22,6 +22,7 @@ fun ModalData.NewServerView(
   val testing = remember { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
   val newServer = remember { mutableStateOf(UserServer.empty) }
+  val newServerMeta = remember { mutableStateOf(ServerMeta.empty) }
 
   ModalView(close = {
     addServer(
@@ -31,12 +32,14 @@ fun ModalData.NewServerView(
       serverErrors,
       serverWarnings,
       rhId,
+      meta = newServerMeta.value,
       close = close
     )
   }) {
     Box {
       NewServerLayout(
         newServer,
+        newServerMeta,
         testing.value,
         testServer = {
           testing.value = true
@@ -67,12 +70,14 @@ fun ModalData.NewServerView(
 @Composable
 private fun NewServerLayout(
   server: MutableState<UserServer>,
+  meta: MutableState<ServerMeta>,
   testing: Boolean,
   testServer: () -> Unit,
 ) {
   ColumnWithScrollBar {
     AppBarTitle(stringResource(MR.strings.smp_servers_new_server))
     CustomServer(server, testing, testServer, onDelete = null, allowMultipleAddresses = true)
+    ServerGroupAndNoteSection(meta)
     SectionBottomSpacer()
   }
 }
@@ -115,6 +120,7 @@ fun addServer(
   serverErrors: MutableState<List<UserServersError>>,
   serverWarnings: MutableState<List<UserServersWarning>>? = null,
   rhId: Long?,
+  meta: ServerMeta = ServerMeta.empty,
   close: () -> Unit
 ) {
   // The address field may contain several addresses, one per line. Every server
@@ -125,6 +131,7 @@ fun addServer(
 
   val multiple = addresses.size > 1
   val invalidAddresses = mutableListOf<String>()
+  val addedAddresses = mutableListOf<String>()
   val addedOperators = mutableListOf<ServerOperator>()
   var operatorNotFound = false
   for (address in addresses) {
@@ -161,7 +168,18 @@ fun addServer(
     }
 
     userServers.value = updatedUserServers
+    addedAddresses.add(one.server)
     matchingOperator?.let { op -> if (addedOperators.none { it.operatorId == op.operatorId }) addedOperators.add(op) }
+  }
+
+  // Group/note is client-side metadata keyed by the server address, so it is not
+  // part of the server list that is sent to the core.
+  if (addedAddresses.isNotEmpty() && !meta.isBlank) {
+    val current = ChatController.appPrefs.serverMetadata.get().toMutableMap()
+    for (address in addedAddresses) {
+      current[address] = meta
+    }
+    ChatController.appPrefs.serverMetadata.set(current)
   }
 
   // Only one alert is shown at a time, so invalid addresses (if any) take precedence
