@@ -1053,6 +1053,7 @@
   <string name="smp_servers_scan_qr">Scan server QR code</string>
   <string name="smp_servers_enter_manually">Enter server manually</string>
   <string name="smp_servers_new_server">New server</string>
+  <string name="smp_servers_new_server_multiple_hint">You can add several servers at once: enter one address per line. The settings below are applied to all of them.</string>
   <string name="smp_servers_preset_server">Preset server</string>
   <string name="smp_servers_your_server">Your server</string>
   <string name="smp_servers_your_server_address">Your server address</string>

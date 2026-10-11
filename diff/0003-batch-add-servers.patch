@@ -1,0 +1,471 @@
+diff --git a/TODO.md b/TODO.md
+index 561fc3430..ba9dd6180 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -22,7 +22,14 @@
+   - **需核心改动，暂缓（基于 7.0.4）**：已核实无法只改客户端。simplexmq（`cabal.project` 中固定版本 `efaad8e7`）的 `switchConnectionAsync :: AgentClient -> ACorrId -> ConnId -> AE ConnectionStats` 第二个参数只是命令关联 ID，不是服务器地址；目标服务器由 `switchDuplexConnection` 内部调用 `getNextSMPServer c userId (当前连接用到的服务器)` 自动挑选，没有外部指定入口。chat 层的 `APISwitchContact`/`APISwitchGroupMember`（含官方 stable 最新版）也都不带服务器参数，说明官方尚未实现该功能。
+   - 要让「复选框选择服务器」真正生效，必须同时修改 simplexmq 与 simplex-chat 两个 Haskell 包；而 simplexmq 是外部 pin 住的 `source-repository-package`，本机也没有 cabal/stack/ghcup（只有 `/usr/bin/ghc`），核心无法编译与测试，故本轮暂缓，先做其余条目。
+   - 日后有核心构建环境时的实现路径：simplexmq 支持指定目标服务器（扩展 `switchConnectionAsync`/`switchDuplexConnection`）→ chat 层扩展或新增切换命令并在 `Commands.hs` 解析新 JSON 参数 → 客户端在「更改接收地址」流程中加入复选框服务器列表（含全选/反选）。
+-- [ ] 批量添加服务器（在 设置→高级设置→网络和服务器→你的服务器→添加服务器→手动输入服务器 里面允许一次添加多台服务器，使用换行分隔，这一次添加的所有服务器都统一使用下方的设置）
++- [x] 批量添加服务器（在 设置→高级设置→网络和服务器→你的服务器→添加服务器→手动输入服务器 里面允许一次添加多台服务器，使用换行分隔，这一次添加的所有服务器都统一使用下方的设置）
++  - **已实现（基于 7.0.4）**：「添加服务器 → 手动输入服务器」的地址输入框现在支持多行：每行一个地址，一次即可添加多台服务器；空行会被忽略，重复地址只添加一次，每行首尾空白会去掉。
++  - 本次添加的所有服务器共用同一份设置（「用于新连接」开关、角色等），逐行解析出各自所属的服务器运营商后再分别写入服务器列表，因此同一批可以混入不同运营商的地址。
++  - 校验按行独立进行：只要有一行非法就会显示警告图标，但不会阻止其余合法地址被添加；非法地址会在提示框里逐条列出。多行输入时「测试服务器」不可用（结果有歧义），二维码也只在恰好一个合法地址时显示。
++  - 编辑已有服务器时行为不变（`allowMultipleAddresses` 默认 `false`），避免影响既有流程。
++  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt`（新增 `serverAddresses`，重写 `addServer` 支持批量）、`.../networkAndServers/ProtocolServerView.kt`（`CustomServer` 新增 `allowMultipleAddresses` 参数）、`apps/multiplatform/common/src/commonMain/resources/MR/{base,zh-rCN}/strings.xml`（新增提示文案 `smp_servers_new_server_multiple_hint`）。
++  - 不修改核心（Haskell）与网络协议，仅把多行地址在客户端展开成多条既有的 `UserServer` 记录，便于日后跟随官方版本升级。
++  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/BatchServersTest.kt`（6 个用例，覆盖单地址、多地址、`\r\n`/`\r` 换行、空行与空白、去重顺序、空输入），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
+ - [ ] 服务器分组和备注（对手动添加的服务器允许手动分组和添加备注，不然现在全是地址根本不可读）
+ - [ ] 查看和复制头像（点击群和其他用户头像的时候）
+ - [ ] 群成员连接率和百分比显示（在群成员列表标题处，就像主页上方标题一样）
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt
+index a3a843d03..824838cd8 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt
+@@ -72,11 +72,21 @@ private fun NewServerLayout(
+ ) {
+   ColumnWithScrollBar {
+     AppBarTitle(stringResource(MR.strings.smp_servers_new_server))
+-    CustomServer(server, testing, testServer, onDelete = null)
++    CustomServer(server, testing, testServer, onDelete = null, allowMultipleAddresses = true)
+     SectionBottomSpacer()
+   }
+ }
+ 
++/**
++ * Splits the server address text field into the list of addresses to add.
++ *
++ * A user can add several servers at once by entering one address per line.
++ * Blanks and duplicate addresses are ignored so that pasting a list with an
++ * accidental empty line (or a repeated address) doesn't create junk entries.
++ */
++fun serverAddresses(server: String): List<String> =
++  server.lines().map { it.trim() }.filter { it.isNotEmpty() }.distinct()
++
+ fun serverProtocolAndOperator(
+   server: UserServer,
+   userServers: List<UserOperatorServers>
+@@ -107,48 +117,68 @@ fun addServer(
+   rhId: Long?,
+   close: () -> Unit
+ ) {
+-  val result = serverProtocolAndOperator(server, userServers.value)
+-  if (result != null) {
++  // The address field may contain several addresses, one per line. Every server
++  // added in this batch shares the settings (enabled/preset/roles) of `server`.
++  val addresses = serverAddresses(server.server)
++  close()
++  if (addresses.isEmpty()) return
++
++  val multiple = addresses.size > 1
++  val invalidAddresses = mutableListOf<String>()
++  val addedOperators = mutableListOf<ServerOperator>()
++  var operatorNotFound = false
++  for (address in addresses) {
++    // A single address keeps the tested flag obtained in the form, a batch doesn't
++    // claim to have tested every address.
++    val one = server.copy(server = address, tested = if (multiple) null else server.tested)
++    val result = serverProtocolAndOperator(one, userServers.value)
++    if (result == null) {
++      invalidAddresses.add(address)
++      continue
++    }
+     val (serverProtocol, matchingOperator) = result
+     val operatorIndex = userServers.value.indexOfFirst { it.operator?.operatorId == matchingOperator?.operatorId }
+-    if (operatorIndex != -1) {
+-      // Create a mutable copy of the userServers list
+-      val updatedUserServers = userServers.value.toMutableList()
+-      val operatorServers = updatedUserServers[operatorIndex]
+-      // Create a mutable copy of the smpServers or xftpServers and add the server
+-      when (serverProtocol) {
+-        ServerProtocol.SMP -> {
+-          val updatedSMPServers = operatorServers.smpServers.toMutableList()
+-          updatedSMPServers.add(server)
+-          updatedUserServers[operatorIndex] = operatorServers.copy(smpServers = updatedSMPServers)
+-        }
+-
+-        ServerProtocol.XFTP -> {
+-          val updatedXFTPServers = operatorServers.xftpServers.toMutableList()
+-          updatedXFTPServers.add(server)
+-          updatedUserServers[operatorIndex] = operatorServers.copy(xftpServers = updatedXFTPServers)
+-        }
++    if (operatorIndex == -1) { // Shouldn't happen
++      operatorNotFound = true
++      continue
++    }
++    // Create a mutable copy of the userServers list
++    val updatedUserServers = userServers.value.toMutableList()
++    val operatorServers = updatedUserServers[operatorIndex]
++    // Create a mutable copy of the smpServers or xftpServers and add the server
++    when (serverProtocol) {
++      ServerProtocol.SMP -> {
++        val updatedSMPServers = operatorServers.smpServers.toMutableList()
++        updatedSMPServers.add(one)
++        updatedUserServers[operatorIndex] = operatorServers.copy(smpServers = updatedSMPServers)
+       }
+ 
+-      userServers.value = updatedUserServers
+-      close()
+-      matchingOperator?.let { op ->
+-        AlertManager.shared.showAlertMsg(
+-          title = generalGetString(MR.strings.operator_server_alert_title),
+-          text = String.format(generalGetString(MR.strings.server_added_to_operator__name), op.tradeName)
+-        )
++      ServerProtocol.XFTP -> {
++        val updatedXFTPServers = operatorServers.xftpServers.toMutableList()
++        updatedXFTPServers.add(one)
++        updatedUserServers[operatorIndex] = operatorServers.copy(xftpServers = updatedXFTPServers)
+       }
+-    } else { // Shouldn't happen
+-      close()
+-      AlertManager.shared.showAlertMsg(title = generalGetString(MR.strings.error_adding_server))
+     }
+-  } else {
+-    close()
+-    if (server.server.trim().isNotEmpty()) {
+-      AlertManager.shared.showAlertMsg(
+-        title = generalGetString(MR.strings.smp_servers_invalid_address),
+-        text = generalGetString(MR.strings.smp_servers_check_address)
++
++    userServers.value = updatedUserServers
++    matchingOperator?.let { op -> if (addedOperators.none { it.operatorId == op.operatorId }) addedOperators.add(op) }
++  }
++
++  // Only one alert is shown at a time, so invalid addresses (if any) take precedence
++  if (invalidAddresses.isNotEmpty()) {
++    AlertManager.shared.showAlertMsg(
++      title = generalGetString(MR.strings.smp_servers_invalid_address),
++      text = generalGetString(MR.strings.smp_servers_check_address) + "\n" + invalidAddresses.joinToString("\n")
++    )
++  } else if (addedOperators.isNotEmpty()) {
++    AlertManager.shared.showAlertMsg(
++      title = generalGetString(MR.strings.operator_server_alert_title),
++      text = String.format(
++        generalGetString(MR.strings.server_added_to_operator__name),
++        addedOperators.joinToString(", ") { it.tradeName }
+       )
+-    }
++    )
++  } else if (operatorNotFound) { // Shouldn't happen
++    AlertManager.shared.showAlertMsg(title = generalGetString(MR.strings.error_adding_server))
+   }
+ }
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServerView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServerView.kt
+index 3c8cc9e0c..aa26e0cd8 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServerView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServerView.kt
+@@ -4,6 +4,7 @@ import SectionBottomSpacer
+ import SectionDividerSpaced
+ import SectionItemView
+ import SectionItemViewSpaceBetween
++import SectionTextFooter
+ import SectionView
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.*
+@@ -168,10 +169,22 @@ fun CustomServer(
+   testServer: () -> Unit,
+   onDelete: (() -> Unit)?,
+   serverProtocol: ServerProtocol? = null,
+-  userServers: MutableState<List<UserOperatorServers>>? = null
++  userServers: MutableState<List<UserOperatorServers>>? = null,
++  allowMultipleAddresses: Boolean = false
+ ) {
+   val serverAddress = remember { mutableStateOf(server.value.server) }
+-  val valid = remember { derivedStateOf { parseServerAddress(serverAddress.value)?.valid == true } }
++  val valid = remember {
++    derivedStateOf {
++      if (allowMultipleAddresses) {
++        val addresses = serverAddresses(serverAddress.value)
++        addresses.isNotEmpty() && addresses.all { parseServerAddress(it)?.valid == true }
++      } else {
++        parseServerAddress(serverAddress.value)?.valid == true
++      }
++    }
++  }
++  // A batch can't be tested or exported as a single address QR code
++  val multipleAddresses = allowMultipleAddresses && serverAddresses(serverAddress.value).size > 1
+   SectionView(
+     stringResource(MR.strings.smp_servers_your_server_address),
+     icon = painterResource(MR.images.ic_error),
+@@ -191,9 +204,12 @@ fun CustomServer(
+         }
+     }
+   }
++  if (allowMultipleAddresses) {
++    SectionTextFooter(stringResource(MR.strings.smp_servers_new_server_multiple_hint))
++  }
+   SectionDividerSpaced()
+ 
+-  UseServerSection(server, valid.value, testing, testServer, onDelete)
++  UseServerSection(server, valid.value && !multipleAddresses, testing, testServer, onDelete)
+ 
+   val op = remember(server.value.server) { serverProtocolAndOperator(server.value, userServers?.value ?: listOf())?.second }
+   if (serverProtocol == ServerProtocol.SMP && server.value.enabled && (!server.value.preset || server.value.roles != ServerRolesOverride())) {
+@@ -201,7 +217,7 @@ fun CustomServer(
+     ServerRolesSection(server, op?.smpRoles ?: ServerRoles.noOperatorDefault)
+   }
+ 
+-  if (valid.value) {
++  if (valid.value && !multipleAddresses) {
+     SectionDividerSpaced()
+     SectionView(stringResource(MR.strings.smp_servers_add_to_another_device)) {
+       QRCode(serverAddress.value, small = true)
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+index a5ce4ece8..01d1c4e6d 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+@@ -1053,6 +1053,7 @@
+   <string name="smp_servers_scan_qr">Scan server QR code</string>
+   <string name="smp_servers_enter_manually">Enter server manually</string>
+   <string name="smp_servers_new_server">New server</string>
++  <string name="smp_servers_new_server_multiple_hint">You can add several servers at once: enter one address per line. The settings below are applied to all of them.</string>
+   <string name="smp_servers_preset_server">Preset server</string>
+   <string name="smp_servers_your_server">Your server</string>
+   <string name="smp_servers_your_server_address">Your server address</string>
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+index 611984727..d4390c456 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+@@ -2182,6 +2182,7 @@
+     <string name="no_media_servers_configured">无媒体和文件服务器。</string>
+     <string name="error_updating_server_title">更新服务器出错</string>
+     <string name="smp_servers_new_server">新服务器</string>
++    <string name="smp_servers_new_server_multiple_hint">可以一次添加多台服务器：每行一个地址。下方的设置会应用到本次添加的所有服务器。</string>
+     <string name="no_media_servers_configured_for_private_routing">无文件接收服务器。</string>
+     <string name="v6_2_improved_chat_navigation_descr">- 在第一条未读消息上打开聊天.\n- 跳转到引用的消息.</string>
+     <string name="operator_review_conditions">审阅条款</string>
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/BatchServersTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/BatchServersTest.kt
+new file mode 100644
+index 000000000..3d251cd39
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/BatchServersTest.kt
+@@ -0,0 +1,56 @@
++package chat.simplex.app
++
++import chat.simplex.common.views.usersettings.networkAndServers.serverAddresses
++import kotlin.test.Test
++import kotlin.test.assertEquals
++
++// use this command for testing:
++// ./gradlew desktopTest
++class BatchServersTest {
++  @Test
++  fun testSingleAddress() {
++    assertEquals(listOf("smp://abc@example.com"), serverAddresses("smp://abc@example.com"))
++  }
++
++  @Test
++  fun testMultipleAddressesOnePerLine() {
++    assertEquals(
++      listOf("smp://a@one.example", "smp://b@two.example", "xftp://c@three.example"),
++      serverAddresses("smp://a@one.example\nsmp://b@two.example\nxftp://c@three.example")
++    )
++  }
++
++  @Test
++  fun testWindowsAndOldMacLineEndings() {
++    assertEquals(
++      listOf("smp://a@one.example", "smp://b@two.example"),
++      serverAddresses("smp://a@one.example\r\nsmp://b@two.example")
++    )
++    assertEquals(
++      listOf("smp://a@one.example", "smp://b@two.example"),
++      serverAddresses("smp://a@one.example\rsmp://b@two.example")
++    )
++  }
++
++  @Test
++  fun testBlankLinesAndSurroundingSpacesAreIgnored() {
++    assertEquals(
++      listOf("smp://a@one.example", "smp://b@two.example"),
++      serverAddresses("\n  smp://a@one.example  \n\n\tsmp://b@two.example\t\n   \n")
++    )
++  }
++
++  @Test
++  fun testDuplicateAddressesAreRemovedInOrder() {
++    assertEquals(
++      listOf("smp://a@one.example", "smp://b@two.example"),
++      serverAddresses("smp://a@one.example\nsmp://b@two.example\nsmp://a@one.example")
++    )
++  }
++
++  @Test
++  fun testEmptyInput() {
++    assertEquals(emptyList(), serverAddresses(""))
++    assertEquals(emptyList(), serverAddresses("   \n \t \n"))
++  }
++}
+diff --git a/apps/multiplatform/product/views/settings.md b/apps/multiplatform/product/views/settings.md
+index eaea0ac92..9c84d0beb 100644
+--- a/apps/multiplatform/product/views/settings.md
++++ b/apps/multiplatform/product/views/settings.md
+@@ -56,6 +56,25 @@ All rows disabled when `chatModel.chatRunning != true` (except Appearance).
+ 
+ Sub-files: `NetworkAndServers.kt`, `ProtocolServersView.kt`, `ProtocolServerView.kt`, `NewServerView.kt`, `ScanProtocolServer.kt`, `AdvancedNetworkSettings.kt`, `OperatorView.kt`
+ 
++##### Adding Servers Manually (`NewServerView`)
++
++Reached from "Your servers" → "Add server" → "Enter manually" ("Add server by QR code" and the
++chat-relay option sit next to it). Used for both adding a server and editing an existing one.
++
++| Element | Behaviour |
++|---|---|
++| Server address field | Multi-line. When adding, it accepts one address per line, so several servers can be added in one go; blank lines are ignored and duplicates are added once. When editing an existing server the field holds a single address. |
++| Hint footer | Shown only in the add form: "You can add several servers at once: enter one address per line. The settings below are applied to all of them." |
++| Test server | Tests one address. Disabled while more than one address is entered, because the result would be ambiguous. |
++| Use for new connections | One toggle for the whole form; the same setting is applied to every server of the batch. |
++| Roles section | Same as before; applied to every server of the batch. |
++| QR code | Shown only while exactly one valid address is entered. |
++| Closing the dialog | Saves (the modal's close action *is* the save) and returns to the server list. Valid addresses are added even when some lines are invalid; the invalid ones are reported in an alert. |
++| Validation | Each line is validated independently; the warning icon appears while any line is invalid. The add button itself is never blocked by invalid lines. |
++
++Editing an existing server keeps the previous single-address behaviour (`allowMultipleAddresses`
++defaults to `false`).
++
+ #### Audio & Video Calls (`CallSettingsView`)
+ 
+ | Setting | Description |
+diff --git a/apps/multiplatform/spec/api.md b/apps/multiplatform/spec/api.md
+index 030095c7d..7a7a39d17 100644
+--- a/apps/multiplatform/spec/api.md
++++ b/apps/multiplatform/spec/api.md
+@@ -270,6 +270,31 @@ All functions below are `suspend fun` members of `ChatController` ([SimpleXAPI.k
+ | `setConditionsNotified` | `rh: Long?, conditionsId: Long` | Mark conditions as shown to user | [L1268](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1268) |
+ | `acceptConditions` | `rh: Long?, conditionsId: Long, operatorIds: List<Long>` | Accept usage conditions for operators | [L1275](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1275) |
+ 
++The user's server list is edited entirely client-side and is only sent to the core on save: the
++settings view keeps a `List<UserOperatorServers>` state
++([`NetworkAndServers.kt#L56`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt#L56)),
++validates it reactively with `validateServers_` and persists it with `setUserServers` from
++`saveServers`
++([`NetworkAndServers.kt#L996`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt#L996)).
++Each entry of `smpServers`/`xftpServers` is a `UserServer`
++([`SimpleXAPI.kt#L4845`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L4845)).
++
++Adding a server by hand (`NewServerView.kt`) accepts several addresses at once. The address field
++is split by `serverAddresses`
++([`NewServerView.kt#L87`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L87))
++into distinct, trimmed, non-blank lines, and `addServer`
++([`NewServerView.kt#L111`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L111))
++creates one `UserServer` per address from the same template (so every server of the batch shares the
++entered settings), filing each one under the operator matched by `serverProtocolAndOperator`
++([`NewServerView.kt#L90`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L90)).
++`CustomServer`
++([`ProtocolServerView.kt#L166`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServerView.kt#L166))
++validates every line in that mode (`allowMultipleAddresses = true`), hides the single-address QR
++code and disables the one-shot test row when more than one address is entered. Invalid lines don't
++block the valid ones — the valid addresses are added and the invalid ones are listed in the
++`smp_servers_invalid_address` alert. Server editing keeps the single-address behaviour because
++`allowMultipleAddresses` defaults to `false`.
++
+ ### 2.11 Archive
+ 
+ | Command | Parameters | Description | Line |
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index dceb145b3..e8c03042f 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -229,7 +229,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `views/usersettings/networkAndServers/OperatorView.kt` | PC25 | Medium | Server operator management |
+ | `views/usersettings/networkAndServers/ProtocolServersView.kt` | PC25 | Medium | SMP/XFTP server list |
+ | `views/usersettings/networkAndServers/ProtocolServerView.kt` | PC25 | Low | Individual server editing |
+-| `views/usersettings/networkAndServers/NewServerView.kt` | PC25 | Low | Add new server |
++| `views/usersettings/networkAndServers/NewServerView.kt` | PC25 | Low | Add new server(s) by hand (one address per line for a batch) |
+ | `views/usersettings/networkAndServers/ScanProtocolServer.kt` | PC25 | Low | QR scan for server address |
+ 
+ ### 1.10 Views — Database & Migration
+diff --git a/plans/2026-10-12-batch-add-servers.md b/plans/2026-10-12-batch-add-servers.md
+new file mode 100644
+index 000000000..b260ec55d
+--- /dev/null
++++ b/plans/2026-10-12-batch-add-servers.md
+@@ -0,0 +1,88 @@
++# Add several servers at once in "New server"
++
++## Problem
++
++Settings → Advanced → Network and servers → Your servers → Add server →
++Enter manually opens `NewServerView`, whose address field accepts exactly one
++server address:
++
++- `CustomServer` (`ProtocolServerView.kt`) validates the whole field with a
++  single `parseServerAddress(...)?.valid`, and
++- `addServer` (`NewServerView.kt`) feeds that same single string to
++  `serverProtocolAndOperator`, appends one `UserServer` and stops.
++
++TODO.md item 4 (`批量添加服务器`) asks for entering several addresses at once,
++one per line, with every server added in that batch sharing the settings
++chosen in the form (i.e. the "Use server for new connections" toggle and the
++protocol/operator detection).
++
++`TextEditor` already allows newlines (`singleLine = false`), so the field
++itself needs no new widget – only the parsing, validation and add path do.
++
++## Solution summary
++
++Keep one address field and one set of settings. Treat the field as a
++newline-separated list of addresses:
++
++- `NewServerView` passes `allowMultipleAddresses = true` to `CustomServer`.
++- `CustomServer` validates *every* non-blank line, hides the single-address
++  QR code and disables the "Test server" row when more than one address is
++  entered (testing a batch is ambiguous; servers can still be tested from the
++  list afterwards), and shows a hint footer describing the syntax.
++- `addServer` splits the field into distinct trimmed non-blank addresses and
++  appends one `UserServer` per address, each one derived from the same
++  template `server` value, so all of them share the entered settings.
++  Operator/protocol detection runs per address, so addresses belonging to
++  different operators land in the right operator's list.
++
++Single-address behaviour is unchanged: an empty field still just closes the
++dialog, and one address takes exactly the old path (same alerts, same
++`tested` flag). Relay addresses are not affected – `NewChatRelayView` keeps
++its own single-address form.
++
++## Design decisions
++
++- **Split in `addServer`, not in the editor.** `CustomServer` is shared with
++  the edit-server flows (`ProtocolServerView`), where `UserServer.server` must
++  stay a single address. `allowMultipleAddresses` defaults to `false`, so the
++  editing paths are byte-for-byte unchanged; only `NewServerView` opts in.
++- **Partial success is allowed, with an alert.** A typo on line 7 of a
++  ten-line paste must not silently discard lines 1–6, and must not block the
++  valid ones either. Valid addresses are added, invalid ones are listed in
++  the existing `smp_servers_invalid_address` alert.
++- **`tested = null` when batched.** The template may carry a `tested` flag
++  from a single-address test; applying it to every address of a batch would
++  be a lie, so only the one-address case keeps it.
++- **No new preference, no core change.** Servers are still added by mutating
++  the `userServers` state; `YourServersView` already validates reactively and
++  the existing save path persists the list.
++
++## Steps
++
++1. `NewServerView.kt`: add `serverAddresses(String): List<String>` helper;
++   rewrite `addServer` to loop over the split addresses, keeping the old
++   alerts (`operator_server_alert_title` / `server_added_to_operator__name`,
++   `smp_servers_invalid_address`, `error_adding_server`).
++2. `ProtocolServerView.kt`: add `allowMultipleAddresses: Boolean = false` to
++   `CustomServer`; make `valid` line-aware in that mode; add the hint footer;
++   hide QR / disable test row when multiple addresses are present.
++3. `NewServerView.kt`: pass `allowMultipleAddresses = true`.
++4. Strings: `smp_servers_new_server_multiple_hint` in `base` and `zh-rCN`.
++5. Docs: `product/views/settings.md`, `product/concepts.md`,
++   `spec/impact.md`, `spec/api.md` (if needed) and `TODO.md` item 4.
++6. Test with `./gradlew :common:desktopTest`, then commit and export the diff
++   patch to `diff/`.
++
++## Adversarial review
++
++- *Does the multiline text leak into `UserServer.server`?* Yes, while the
++  dialog is open, but `addServer` splits before creating the stored values, so
++  no `UserServer` with newlines is ever stored.
++- *Does `CustomServer`'s `LaunchedEffect` still sync correctly?* It copies the
++  whole text and the per-text `tested` memory; unchanged in both modes.
++- *Could a batch add a server to the wrong operator?* Operator matching is
++  per address via `serverProtocolAndOperator`, and the list is re-read from
++  `userServers.value` after every append, so consecutive addresses see the
++  previous insertions.
++- *Does hiding the QR code lose functionality for a single address?* No,
++  `multipleAddresses` is only true when at least two non-blank lines exist.

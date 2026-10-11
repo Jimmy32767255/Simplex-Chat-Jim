@@ -2182,6 +2182,7 @@
     <string name="no_media_servers_configured">无媒体和文件服务器。</string>
     <string name="error_updating_server_title">更新服务器出错</string>
     <string name="smp_servers_new_server">新服务器</string>
+    <string name="smp_servers_new_server_multiple_hint">可以一次添加多台服务器：每行一个地址。下方的设置会应用到本次添加的所有服务器。</string>
     <string name="no_media_servers_configured_for_private_routing">无文件接收服务器。</string>
     <string name="v6_2_improved_chat_navigation_descr">- 在第一条未读消息上打开聊天.\n- 跳转到引用的消息.</string>
     <string name="operator_review_conditions">审阅条款</string>

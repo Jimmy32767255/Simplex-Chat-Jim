@@ -56,6 +56,25 @@ All rows disabled when `chatModel.chatRunning != true` (except Appearance).
 
 Sub-files: `NetworkAndServers.kt`, `ProtocolServersView.kt`, `ProtocolServerView.kt`, `NewServerView.kt`, `ScanProtocolServer.kt`, `AdvancedNetworkSettings.kt`, `OperatorView.kt`
 
+##### Adding Servers Manually (`NewServerView`)
+
+Reached from "Your servers" → "Add server" → "Enter manually" ("Add server by QR code" and the
+chat-relay option sit next to it). Used for both adding a server and editing an existing one.
+
+| Element | Behaviour |
+|---|---|
+| Server address field | Multi-line. When adding, it accepts one address per line, so several servers can be added in one go; blank lines are ignored and duplicates are added once. When editing an existing server the field holds a single address. |
+| Hint footer | Shown only in the add form: "You can add several servers at once: enter one address per line. The settings below are applied to all of them." |
+| Test server | Tests one address. Disabled while more than one address is entered, because the result would be ambiguous. |
+| Use for new connections | One toggle for the whole form; the same setting is applied to every server of the batch. |
+| Roles section | Same as before; applied to every server of the batch. |
+| QR code | Shown only while exactly one valid address is entered. |
+| Closing the dialog | Saves (the modal's close action *is* the save) and returns to the server list. Valid addresses are added even when some lines are invalid; the invalid ones are reported in an alert. |
+| Validation | Each line is validated independently; the warning icon appears while any line is invalid. The add button itself is never blocked by invalid lines. |
+
+Editing an existing server keeps the previous single-address behaviour (`allowMultipleAddresses`
+defaults to `false`).
+
 #### Audio & Video Calls (`CallSettingsView`)
 
 | Setting | Description |

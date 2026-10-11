@@ -4,6 +4,7 @@ import SectionBottomSpacer
 import SectionDividerSpaced
 import SectionItemView
 import SectionItemViewSpaceBetween
+import SectionTextFooter
 import SectionView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -168,10 +169,22 @@ fun CustomServer(
   testServer: () -> Unit,
   onDelete: (() -> Unit)?,
   serverProtocol: ServerProtocol? = null,
-  userServers: MutableState<List<UserOperatorServers>>? = null
+  userServers: MutableState<List<UserOperatorServers>>? = null,
+  allowMultipleAddresses: Boolean = false
 ) {
   val serverAddress = remember { mutableStateOf(server.value.server) }
-  val valid = remember { derivedStateOf { parseServerAddress(serverAddress.value)?.valid == true } }
+  val valid = remember {
+    derivedStateOf {
+      if (allowMultipleAddresses) {
+        val addresses = serverAddresses(serverAddress.value)
+        addresses.isNotEmpty() && addresses.all { parseServerAddress(it)?.valid == true }
+      } else {
+        parseServerAddress(serverAddress.value)?.valid == true
+      }
+    }
+  }
+  // A batch can't be tested or exported as a single address QR code
+  val multipleAddresses = allowMultipleAddresses && serverAddresses(serverAddress.value).size > 1
   SectionView(
     stringResource(MR.strings.smp_servers_your_server_address),
     icon = painterResource(MR.images.ic_error),
@@ -191,9 +204,12 @@ fun CustomServer(
         }
     }
   }
+  if (allowMultipleAddresses) {
+    SectionTextFooter(stringResource(MR.strings.smp_servers_new_server_multiple_hint))
+  }
   SectionDividerSpaced()
 
-  UseServerSection(server, valid.value, testing, testServer, onDelete)
+  UseServerSection(server, valid.value && !multipleAddresses, testing, testServer, onDelete)
 
   val op = remember(server.value.server) { serverProtocolAndOperator(server.value, userServers?.value ?: listOf())?.second }
   if (serverProtocol == ServerProtocol.SMP && server.value.enabled && (!server.value.preset || server.value.roles != ServerRolesOverride())) {
@@ -201,7 +217,7 @@ fun CustomServer(
     ServerRolesSection(server, op?.smpRoles ?: ServerRoles.noOperatorDefault)
   }
 
-  if (valid.value) {
+  if (valid.value && !multipleAddresses) {
     SectionDividerSpaced()
     SectionView(stringResource(MR.strings.smp_servers_add_to_another_device)) {
       QRCode(serverAddress.value, small = true)

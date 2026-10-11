@@ -229,7 +229,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `views/usersettings/networkAndServers/OperatorView.kt` | PC25 | Medium | Server operator management |
 | `views/usersettings/networkAndServers/ProtocolServersView.kt` | PC25 | Medium | SMP/XFTP server list |
 | `views/usersettings/networkAndServers/ProtocolServerView.kt` | PC25 | Low | Individual server editing |
-| `views/usersettings/networkAndServers/NewServerView.kt` | PC25 | Low | Add new server |
+| `views/usersettings/networkAndServers/NewServerView.kt` | PC25 | Low | Add new server(s) by hand (one address per line for a batch) |
 | `views/usersettings/networkAndServers/ScanProtocolServer.kt` | PC25 | Low | QR scan for server address |
 
 ### 1.10 Views — Database & Migration

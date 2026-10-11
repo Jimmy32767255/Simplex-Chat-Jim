@@ -72,10 +72,20 @@ private fun NewServerLayout(
 ) {
   ColumnWithScrollBar {
     AppBarTitle(stringResource(MR.strings.smp_servers_new_server))
-    CustomServer(server, testing, testServer, onDelete = null)
+    CustomServer(server, testing, testServer, onDelete = null, allowMultipleAddresses = true)
     SectionBottomSpacer()
   }
 }
+
+/**
+ * Splits the server address text field into the list of addresses to add.
+ *
+ * A user can add several servers at once by entering one address per line.
+ * Blanks and duplicate addresses are ignored so that pasting a list with an
+ * accidental empty line (or a repeated address) doesn't create junk entries.
+ */
+fun serverAddresses(server: String): List<String> =
+  server.lines().map { it.trim() }.filter { it.isNotEmpty() }.distinct()
 
 fun serverProtocolAndOperator(
   server: UserServer,
@@ -107,48 +117,68 @@ fun addServer(
   rhId: Long?,
   close: () -> Unit
 ) {
-  val result = serverProtocolAndOperator(server, userServers.value)
-  if (result != null) {
+  // The address field may contain several addresses, one per line. Every server
+  // added in this batch shares the settings (enabled/preset/roles) of `server`.
+  val addresses = serverAddresses(server.server)
+  close()
+  if (addresses.isEmpty()) return
+
+  val multiple = addresses.size > 1
+  val invalidAddresses = mutableListOf<String>()
+  val addedOperators = mutableListOf<ServerOperator>()
+  var operatorNotFound = false
+  for (address in addresses) {
+    // A single address keeps the tested flag obtained in the form, a batch doesn't
+    // claim to have tested every address.
+    val one = server.copy(server = address, tested = if (multiple) null else server.tested)
+    val result = serverProtocolAndOperator(one, userServers.value)
+    if (result == null) {
+      invalidAddresses.add(address)
+      continue
+    }
     val (serverProtocol, matchingOperator) = result
     val operatorIndex = userServers.value.indexOfFirst { it.operator?.operatorId == matchingOperator?.operatorId }
-    if (operatorIndex != -1) {
-      // Create a mutable copy of the userServers list
-      val updatedUserServers = userServers.value.toMutableList()
-      val operatorServers = updatedUserServers[operatorIndex]
-      // Create a mutable copy of the smpServers or xftpServers and add the server
-      when (serverProtocol) {
-        ServerProtocol.SMP -> {
-          val updatedSMPServers = operatorServers.smpServers.toMutableList()
-          updatedSMPServers.add(server)
-          updatedUserServers[operatorIndex] = operatorServers.copy(smpServers = updatedSMPServers)
-        }
-
-        ServerProtocol.XFTP -> {
-          val updatedXFTPServers = operatorServers.xftpServers.toMutableList()
-          updatedXFTPServers.add(server)
-          updatedUserServers[operatorIndex] = operatorServers.copy(xftpServers = updatedXFTPServers)
-        }
-      }
-
-      userServers.value = updatedUserServers
-      close()
-      matchingOperator?.let { op ->
-        AlertManager.shared.showAlertMsg(
-          title = generalGetString(MR.strings.operator_server_alert_title),
-          text = String.format(generalGetString(MR.strings.server_added_to_operator__name), op.tradeName)
-        )
-      }
-    } else { // Shouldn't happen
-      close()
-      AlertManager.shared.showAlertMsg(title = generalGetString(MR.strings.error_adding_server))
+    if (operatorIndex == -1) { // Shouldn't happen
+      operatorNotFound = true
+      continue
     }
-  } else {
-    close()
-    if (server.server.trim().isNotEmpty()) {
-      AlertManager.shared.showAlertMsg(
-        title = generalGetString(MR.strings.smp_servers_invalid_address),
-        text = generalGetString(MR.strings.smp_servers_check_address)
+    // Create a mutable copy of the userServers list
+    val updatedUserServers = userServers.value.toMutableList()
+    val operatorServers = updatedUserServers[operatorIndex]
+    // Create a mutable copy of the smpServers or xftpServers and add the server
+    when (serverProtocol) {
+      ServerProtocol.SMP -> {
+        val updatedSMPServers = operatorServers.smpServers.toMutableList()
+        updatedSMPServers.add(one)
+        updatedUserServers[operatorIndex] = operatorServers.copy(smpServers = updatedSMPServers)
+      }
+
+      ServerProtocol.XFTP -> {
+        val updatedXFTPServers = operatorServers.xftpServers.toMutableList()
+        updatedXFTPServers.add(one)
+        updatedUserServers[operatorIndex] = operatorServers.copy(xftpServers = updatedXFTPServers)
+      }
+    }
+
+    userServers.value = updatedUserServers
+    matchingOperator?.let { op -> if (addedOperators.none { it.operatorId == op.operatorId }) addedOperators.add(op) }
+  }
+
+  // Only one alert is shown at a time, so invalid addresses (if any) take precedence
+  if (invalidAddresses.isNotEmpty()) {
+    AlertManager.shared.showAlertMsg(
+      title = generalGetString(MR.strings.smp_servers_invalid_address),
+      text = generalGetString(MR.strings.smp_servers_check_address) + "\n" + invalidAddresses.joinToString("\n")
+    )
+  } else if (addedOperators.isNotEmpty()) {
+    AlertManager.shared.showAlertMsg(
+      title = generalGetString(MR.strings.operator_server_alert_title),
+      text = String.format(
+        generalGetString(MR.strings.server_added_to_operator__name),
+        addedOperators.joinToString(", ") { it.tradeName }
       )
-    }
+    )
+  } else if (operatorNotFound) { // Shouldn't happen
+    AlertManager.shared.showAlertMsg(title = generalGetString(MR.strings.error_adding_server))
   }
 }
