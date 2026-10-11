@@ -53,7 +53,13 @@
   - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`（新增 `GroupMembersConnectionRate`、`groupMembersConnection`、`groupMembersConnectionRate`、`GroupMembersConnectionStatus`，标题改用 `SectionViewWithButton`）、`.../views/helpers/Section.kt`（`SectionViewWithButton` 新增可选的 `cardShape` 参数并把标题行改为垂直居中，默认值保证其他调用点行为不变）。
   - 与条目 1、5、6 一致，未改动 `AppSettings` 跨设备导入/导出结构，也未改核心（纯客户端显示）。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt`（8 个用例，覆盖全部连接/部分连接/无人连接、SndReady 不计入、空群只算自己、总数与上界），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
-- [ ] 收起群成员列表（不然在大群里拉到最下面要很长时间）
+- [x] 收起群成员列表（不然在大群里拉到最下面要很长时间）
+  - 已实现（基于 7.0.4）：群详情页成员列表标题行右侧新增折叠箭头（展开时 `ic_chevron_up`，收起时 `ic_chevron_down`），点击即可收起/展开成员列表。
+  - 收起后会隐藏该区块里的「添加成员」按钮、成员搜索框、自己的那一行以及下方所有成员行，只保留「N 位成员 + 连接率」这行标题，因此在成员很多的群里可以快速滑到页面下方的群设置、清空聊天、删除群组、退出群组等操作。
+  - 折叠状态按群保存、仅在弹窗打开期间有效（`rememberSaveable(groupInfo.id)`）：浏览某位成员详情再返回不会丢失，关闭弹窗后重置；不写入偏好设置，也未加入 `AppSettings` 跨设备导入/导出结构。收起不会清空成员搜索词或已勾选的成员，展开后恢复原状。
+  - 可见性判断抽成语义化的纯函数 `groupMembersSectionVisible(nextConnectPrepared, useRelays)` 与 `groupMembersRowsVisible(nextConnectPrepared, useRelays, collapsed)`，成员区原有的显示条件（非中继群、且不在 `nextConnectPrepared` 状态）保持不变。
+  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`、`apps/multiplatform/common/src/commonMain/resources/MR/{base,zh-rCN}/strings.xml`（新增 `collapse_verb`，复用已有的 `expand_verb`）。
+  - 测试：`apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt` 扩充至 10 个用例（新增成员区与成员行可见性判定），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
 - [ ] 删除已保存的消息（长按一条消息点开信息的时候，允许在历史记录那里对任何历史记录进行仅客户端侧的删除）
 - [ ] 成员头像旁边的网络状态图标（其实就是把用户 页面→服务器→网络状态 右边的那个会变色的点，也复制到私聊标题、主页用户名左侧以及群用户列表的用户名左边）
 - [ ] 反撤回（拒绝任何来自服务端的删除信息请求，比如管理员删除，也忽略限时消息超时自动删除，要能允许对每一个私聊/群设置）

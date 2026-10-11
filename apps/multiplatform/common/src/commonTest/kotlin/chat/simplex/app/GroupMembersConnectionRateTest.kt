@@ -4,8 +4,12 @@ import chat.simplex.common.model.*
 import chat.simplex.common.views.chat.group.GroupMembersConnectionRate
 import chat.simplex.common.views.chat.group.groupMembersConnection
 import chat.simplex.common.views.chat.group.groupMembersConnectionRate
+import chat.simplex.common.views.chat.group.groupMembersRowsVisible
+import chat.simplex.common.views.chat.group.groupMembersSectionVisible
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 // use this command for testing:
 // ./gradlew desktopTest
@@ -60,5 +64,22 @@ class GroupMembersConnectionRateTest {
     assertEquals(GroupMembersConnectionRate.NONE_CONNECTED, groupMembersConnectionRate(0, 0))
     // never over-reports a full connection
     assertEquals(GroupMembersConnectionRate.ALL_CONNECTED, groupMembersConnectionRate(15, 13))
+  }
+
+  @Test
+  fun testSectionVisibleOnlyForPlainGroups() {
+    assertTrue(groupMembersSectionVisible(nextConnectPrepared = false, useRelays = false))
+    assertFalse(groupMembersSectionVisible(nextConnectPrepared = true, useRelays = false))
+    assertFalse(groupMembersSectionVisible(nextConnectPrepared = false, useRelays = true))
+    assertFalse(groupMembersSectionVisible(nextConnectPrepared = true, useRelays = true))
+  }
+
+  @Test
+  fun testRowsHiddenWhenCollapsed() {
+    assertTrue(groupMembersRowsVisible(nextConnectPrepared = false, useRelays = false, collapsed = false))
+    assertFalse(groupMembersRowsVisible(nextConnectPrepared = false, useRelays = false, collapsed = true))
+    // collapsing can't reveal a list that is not shown anyway
+    assertFalse(groupMembersRowsVisible(nextConnectPrepared = false, useRelays = true, collapsed = false))
+    assertFalse(groupMembersRowsVisible(nextConnectPrepared = true, useRelays = false, collapsed = false))
   }
 }

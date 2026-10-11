@@ -3,6 +3,7 @@ package chat.simplex.common.views.chat.group
 import CARD_PADDING
 import InfoRow
 import SectionBottomSpacer
+import SectionCardShape
 import SectionItemView
 import SectionItemViewLongClickable
 import SectionItemViewSpaceBetween
@@ -570,6 +571,9 @@ fun ModalData.GroupChatInfoLayout(
       if (s.isEmpty()) activeSortedMembers else activeSortedMembers.filter { m -> m.anyNameContains(s) }
     }
   }
+  // Collapsed member list: only the "N members" header stays, so the rest of the page is reachable
+  // without scrolling through every member of a large group. Session-local, per group.
+  val membersCollapsed = rememberSaveable(groupInfo.id) { mutableStateOf(false) }
   Box {
     val oneHandUI = remember { appPrefs.oneHandUI.state }
     val selectedItemsBarHeight = if (selectedItems.value != null) AppBarHeight * fontSizeSqrtMultiplier else 0.dp
@@ -769,35 +773,54 @@ fun ModalData.GroupChatInfoLayout(
       SectionTextFooter(stringResource(MR.strings.chat_ttl_options_footer))
       SectionDividerSpaced()
 
-      if (!groupInfo.nextConnectPrepared && !groupInfo.useRelays) {
+      if (groupMembersSectionVisible(groupInfo.nextConnectPrepared, groupInfo.useRelays)) {
         val (connectedMembers, totalMembers) = groupMembersConnection(activeSortedMembers, groupInfo.membership)
+        val collapsed = membersCollapsed.value
         SectionViewWithButton(
           title = String.format(generalGetString(MR.strings.group_info_section_title_num_members), totalMembers),
-          titleButton = { GroupMembersConnectionStatus(connectedMembers, totalMembers) },
-          cardShape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+          titleButton = {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { membersCollapsed.value = !membersCollapsed.value }
+                .padding(vertical = DEFAULT_PADDING_HALF)
+            ) {
+              GroupMembersConnectionStatus(connectedMembers, totalMembers)
+              Icon(
+                painterResource(if (collapsed) MR.images.ic_chevron_down else MR.images.ic_chevron_up),
+                contentDescription = generalGetString(if (collapsed) MR.strings.expand_verb else MR.strings.collapse_verb),
+                tint = MaterialTheme.colors.secondary,
+                modifier = Modifier.padding(start = DEFAULT_PADDING_HALF).size(18.dp)
+              )
+            }
+          },
+          cardShape = if (collapsed) SectionCardShape else RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
         ) {
-          if (groupInfo.canAddMembers) {
-            val onAddMembersClick = if (chat.chatInfo.incognito) ::cantInviteIncognitoAlert else addMembers
-            val tint = if (chat.chatInfo.incognito) MaterialTheme.colors.secondary else MaterialTheme.colors.primary
-            val addMembersTitleId = when (groupInfo.businessChat?.chatType) {
-              BusinessChatType.Customer -> MR.strings.button_add_team_members
-              BusinessChatType.Business -> MR.strings.button_add_friends
-              null -> MR.strings.button_add_members
+          if (!collapsed) {
+            if (groupInfo.canAddMembers) {
+              val onAddMembersClick = if (chat.chatInfo.incognito) ::cantInviteIncognitoAlert else addMembers
+              val tint = if (chat.chatInfo.incognito) MaterialTheme.colors.secondary else MaterialTheme.colors.primary
+              val addMembersTitleId = when (groupInfo.businessChat?.chatType) {
+                BusinessChatType.Customer -> MR.strings.button_add_team_members
+                BusinessChatType.Business -> MR.strings.button_add_friends
+                null -> MR.strings.button_add_members
+              }
+              AddMembersButton(addMembersTitleId, tint, onAddMembersClick)
             }
-            AddMembersButton(addMembersTitleId, tint, onAddMembersClick)
-          }
-          if (activeSortedMembers.size > 8) {
-            SectionItemView(padding = PaddingValues(start = 14.dp, end = DEFAULT_PADDING_HALF)) {
-              MemberListSearchRowView(searchText)
+            if (activeSortedMembers.size > 8) {
+              SectionItemView(padding = PaddingValues(start = 14.dp, end = DEFAULT_PADDING_HALF)) {
+                MemberListSearchRowView(searchText)
+              }
             }
-          }
-          SectionItemView(minHeight = 54.dp, padding = PaddingValues(horizontal = DEFAULT_PADDING)) {
-            MemberRow(groupInfo.membership, user = true, isChannel = groupInfo.isChannel)
+            SectionItemView(minHeight = 54.dp, padding = PaddingValues(horizontal = DEFAULT_PADDING)) {
+              MemberRow(groupInfo.membership, user = true, isChannel = groupInfo.isChannel)
+            }
           }
         }
       }
     }
-    if (!groupInfo.nextConnectPrepared && !groupInfo.useRelays) {
+    if (groupMembersRowsVisible(groupInfo.nextConnectPrepared, groupInfo.useRelays, membersCollapsed.value)) {
       itemsIndexed(filteredMembers.value, key = { _, m -> m.groupMemberId }) { index, member ->
         val isLast = index == filteredMembers.value.lastIndex
         val shape = if (isLast) RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp) else RectangleShape
@@ -1149,6 +1172,18 @@ internal fun groupMembersConnectionRate(connected: Int, total: Int): GroupMember
   connected >= total -> GroupMembersConnectionRate.ALL_CONNECTED
   else -> GroupMembersConnectionRate.PARTIALLY_CONNECTED
 }
+
+/**
+ * Whether the group info page shows a plain member list. Relay groups (channels) show
+ * `ChannelRelaysView` instead, and groups that only prepared the next connection have no member
+ * list to show yet.
+ */
+internal fun groupMembersSectionVisible(nextConnectPrepared: Boolean, useRelays: Boolean): Boolean =
+  !nextConnectPrepared && !useRelays
+
+/** Whether the member rows below the section header are shown, i.e. the list is not collapsed. */
+internal fun groupMembersRowsVisible(nextConnectPrepared: Boolean, useRelays: Boolean, collapsed: Boolean): Boolean =
+  groupMembersSectionVisible(nextConnectPrepared, useRelays) && !collapsed
 
 @Composable
 private fun GroupMembersConnectionStatus(connected: Int, total: Int) {

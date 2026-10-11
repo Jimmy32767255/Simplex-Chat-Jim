@@ -1374,6 +1374,7 @@
     <string name="member_contact_send_direct_message">发送私信来连接</string>
     <string name="rcv_group_event_member_created_contact">已请求连接</string>
     <string name="expand_verb">展开</string>
+    <string name="collapse_verb">收起</string>
     <string name="connect_plan_repeat_connection_request">重复连接请求吗？</string>
     <string name="rcv_direct_event_contact_deleted">已删除联系人</string>
     <string name="connect_plan_you_are_already_connecting_to_vName"><![CDATA[你已经在连接到 <b>%1$s</b>。]]></string>

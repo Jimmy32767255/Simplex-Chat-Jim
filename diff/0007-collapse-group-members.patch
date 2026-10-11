@@ -1,0 +1,389 @@
+diff --git a/TODO.md b/TODO.md
+index d49c046cd..ae5461d3d 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -53,7 +53,13 @@
+   - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`（新增 `GroupMembersConnectionRate`、`groupMembersConnection`、`groupMembersConnectionRate`、`GroupMembersConnectionStatus`，标题改用 `SectionViewWithButton`）、`.../views/helpers/Section.kt`（`SectionViewWithButton` 新增可选的 `cardShape` 参数并把标题行改为垂直居中，默认值保证其他调用点行为不变）。
+   - 与条目 1、5、6 一致，未改动 `AppSettings` 跨设备导入/导出结构，也未改核心（纯客户端显示）。
+   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt`（8 个用例，覆盖全部连接/部分连接/无人连接、SndReady 不计入、空群只算自己、总数与上界），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
+-- [ ] 收起群成员列表（不然在大群里拉到最下面要很长时间）
++- [x] 收起群成员列表（不然在大群里拉到最下面要很长时间）
++  - 已实现（基于 7.0.4）：群详情页成员列表标题行右侧新增折叠箭头（展开时 `ic_chevron_up`，收起时 `ic_chevron_down`），点击即可收起/展开成员列表。
++  - 收起后会隐藏该区块里的「添加成员」按钮、成员搜索框、自己的那一行以及下方所有成员行，只保留「N 位成员 + 连接率」这行标题，因此在成员很多的群里可以快速滑到页面下方的群设置、清空聊天、删除群组、退出群组等操作。
++  - 折叠状态按群保存、仅在弹窗打开期间有效（`rememberSaveable(groupInfo.id)`）：浏览某位成员详情再返回不会丢失，关闭弹窗后重置；不写入偏好设置，也未加入 `AppSettings` 跨设备导入/导出结构。收起不会清空成员搜索词或已勾选的成员，展开后恢复原状。
++  - 可见性判断抽成语义化的纯函数 `groupMembersSectionVisible(nextConnectPrepared, useRelays)` 与 `groupMembersRowsVisible(nextConnectPrepared, useRelays, collapsed)`，成员区原有的显示条件（非中继群、且不在 `nextConnectPrepared` 状态）保持不变。
++  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`、`apps/multiplatform/common/src/commonMain/resources/MR/{base,zh-rCN}/strings.xml`（新增 `collapse_verb`，复用已有的 `expand_verb`）。
++  - 测试：`apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt` 扩充至 10 个用例（新增成员区与成员行可见性判定），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
+ - [ ] 删除已保存的消息（长按一条消息点开信息的时候，允许在历史记录那里对任何历史记录进行仅客户端侧的删除）
+ - [ ] 成员头像旁边的网络状态图标（其实就是把用户 页面→服务器→网络状态 右边的那个会变色的点，也复制到私聊标题、主页用户名左侧以及群用户列表的用户名左边）
+ - [ ] 反撤回（拒绝任何来自服务端的删除信息请求，比如管理员删除，也忽略限时消息超时自动删除，要能允许对每一个私聊/群设置）
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
+index 86a789591..fb3133d5f 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
+@@ -3,6 +3,7 @@ package chat.simplex.common.views.chat.group
+ import CARD_PADDING
+ import InfoRow
+ import SectionBottomSpacer
++import SectionCardShape
+ import SectionItemView
+ import SectionItemViewLongClickable
+ import SectionItemViewSpaceBetween
+@@ -570,6 +571,9 @@ fun ModalData.GroupChatInfoLayout(
+       if (s.isEmpty()) activeSortedMembers else activeSortedMembers.filter { m -> m.anyNameContains(s) }
+     }
+   }
++  // Collapsed member list: only the "N members" header stays, so the rest of the page is reachable
++  // without scrolling through every member of a large group. Session-local, per group.
++  val membersCollapsed = rememberSaveable(groupInfo.id) { mutableStateOf(false) }
+   Box {
+     val oneHandUI = remember { appPrefs.oneHandUI.state }
+     val selectedItemsBarHeight = if (selectedItems.value != null) AppBarHeight * fontSizeSqrtMultiplier else 0.dp
+@@ -769,35 +773,54 @@ fun ModalData.GroupChatInfoLayout(
+       SectionTextFooter(stringResource(MR.strings.chat_ttl_options_footer))
+       SectionDividerSpaced()
+ 
+-      if (!groupInfo.nextConnectPrepared && !groupInfo.useRelays) {
++      if (groupMembersSectionVisible(groupInfo.nextConnectPrepared, groupInfo.useRelays)) {
+         val (connectedMembers, totalMembers) = groupMembersConnection(activeSortedMembers, groupInfo.membership)
++        val collapsed = membersCollapsed.value
+         SectionViewWithButton(
+           title = String.format(generalGetString(MR.strings.group_info_section_title_num_members), totalMembers),
+-          titleButton = { GroupMembersConnectionStatus(connectedMembers, totalMembers) },
+-          cardShape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
++          titleButton = {
++            Row(
++              verticalAlignment = Alignment.CenterVertically,
++              modifier = Modifier
++                .clip(RoundedCornerShape(8.dp))
++                .clickable { membersCollapsed.value = !membersCollapsed.value }
++                .padding(vertical = DEFAULT_PADDING_HALF)
++            ) {
++              GroupMembersConnectionStatus(connectedMembers, totalMembers)
++              Icon(
++                painterResource(if (collapsed) MR.images.ic_chevron_down else MR.images.ic_chevron_up),
++                contentDescription = generalGetString(if (collapsed) MR.strings.expand_verb else MR.strings.collapse_verb),
++                tint = MaterialTheme.colors.secondary,
++                modifier = Modifier.padding(start = DEFAULT_PADDING_HALF).size(18.dp)
++              )
++            }
++          },
++          cardShape = if (collapsed) SectionCardShape else RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+         ) {
+-          if (groupInfo.canAddMembers) {
+-            val onAddMembersClick = if (chat.chatInfo.incognito) ::cantInviteIncognitoAlert else addMembers
+-            val tint = if (chat.chatInfo.incognito) MaterialTheme.colors.secondary else MaterialTheme.colors.primary
+-            val addMembersTitleId = when (groupInfo.businessChat?.chatType) {
+-              BusinessChatType.Customer -> MR.strings.button_add_team_members
+-              BusinessChatType.Business -> MR.strings.button_add_friends
+-              null -> MR.strings.button_add_members
++          if (!collapsed) {
++            if (groupInfo.canAddMembers) {
++              val onAddMembersClick = if (chat.chatInfo.incognito) ::cantInviteIncognitoAlert else addMembers
++              val tint = if (chat.chatInfo.incognito) MaterialTheme.colors.secondary else MaterialTheme.colors.primary
++              val addMembersTitleId = when (groupInfo.businessChat?.chatType) {
++                BusinessChatType.Customer -> MR.strings.button_add_team_members
++                BusinessChatType.Business -> MR.strings.button_add_friends
++                null -> MR.strings.button_add_members
++              }
++              AddMembersButton(addMembersTitleId, tint, onAddMembersClick)
+             }
+-            AddMembersButton(addMembersTitleId, tint, onAddMembersClick)
+-          }
+-          if (activeSortedMembers.size > 8) {
+-            SectionItemView(padding = PaddingValues(start = 14.dp, end = DEFAULT_PADDING_HALF)) {
+-              MemberListSearchRowView(searchText)
++            if (activeSortedMembers.size > 8) {
++              SectionItemView(padding = PaddingValues(start = 14.dp, end = DEFAULT_PADDING_HALF)) {
++                MemberListSearchRowView(searchText)
++              }
++            }
++            SectionItemView(minHeight = 54.dp, padding = PaddingValues(horizontal = DEFAULT_PADDING)) {
++              MemberRow(groupInfo.membership, user = true, isChannel = groupInfo.isChannel)
+             }
+-          }
+-          SectionItemView(minHeight = 54.dp, padding = PaddingValues(horizontal = DEFAULT_PADDING)) {
+-            MemberRow(groupInfo.membership, user = true, isChannel = groupInfo.isChannel)
+           }
+         }
+       }
+     }
+-    if (!groupInfo.nextConnectPrepared && !groupInfo.useRelays) {
++    if (groupMembersRowsVisible(groupInfo.nextConnectPrepared, groupInfo.useRelays, membersCollapsed.value)) {
+       itemsIndexed(filteredMembers.value, key = { _, m -> m.groupMemberId }) { index, member ->
+         val isLast = index == filteredMembers.value.lastIndex
+         val shape = if (isLast) RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp) else RectangleShape
+@@ -1150,6 +1173,18 @@ internal fun groupMembersConnectionRate(connected: Int, total: Int): GroupMember
+   else -> GroupMembersConnectionRate.PARTIALLY_CONNECTED
+ }
+ 
++/**
++ * Whether the group info page shows a plain member list. Relay groups (channels) show
++ * `ChannelRelaysView` instead, and groups that only prepared the next connection have no member
++ * list to show yet.
++ */
++internal fun groupMembersSectionVisible(nextConnectPrepared: Boolean, useRelays: Boolean): Boolean =
++  !nextConnectPrepared && !useRelays
++
++/** Whether the member rows below the section header are shown, i.e. the list is not collapsed. */
++internal fun groupMembersRowsVisible(nextConnectPrepared: Boolean, useRelays: Boolean, collapsed: Boolean): Boolean =
++  groupMembersSectionVisible(nextConnectPrepared, useRelays) && !collapsed
++
+ @Composable
+ private fun GroupMembersConnectionStatus(connected: Int, total: Int) {
+   val percentage = if (total > 0) floor(100f * connected / total).toInt() else 0
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+index c45e17320..1400b6520 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+@@ -443,6 +443,7 @@
+   <string name="report_verb">Report</string>
+   <string name="select_verb">Select</string>
+   <string name="expand_verb">Expand</string>
++  <string name="collapse_verb">Collapse</string>
+   <string name="delete_message__question">Delete message?</string>
+   <string name="delete_messages__question">Delete %d messages?</string>
+   <string name="delete_message_cannot_be_undone_warning">Message will be deleted - this cannot be undone!</string>
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+index 2608c4e4d..0efe60f79 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+@@ -1374,6 +1374,7 @@
+     <string name="member_contact_send_direct_message">发送私信来连接</string>
+     <string name="rcv_group_event_member_created_contact">已请求连接</string>
+     <string name="expand_verb">展开</string>
++    <string name="collapse_verb">收起</string>
+     <string name="connect_plan_repeat_connection_request">重复连接请求吗？</string>
+     <string name="rcv_direct_event_contact_deleted">已删除联系人</string>
+     <string name="connect_plan_you_are_already_connecting_to_vName"><![CDATA[你已经在连接到 <b>%1$s</b>。]]></string>
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt
+index a3937fc12..93d1936a9 100644
+--- a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt
+@@ -4,8 +4,12 @@ import chat.simplex.common.model.*
+ import chat.simplex.common.views.chat.group.GroupMembersConnectionRate
+ import chat.simplex.common.views.chat.group.groupMembersConnection
+ import chat.simplex.common.views.chat.group.groupMembersConnectionRate
++import chat.simplex.common.views.chat.group.groupMembersRowsVisible
++import chat.simplex.common.views.chat.group.groupMembersSectionVisible
+ import kotlin.test.Test
+ import kotlin.test.assertEquals
++import kotlin.test.assertFalse
++import kotlin.test.assertTrue
+ 
+ // use this command for testing:
+ // ./gradlew desktopTest
+@@ -61,4 +65,21 @@ class GroupMembersConnectionRateTest {
+     // never over-reports a full connection
+     assertEquals(GroupMembersConnectionRate.ALL_CONNECTED, groupMembersConnectionRate(15, 13))
+   }
++
++  @Test
++  fun testSectionVisibleOnlyForPlainGroups() {
++    assertTrue(groupMembersSectionVisible(nextConnectPrepared = false, useRelays = false))
++    assertFalse(groupMembersSectionVisible(nextConnectPrepared = true, useRelays = false))
++    assertFalse(groupMembersSectionVisible(nextConnectPrepared = false, useRelays = true))
++    assertFalse(groupMembersSectionVisible(nextConnectPrepared = true, useRelays = true))
++  }
++
++  @Test
++  fun testRowsHiddenWhenCollapsed() {
++    assertTrue(groupMembersRowsVisible(nextConnectPrepared = false, useRelays = false, collapsed = false))
++    assertFalse(groupMembersRowsVisible(nextConnectPrepared = false, useRelays = false, collapsed = true))
++    // collapsing can't reveal a list that is not shown anyway
++    assertFalse(groupMembersRowsVisible(nextConnectPrepared = false, useRelays = true, collapsed = false))
++    assertFalse(groupMembersRowsVisible(nextConnectPrepared = true, useRelays = false, collapsed = false))
++  }
+ }
+diff --git a/apps/multiplatform/product/README.md b/apps/multiplatform/product/README.md
+index b4cbda831..4531463ef 100644
+--- a/apps/multiplatform/product/README.md
++++ b/apps/multiplatform/product/README.md
+@@ -104,6 +104,7 @@ Multi-party encrypted conversations with role-based management.
+ | Member direct contacts | Establish direct chats from group membership | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupMemberInfoView.kt` |
+ | Change all members' receiving address | Switch the receiving server for every member connection in one action | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt` |
+ | Group members connection rate | Connected/total member count and percentage in the member list title | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt` |
++| Collapsible member list | Chevron in the member list title collapses the list so the rest of the page is quickly reachable in large groups | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt` |
+ | Group mentions | @-mention members in group messages | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupMentions.kt` |
+ | Welcome message | Custom welcome message for new group members | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/WelcomeMessageView.kt` |
+ | Group profile | Edit group name, image, description | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupProfileView.kt` |
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index 6ca925fb6..7a145d07b 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -54,7 +54,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC33 | Receiving Address Switch | [views/group-info.md](views/group-info.md), [views/contact-info.md](views/contact-info.md) | [spec/api.md](../spec/api.md), [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../model/SimpleXAPI.kt` (`apiSwitchContact`, `apiSwitchGroupMember`, `apiAbortSwitchContact`, `apiAbortSwitchGroupMember`), `common/.../views/chat/ChatInfoView.kt` (`SwitchAddressButton`, `SwitchAllMembersAddressButton`, `showSwitchAddressAlert`, `showSwitchAllMembersAddressAlert`), `common/.../views/chat/group/GroupChatInfoView.kt` (group-wide switch row), `common/.../views/chat/group/GroupMemberInfoView.kt` | `Controller.hs` (`APISwitchContact`, `APISwitchGroupMember`, `APIAbortSwitchContact`, `APIAbortSwitchGroupMember`), `Commands.hs` |
+ | PC34 | Server Grouping and Notes | [views/settings.md](views/settings.md) | [spec/api.md](../spec/api.md), [spec/state.md](../spec/state.md) | `common/.../model/SimpleXAPI.kt` (`ServerMeta`, `AppPreferences.serverMetadata`, `SHARED_PREFS_SERVER_METADATA`), `common/.../views/usersettings/networkAndServers/ProtocolServersView.kt` (`ServersSection`, `serverGroup`, `updatedServerMetadata`, `saveServerMetadata`), `ProtocolServerView.kt` (`ServerGroupAndNoteSection`), `NewServerView.kt` | N/A (client-only) |
+ | PC35 | Profile Image Viewer | [views/contact-info.md](views/contact-info.md), [views/group-info.md](views/group-info.md) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../views/helpers/ChatInfoImage.kt` (`ProfileImage` `onClick`, `ProfileImageViewer`, `showProfileImageModal`), `common/.../platform/Images.kt` (`copyImageToClipboard`) and its desktop/Android actuals, `common/.../views/chat/ChatInfoView.kt` (`ChatInfoHeader`), `common/.../views/chat/group/GroupChatInfoView.kt` (`GroupChatInfoHeader`, member list row), `common/.../views/chat/group/GroupMemberInfoView.kt` (`MemberProfileImage`, `GroupMemberInfoHeader`) | N/A (client-only) |
+-| PC36 | Group Members Connection Rate | [views/group-info.md](views/group-info.md) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../views/chat/group/GroupChatInfoView.kt` (`groupMembersConnection`, `groupMembersConnectionRate`, `GroupMembersConnectionStatus`), `common/.../views/helpers/Section.kt` (`SectionViewWithButton` title button + card shape), `common/.../model/ChatModel.kt` (`GroupMember.ready`) | N/A (client-only) |
++| PC36 | Group Members Connection Rate | [views/group-info.md](views/group-info.md) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../views/chat/group/GroupChatInfoView.kt` (`groupMembersConnection`, `groupMembersConnectionRate`, `GroupMembersConnectionStatus`, `groupMembersSectionVisible`, `groupMembersRowsVisible`, member-list collapse toggle), `common/.../views/helpers/Section.kt` (`SectionViewWithButton` title button + card shape), `common/.../model/ChatModel.kt` (`GroupMember.ready`) | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
+ - `common/.../` expands to `common/src/commonMain/kotlin/chat/simplex/common/`
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index 4197ab56b..0434caadc 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -333,10 +333,15 @@ attached to it -- is display metadata owned by the client.
+ 3. **The rate is a display only.** It MUST NOT change any state, MUST NOT be persisted, and MUST NOT
+    be added to the cross-device backup format; the member search filter MUST NOT affect it (the rate
+    is computed from all members, not from the filtered list).
++4. **Collapsing the member list is ephemeral.** The collapse toggle MUST be per group and session
++   local (`rememberSaveable(groupInfo.id)`), MUST NOT be persisted or added to `AppSettings`, MUST
++   NOT clear the search text or any member selection, and MUST NOT hide anything outside the member
++   list section, so that expanding it again restores exactly the previous state.
+ 
+ **Enforcement:**
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`
+-  (`groupMembersConnection`, `groupMembersConnectionRate`, `GroupMembersConnectionStatus`)
++  (`groupMembersConnection`, `groupMembersConnectionRate`, `GroupMembersConnectionStatus`,
++  `groupMembersSectionVisible`, `groupMembersRowsVisible`, `membersCollapsed`)
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/Section.kt`
+   (`SectionViewWithButton` title button and card shape)
+ - Test: `common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt`
+diff --git a/apps/multiplatform/product/views/group-info.md b/apps/multiplatform/product/views/group-info.md
+index 1ff8fee42..e1334377e 100644
+--- a/apps/multiplatform/product/views/group-info.md
++++ b/apps/multiplatform/product/views/group-info.md
+@@ -74,6 +74,7 @@ Displays `activeSortedMembers` (excluding left/removed members, sorted by role d
+ |---|---|
+ | Section title | "N members" (`group_info_section_title_num_members`) with the group connection rate at its right end (rendered by `SectionViewWithButton`) |
+ | Connection rate | `connected/total (pct%)` of the members with a ready connection (`GroupMember.ready`), including the current user's own membership; next to the text is a status dot that is green when everyone is connected, yellow when some are connected and grey when nobody is |
++| Collapse toggle | Chevron at the right end of the title row (`ic_chevron_up` while expanded, `ic_chevron_down` while collapsed). Collapsing hides the add-members button, the search row, the current user's own row and every member row, leaving only the title, so the rest of the page is reachable without scrolling through a large group. The state is per group and lives only while the modal is open (`rememberSaveable(groupInfo.id)`), it is not written to preferences or to the backup format |
+ | Member avatar | `MEMBER_ROW_AVATAR_SIZE` (42dp) profile image; tapping it opens the profile image viewer (full-size image + **Copy image**) |
+ | Member name | Display name with role badge |
+ | Member role | Owner, Admin, Moderator, Member, Observer |
+diff --git a/apps/multiplatform/spec/client/chat-view.md b/apps/multiplatform/spec/client/chat-view.md
+index f68256c71..9145f9060 100644
+--- a/apps/multiplatform/spec/client/chat-view.md
++++ b/apps/multiplatform/spec/client/chat-view.md
+@@ -269,6 +269,17 @@ connected, yellow `ic_pending_filled` when only some are (`GroupMembersConnectio
+ `titleButton` slot right-aligns the indicator and whose new `cardShape` parameter keeps the member
+ card's top-rounded corners.
+ 
++The same title row carries the **collapse toggle** for the member list: a clickable chevron
++(`ic_chevron_up` expanded / `ic_chevron_down` collapsed, `contentDescription` `collapse_verb` /
++`expand_verb`). `GroupChatInfoLayout` holds `membersCollapsed = rememberSaveable(groupInfo.id) { mutableStateOf(false) }`,
++so the state is per group, survives navigating to a member page and back while the modal is open, and
++is dropped when the modal closes. Collapsed hides the section's own content (add-members button,
++search row, current-user row) and skips the `itemsIndexed(filteredMembers)` rows, so the section
++header is all that is left; `cardShape` falls back to the fully rounded `SectionCardShape` in that
++case. Visibility of the section and of its rows is decided by the `internal` predicates
++`groupMembersSectionVisible(nextConnectPrepared, useRelays)` and
++`groupMembersRowsVisible(nextConnectPrepared, useRelays, collapsed)`.
++
+ ---
+ 
+ ## 9. Profile Image Viewer
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index 634ade093..630fb280a 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -161,7 +161,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ 
+ | Source File | Product Concepts Affected | Risk Level | Notes |
+ |-------------|--------------------------|------------|-------|
+-| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33, PC35, PC36 | High | Group management hub; includes the group-wide receiving-address switch row, the member-list connection rate and the clickable group / member avatars |
++| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33, PC35, PC36 | High | Group management hub; includes the group-wide receiving-address switch row, the member-list connection rate and collapse toggle, and the clickable group / member avatars |
+ | `views/chat/group/AddGroupMembersView.kt` | PC14, PC16 | Medium | Member invitation flow |
+ | `views/chat/group/GroupMemberInfoView.kt` | PC3, PC14, PC16, PC30, PC31, PC33, PC35 | Medium | Member details and role management; relay-address + rejected-status info rows; per-member receiving-address switch; clickable avatar |
+ | `views/chat/group/ChannelRelaysView.kt` | PC31 | Medium | Channel relay list, add/remove entries |
+diff --git a/plans/2026-10-12-collapse-group-members.md b/plans/2026-10-12-collapse-group-members.md
+new file mode 100644
+index 000000000..06e4dc897
+--- /dev/null
++++ b/plans/2026-10-12-collapse-group-members.md
+@@ -0,0 +1,93 @@
++# Collapse the group member list
++
++TODO item: `群成员连接率和百分比显示` is done; this plan covers item 8,
++`收起群成员列表（不然在大群里拉到最下面要很长时间）` (TODO.md).
++
++## Problem
++
++The group info page renders every member of a group as its own card row in one
++`LazyColumn`. In a large group the member list pushes the group preferences,
++"clear chat", "delete group" and "leave group" actions far below the fold, so
++reaching them means scrolling through hundreds of rows.
++
++## Solution
++
++The member list section header (`N members` + connection rate) gets a chevron
++toggle on its right end. Tapping it collapses the section down to just that
++header row, so the rest of the page is immediately reachable; tapping it again
++expands the list back.
++
++Collapsed means:
++
++- the current user's own row, the "Add members" button and the member search row
++  (all rendered inside the section's card) are hidden, and
++- the `itemsIndexed(filteredMembers)` card rows below the header are skipped.
++
++Only the title row stays, so the user still sees how many members the group has
++and how many of them are connected.
++
++## Design decisions
++
++- **Toggle lives in the existing header, using `SectionViewWithButton`.** The
++  header already uses the `titleButton` slot for the connection rate added by
++  item 7, so the chevron is appended to the same slot — no new section type and
++  no new card is introduced, and the layout of other `SectionViewWithButton`
++  call sites is untouched.
++- **Collapsed = empty content.** When collapsed the section's content lambda
++  renders nothing. Both `CardColumn` branches (`LocalCardScreen` true/false)
++  measure to zero height for empty content, so the card disappears by itself
++  rather than leaving an empty rounded strip; `cardShape` is reset to the fully
++  rounded `SectionCardShape` for the collapsed case so that, if a future layout
++  ever gives the empty container a height, it still has the right corners.
++- **State is per group and session-local.** `rememberSaveable(groupInfo.id)` in
++  `GroupChatInfoLayout` — the same pattern `deletingItems` already uses. It
++  survives navigation to a member's info page and back while the modal is open,
++  resets when the modal is closed, and is not written to preferences or to the
++  cross-device backup format (`AppSettings`), consistent with the other client
++  side displays added in items 1/5/6/7.
++- **The chevron mirrors the existing expandable-list convention.**
++  `ic_chevron_up` while expanded (tap to collapse), `ic_chevron_down` while
++  collapsed (tap to expand), matching `views/newchat/AddChannelView.kt`
++  (`relayListExpanded`).
++- **No effect on group selection mode.** The selection toolbar and the selection
++  state stay as they are; collapsing only hides rows visually. Members selected
++  before collapsing remain selected, and expanding shows them again.
++
++## Steps
++
++1. Add `collapse_verb` to `MR/base/strings.xml` and `MR/zh-rCN/strings.xml`
++   (`expand_verb` already exists and is reused for the other state).
++2. In `GroupChatInfoView.kt` add `val membersCollapsed = rememberSaveable(groupInfo.id) { mutableStateOf(false) }`
++   to `GroupChatInfoLayout`.
++3. Extend the member-list `SectionViewWithButton`:
++   - `titleButton` becomes a clickable `Row` with `GroupMembersConnectionStatus`
++     and the chevron icon,
++   - `cardShape` becomes `SectionCardShape` while collapsed,
++   - the add-members button / search row / current-user row are wrapped in
++     `if (!membersCollapsed.value)`.
++4. Guard the member `itemsIndexed` block with `&& !membersCollapsed.value`.
++5. Add unit tests for the only new pure logic: the visibility predicates
++   `groupMembersSectionVisible(nextConnectPrepared, useRelays)` and
++   `groupMembersRowsVisible(nextConnectPrepared, useRelays, collapsed)`, which the layout now uses
++   for both guards (`testSectionVisibleOnlyForPlainGroups`, `testRowsHiddenWhenCollapsed`).
++6. Run `./gradlew :common:desktopTest`, then update the product/spec docs and
++   the TODO entry and commit with a diff in `diff/`.
++
++## Adversarial review
++
++- Empty content really is zero-height: `CardColumn` (non-card branch) is
++  `Column(Modifier.padding(contentPadding).fillMaxWidth())` and the card branch
++  `layout(constraints.maxWidth, y.toInt())` with `y == 0`; `contentPadding`
++  defaults to `PaddingValues()`, so nothing is drawn. The row's
++  `horizontal = CARD_PADDING` padding is on the zero-size node.
++- The `LazyColumn` item keys do not change when collapsing: the member rows
++  simply disappear, and `selectedItems` (state) is untouched, so no stale
++  selection or key duplication.
++- `scrollToItemId`/`appBarHandler.listState` are not reset by collapsing; the
++  list keeps its scroll position, which is the desired behaviour when expanding
++  again.
++- Relay/channel groups (`groupInfo.useRelays`) and `nextConnectPrepared` groups
++  never render this section, so the toggle cannot appear where the member list
++  is not a plain member list.
++- `localized` text: the toggle only uses the new `collapse_verb` plus the
++  existing `expand_verb`, no interpolated text.

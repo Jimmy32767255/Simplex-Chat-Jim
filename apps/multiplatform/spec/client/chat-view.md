@@ -269,6 +269,17 @@ connected, yellow `ic_pending_filled` when only some are (`GroupMembersConnectio
 `titleButton` slot right-aligns the indicator and whose new `cardShape` parameter keeps the member
 card's top-rounded corners.
 
+The same title row carries the **collapse toggle** for the member list: a clickable chevron
+(`ic_chevron_up` expanded / `ic_chevron_down` collapsed, `contentDescription` `collapse_verb` /
+`expand_verb`). `GroupChatInfoLayout` holds `membersCollapsed = rememberSaveable(groupInfo.id) { mutableStateOf(false) }`,
+so the state is per group, survives navigating to a member page and back while the modal is open, and
+is dropped when the modal closes. Collapsed hides the section's own content (add-members button,
+search row, current-user row) and skips the `itemsIndexed(filteredMembers)` rows, so the section
+header is all that is left; `cardShape` falls back to the fully rounded `SectionCardShape` in that
+case. Visibility of the section and of its rows is decided by the `internal` predicates
+`groupMembersSectionVisible(nextConnectPrepared, useRelays)` and
+`groupMembersRowsVisible(nextConnectPrepared, useRelays, collapsed)`.
+
 ---
 
 ## 9. Profile Image Viewer

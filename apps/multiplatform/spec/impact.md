@@ -161,7 +161,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33, PC35, PC36 | High | Group management hub; includes the group-wide receiving-address switch row, the member-list connection rate and the clickable group / member avatars |
+| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33, PC35, PC36 | High | Group management hub; includes the group-wide receiving-address switch row, the member-list connection rate and collapse toggle, and the clickable group / member avatars |
 | `views/chat/group/AddGroupMembersView.kt` | PC14, PC16 | Medium | Member invitation flow |
 | `views/chat/group/GroupMemberInfoView.kt` | PC3, PC14, PC16, PC30, PC31, PC33, PC35 | Medium | Member details and role management; relay-address + rejected-status info rows; per-member receiving-address switch; clickable avatar |
 | `views/chat/group/ChannelRelaysView.kt` | PC31 | Medium | Channel relay list, add/remove entries |
