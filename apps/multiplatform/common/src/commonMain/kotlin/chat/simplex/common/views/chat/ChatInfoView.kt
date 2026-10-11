@@ -1173,6 +1173,16 @@ fun SwitchAddressButton(disabled: Boolean, switchAddress: () -> Unit) {
 }
 
 @Composable
+fun SwitchAllMembersAddressButton(disabled: Boolean, switchAllMembersAddress: () -> Unit) {
+  SectionItemView(switchAllMembersAddress, disabled = disabled) {
+    Text(
+      stringResource(MR.strings.switch_all_members_address),
+      color = if (disabled) MaterialTheme.colors.secondary else MaterialTheme.colors.primary
+    )
+  }
+}
+
+@Composable
 fun AbortSwitchAddressButton(disabled: Boolean, abortSwitchAddress: () -> Unit) {
   SectionItemView(abortSwitchAddress, disabled = disabled) {
     Text(
@@ -1363,6 +1373,15 @@ fun showSwitchAddressAlert(switchAddress: () -> Unit) {
     text = generalGetString(MR.strings.switch_receiving_address_desc),
     confirmText = generalGetString(MR.strings.change_verb),
     onConfirm = switchAddress
+  )
+}
+
+fun showSwitchAllMembersAddressAlert(switchAllMembersAddress: () -> Unit) {
+  AlertManager.shared.showAlertDialog(
+    title = generalGetString(MR.strings.switch_all_members_address_question),
+    text = generalGetString(MR.strings.switch_all_members_address_desc),
+    confirmText = generalGetString(MR.strings.change_verb),
+    onConfirm = switchAllMembersAddress
   )
 }
 

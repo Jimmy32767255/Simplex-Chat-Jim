@@ -2148,6 +2148,10 @@
   <string name="sending_via">Sending via</string>
   <string name="network_status">Network status</string>
   <string name="switch_receiving_address">Change receiving address</string>
+  <string name="switch_all_members_address">Change all members\' receiving addresses</string>
+  <string name="switch_all_members_address_question">Change all members\' receiving addresses?</string>
+  <string name="switch_all_members_address_desc">Connections with all members of this group will be switched to different servers. Each address change will complete after the member comes online.</string>
+  <string name="switch_all_members_address_footer">Switches the receiving address for every member connection in this group. This may take some time and cannot be undone for members who are offline.</string>
   <string name="abort_switch_receiving_address">Abort changing address</string>
   <string name="fix_connection">Fix connection</string>
   <string name="fix_connection_question">Fix connection?</string>

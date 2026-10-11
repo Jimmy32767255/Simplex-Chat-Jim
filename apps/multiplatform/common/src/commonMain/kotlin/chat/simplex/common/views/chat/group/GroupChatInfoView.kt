@@ -122,6 +122,25 @@ fun ModalData.GroupChatInfoView(
           }
         }
       },
+      switchAllMembersAddress = {
+        showSwitchAllMembersAddressAlert {
+          withBGApi {
+            // Members without an active connection have nothing to switch and the core
+            // would reject the command with CEGroupMemberNotActive.
+            for (member in activeSortedMembers.filter { it.activeConn != null }) {
+              val r = chatModel.controller.apiSwitchGroupMember(rhId, groupInfo.apiId, member.groupMemberId)
+              if (r != null) {
+                withContext(Dispatchers.Main) {
+                  chatModel.chatsContext.updateGroupMemberConnectionStats(rhId, groupInfo, r.first, r.second)
+                }
+                withContext(Dispatchers.Main) {
+                  chatModel.secondaryChatsContext.value?.updateGroupMemberConnectionStats(rhId, groupInfo, r.first, r.second)
+                }
+              }
+            }
+          }
+        }
+      },
       showMemberInfo = { member, groupRelay ->
         withBGApi {
           val r = chatModel.controller.apiGroupMemberInfo(rhId, groupInfo.groupId, member.groupMemberId)
@@ -521,6 +540,7 @@ fun ModalData.GroupChatInfoLayout(
   appBar: MutableState<@Composable (BoxScope.() -> Unit)?>,
   scrollToItemId: MutableState<Long?>,
   addMembers: () -> Unit,
+  switchAllMembersAddress: () -> Unit,
   showMemberInfo: (GroupMember, GroupRelay?) -> Unit,
   editGroupProfile: () -> Unit,
   addOrEditWelcomeMessage: () -> Unit,
@@ -804,6 +824,15 @@ fun ModalData.GroupChatInfoLayout(
             }
           }
         }
+      }
+    }
+    if (!groupInfo.nextConnectPrepared && !groupInfo.useRelays && activeSortedMembers.any { it.activeConn != null }) {
+      item {
+        SectionDividerSpaced()
+        SectionView {
+          SwitchAllMembersAddressButton(disabled = false, switchAllMembersAddress = switchAllMembersAddress)
+        }
+        SectionTextFooter(stringResource(MR.strings.switch_all_members_address_footer))
       }
     }
     item {
@@ -1460,6 +1489,7 @@ fun PreviewGroupChatInfoLayout() {
       appBar = remember { mutableStateOf(null) },
       scrollToItemId = remember { mutableStateOf(null) },
       addMembers = {},
+      switchAllMembersAddress = {},
       showMemberInfo = { _, _ -> },
       editGroupProfile = {},
       addOrEditWelcomeMessage = {},

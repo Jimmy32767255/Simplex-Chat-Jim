@@ -1,0 +1,436 @@
+diff --git a/TODO.md b/TODO.md
+index 4ba4e241f..e697a04bb 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -11,7 +11,13 @@
+   - 输入框改动：`apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/PlatformTextField.desktop.kt`；设置界面改动：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt`。
+   - 未加入 `AppSettings` 跨设备导入/导出结构（该设置与设备、输入方式相关），因此备份格式保持不变。
+   - 测试：新增 `ChatEnterKeyCombinationTest`，`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
+-- [ ] 一键更改群中所有人的接收地址（其实就是重建所有连接，基本上相当于重新进群）
++- [x] 一键更改群中所有人的接收地址（其实就是重建所有连接，基本上相当于重新进群）
++  - **已实现（基于 7.0.4）**：群资料页成员列表下方新增「更改所有成员的接收地址」一行（仅普通群显示，频道/中继群不显示），点击后先弹确认框。
++  - 确认后对每一个拥有活动连接的成员依次调用既有的 `apiSwitchGroupMember`，并把返回的连接状态通过 `updateGroupMemberConnectionStats` 写回模型（主、副聊天上下文都会更新），行为与成员详情页里单个成员的「更改接收地址」完全一致。
++  - 没有活动连接的成员会被跳过：核心端对这类成员会返回 `CEGroupMemberNotActive`；没有任何成员连接时该行不显示。单个成员失败只弹一次 `error_changing_address` 提示，不会中断其余成员。
++  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`（新增回调与按钮行）、`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt`（`SwitchAllMembersAddressButton`、`showSwitchAllMembersAddressAlert`）。
++  - 不修改核心（Haskell）与网络协议，纯粹复用已有的单连接切换命令，便于日后跟随官方版本升级。
++  - 测试：`./gradlew :common:desktopTest` 通过（该改动为 UI + 既有 FFI 调用序列，无独立可测纯函数）。差异补丁见 `diff/`。
+ - [ ] 手动指定接收地址（更改接受地址的时候添加一个手动选择的按钮，然后列出当前所有服务器，全部变成复选框的形式，还要有全选和反选按钮）
+ - [ ] 批量添加服务器（在 设置→高级设置→网络和服务器→你的服务器→添加服务器→手动输入服务器 里面允许一次添加多台服务器，使用换行分隔，这一次添加的所有服务器都统一使用下方的设置）
+ - [ ] 服务器分组和备注（对手动添加的服务器允许手动分组和添加备注，不然现在全是地址根本不可读）
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt
+index 91b3270de..9064410d6 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt
+@@ -1172,6 +1172,16 @@ fun SwitchAddressButton(disabled: Boolean, switchAddress: () -> Unit) {
+   }
+ }
+ 
++@Composable
++fun SwitchAllMembersAddressButton(disabled: Boolean, switchAllMembersAddress: () -> Unit) {
++  SectionItemView(switchAllMembersAddress, disabled = disabled) {
++    Text(
++      stringResource(MR.strings.switch_all_members_address),
++      color = if (disabled) MaterialTheme.colors.secondary else MaterialTheme.colors.primary
++    )
++  }
++}
++
+ @Composable
+ fun AbortSwitchAddressButton(disabled: Boolean, abortSwitchAddress: () -> Unit) {
+   SectionItemView(abortSwitchAddress, disabled = disabled) {
+@@ -1366,6 +1376,15 @@ fun showSwitchAddressAlert(switchAddress: () -> Unit) {
+   )
+ }
+ 
++fun showSwitchAllMembersAddressAlert(switchAllMembersAddress: () -> Unit) {
++  AlertManager.shared.showAlertDialog(
++    title = generalGetString(MR.strings.switch_all_members_address_question),
++    text = generalGetString(MR.strings.switch_all_members_address_desc),
++    confirmText = generalGetString(MR.strings.change_verb),
++    onConfirm = switchAllMembersAddress
++  )
++}
++
+ fun showAbortSwitchAddressAlert(abortSwitchAddress: () -> Unit) {
+   AlertManager.shared.showAlertDialog(
+     title = generalGetString(MR.strings.abort_switch_receiving_address_question),
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
+index 49e7ac6db..1c9c0017d 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
+@@ -122,6 +122,25 @@ fun ModalData.GroupChatInfoView(
+           }
+         }
+       },
++      switchAllMembersAddress = {
++        showSwitchAllMembersAddressAlert {
++          withBGApi {
++            // Members without an active connection have nothing to switch and the core
++            // would reject the command with CEGroupMemberNotActive.
++            for (member in activeSortedMembers.filter { it.activeConn != null }) {
++              val r = chatModel.controller.apiSwitchGroupMember(rhId, groupInfo.apiId, member.groupMemberId)
++              if (r != null) {
++                withContext(Dispatchers.Main) {
++                  chatModel.chatsContext.updateGroupMemberConnectionStats(rhId, groupInfo, r.first, r.second)
++                }
++                withContext(Dispatchers.Main) {
++                  chatModel.secondaryChatsContext.value?.updateGroupMemberConnectionStats(rhId, groupInfo, r.first, r.second)
++                }
++              }
++            }
++          }
++        }
++      },
+       showMemberInfo = { member, groupRelay ->
+         withBGApi {
+           val r = chatModel.controller.apiGroupMemberInfo(rhId, groupInfo.groupId, member.groupMemberId)
+@@ -521,6 +540,7 @@ fun ModalData.GroupChatInfoLayout(
+   appBar: MutableState<@Composable (BoxScope.() -> Unit)?>,
+   scrollToItemId: MutableState<Long?>,
+   addMembers: () -> Unit,
++  switchAllMembersAddress: () -> Unit,
+   showMemberInfo: (GroupMember, GroupRelay?) -> Unit,
+   editGroupProfile: () -> Unit,
+   addOrEditWelcomeMessage: () -> Unit,
+@@ -806,6 +826,15 @@ fun ModalData.GroupChatInfoLayout(
+         }
+       }
+     }
++    if (!groupInfo.nextConnectPrepared && !groupInfo.useRelays && activeSortedMembers.any { it.activeConn != null }) {
++      item {
++        SectionDividerSpaced()
++        SectionView {
++          SwitchAllMembersAddressButton(disabled = false, switchAllMembersAddress = switchAllMembersAddress)
++        }
++        SectionTextFooter(stringResource(MR.strings.switch_all_members_address_footer))
++      }
++    }
+     item {
+       if (!groupInfo.nextConnectPrepared && !groupInfo.useRelays) {
+         SectionDividerSpaced()
+@@ -1460,6 +1489,7 @@ fun PreviewGroupChatInfoLayout() {
+       appBar = remember { mutableStateOf(null) },
+       scrollToItemId = remember { mutableStateOf(null) },
+       addMembers = {},
++      switchAllMembersAddress = {},
+       showMemberInfo = { _, _ -> },
+       editGroupProfile = {},
+       addOrEditWelcomeMessage = {},
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+index 46863e0bb..a5ce4ece8 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+@@ -2148,6 +2148,10 @@
+   <string name="sending_via">Sending via</string>
+   <string name="network_status">Network status</string>
+   <string name="switch_receiving_address">Change receiving address</string>
++  <string name="switch_all_members_address">Change all members\' receiving addresses</string>
++  <string name="switch_all_members_address_question">Change all members\' receiving addresses?</string>
++  <string name="switch_all_members_address_desc">Connections with all members of this group will be switched to different servers. Each address change will complete after the member comes online.</string>
++  <string name="switch_all_members_address_footer">Switches the receiving address for every member connection in this group. This may take some time and cannot be undone for members who are offline.</string>
+   <string name="abort_switch_receiving_address">Abort changing address</string>
+   <string name="fix_connection">Fix connection</string>
+   <string name="fix_connection_question">Fix connection?</string>
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+index 98bde1940..611984727 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+@@ -1229,6 +1229,10 @@
+     <string name="abort_switch_receiving_address_desc">将中止地址更改。将使用旧接收地址。</string>
+     <string name="abort_switch_receiving_address_confirm">中止</string>
+     <string name="abort_switch_receiving_address">中止地址更改</string>
++    <string name="switch_all_members_address">更改所有成员的接收地址</string>
++    <string name="switch_all_members_address_question">更改所有成员的接收地址？</string>
++    <string name="switch_all_members_address_desc">与本群所有成员的连接都将切换到其他服务器。每位成员的地址更改将在其上线后完成。</string>
++    <string name="switch_all_members_address_footer">将更改本群中每个成员连接的接收地址。这可能需要一些时间，对离线成员无法撤销。</string>
+     <string name="allow_to_send_files">允许发送文件和媒体。</string>
+     <string name="files_and_media">文件和媒体</string>
+     <string name="only_owners_can_enable_files_and_media">只有群主可以启用文件和媒体。</string>
+diff --git a/apps/multiplatform/product/README.md b/apps/multiplatform/product/README.md
+index 173def8ae..bc0e80fff 100644
+--- a/apps/multiplatform/product/README.md
++++ b/apps/multiplatform/product/README.md
+@@ -101,6 +101,7 @@ Multi-party encrypted conversations with role-based management.
+ | Content moderation | Member reports and moderator actions | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/MemberSupportView.kt` |
+ | Group preferences | Configure group-level feature settings | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupPreferences.kt` |
+ | Member direct contacts | Establish direct chats from group membership | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupMemberInfoView.kt` |
++| Change all members' receiving address | Switch the receiving server for every member connection in one action | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt` |
+ | Group mentions | @-mention members in group messages | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupMentions.kt` |
+ | Welcome message | Custom welcome message for new group members | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/WelcomeMessageView.kt` |
+ | Group profile | Edit group name, image, description | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupProfileView.kt` |
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index 03fa00e7b..f5e0c4569 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -51,6 +51,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC30 | Member Support Chat | [README.md](README.md) (Groups) | [spec/api.md](../spec/api.md) | `common/.../views/chat/group/MemberSupportView.kt`, `MemberSupportChatView.kt`, `MemberAdmission.kt` | `Messages.hs` (`GroupChatScope`), `Controller.hs` |
+ | PC31 | Channels (Relays) | [views/group-info.md](views/group-info.md) | [spec/client/chat-view.md](../spec/client/chat-view.md), [spec/state.md](../spec/state.md) | `common/.../model/ChatModel.kt` (`RelayStatus` incl. `RsRejected`, `GroupRelay`, `GroupMemberRole.Relay`, `GroupMemberStatus.MemRejected`), `common/.../views/chat/group/ChannelRelaysView.kt`, `GroupMemberInfoView.kt` (rejected-status row), `common/.../views/newchat/AddChannelView.kt` (`RelayStatusIndicator` rejected branch), `common/.../views/chat/group/AddGroupRelayView.kt` | `Controller.hs` (`APIAddGroupRelays`, `APIAllowRelayGroup`, `XGrpRelayReject` CONF handler) |
+ | PC32 | Desktop Message Sending Keys | [views/settings.md](views/settings.md) | [spec/state.md](../spec/state.md), [spec/client/compose.md](../spec/client/compose.md) | `common/.../model/SimpleXAPI.kt` (`ChatEnterKeyCombination`, `messageSendKey`, `messageNewlineKey`), `common/.../views/usersettings/SettingsView.kt`, `common/.../platform/PlatformTextField.desktop.kt` | N/A (client-only) |
++| PC33 | Receiving Address Switch | [views/group-info.md](views/group-info.md), [views/contact-info.md](views/contact-info.md) | [spec/api.md](../spec/api.md), [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../model/SimpleXAPI.kt` (`apiSwitchContact`, `apiSwitchGroupMember`, `apiAbortSwitchContact`, `apiAbortSwitchGroupMember`), `common/.../views/chat/ChatInfoView.kt` (`SwitchAddressButton`, `SwitchAllMembersAddressButton`, `showSwitchAddressAlert`, `showSwitchAllMembersAddressAlert`), `common/.../views/chat/group/GroupChatInfoView.kt` (group-wide switch row), `common/.../views/chat/group/GroupMemberInfoView.kt` | `Controller.hs` (`APISwitchContact`, `APISwitchGroupMember`, `APIAbortSwitchContact`, `APIAbortSwitchGroupMember`), `Commands.hs` |
+ 
+ **Legend for abbreviated paths:**
+ - `common/.../` expands to `common/src/commonMain/kotlin/chat/simplex/common/`
+diff --git a/apps/multiplatform/product/views/group-info.md b/apps/multiplatform/product/views/group-info.md
+index 2335de717..4a6d0b037 100644
+--- a/apps/multiplatform/product/views/group-info.md
++++ b/apps/multiplatform/product/views/group-info.md
+@@ -78,6 +78,18 @@ Displays `activeSortedMembers` (excluding left/removed members, sorted by role d
+ | Member status | Active, connecting, pending, left, removed |
+ | Tap action | Opens `GroupMemberInfoView` with connection stats and verification code |
+ 
++### Change All Members' Receiving Address
++
++Shown below the member list in non-relay groups (hidden when the user has no active member
++connections). Requires confirmation via `showSwitchAllMembersAddressAlert`.
++
++| Element | Description |
++|---|---|
++| Change all members' receiving addresses | Iterates every member with a non-null `activeConn` and runs `apiSwitchGroupMember` for each, updating connection stats through `updateGroupMemberConnectionStats`; members without an active connection are skipped (the core would reject them with `CEGroupMemberNotActive`) |
++| Footer | Explains that every member connection switches server and that the change may take time for offline members |
++
++Relay/channel groups (`groupInfo.useRelays`) keep using the per-relay controls in `ChannelRelaysView`.
++
+ ### Group Link (`GroupLinkView`)
+ 
+ | Element | Description |
+diff --git a/apps/multiplatform/spec/api.md b/apps/multiplatform/spec/api.md
+index 4114e9de4..030095c7d 100644
+--- a/apps/multiplatform/spec/api.md
++++ b/apps/multiplatform/spec/api.md
+@@ -198,11 +198,13 @@ All functions below are `suspend fun` members of `ChatController` ([SimpleXAPI.k
+ | `apiSetUserAddressSettings` | `rh: Long?, settings: AddressSettings` | Configure auto-accept for incoming contact requests | [L1795](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1795) |
+ | `apiAcceptContactRequest` | `rh: Long?, incognito: Boolean, contactReqId: Long` | Accept an incoming contact request | [L1809](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1809) |
+ | `apiRejectContactRequest` | `rh: Long?, contactReqId: Long` | Reject an incoming contact request | [L1832](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1832) |
+-| `apiSwitchContact` | `rh: Long?, contactId: Long` | Initiate SMP server switch for a contact | [L1374](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1374) |
+-| `apiAbortSwitchContact` | `rh: Long?, contactId: Long` | Abort an in-progress server switch | [L1388](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1388) |
+-| `apiSyncContactRatchet` | `rh: Long?, contactId: Long, force: Boolean` | Force ratchet synchronization with a contact | [L1402](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1402) |
+-| `apiGetContactCode` | `rh: Long?, contactId: Long` | Get the security verification code for a contact | [L1416](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1416) |
+-| `apiVerifyContact` | `rh: Long?, contactId: Long, connectionCode: String?` | Verify a contact's security code | [L1430](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1430) |
++| `apiSwitchContact` | `rh: Long?, contactId: Long` | Initiate SMP server switch for a contact | [L1470](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1470) |
++| `apiSwitchGroupMember` | `rh: Long?, groupId: Long, groupMemberId: Long` | Initiate SMP server switch for one group member connection; returns the updated member and stats, or `null` on error | [L1477](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1477) |
++| `apiAbortSwitchContact` | `rh: Long?, contactId: Long` | Abort an in-progress server switch | [L1484](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1484) |
++| `apiAbortSwitchGroupMember` | `rh: Long?, groupId: Long, groupMemberId: Long` | Abort an in-progress server switch for one group member connection | [L1491](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1491) |
++| `apiSyncContactRatchet` | `rh: Long?, contactId: Long, force: Boolean` | Force ratchet synchronization with a contact | [L1498](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1498) |
++| `apiGetContactCode` | `rh: Long?, contactId: Long` | Get the security verification code for a contact | [L1512](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1512) |
++| `apiVerifyContact` | `rh: Long?, contactId: Long, connectionCode: String?` | Verify a contact's security code | [L1526](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1526) |
+ 
+ ### 2.6 File Operations
+ 
+diff --git a/apps/multiplatform/spec/client/chat-view.md b/apps/multiplatform/spec/client/chat-view.md
+index 728ace493..9bcc5666a 100644
+--- a/apps/multiplatform/spec/client/chat-view.md
++++ b/apps/multiplatform/spec/client/chat-view.md
+@@ -249,6 +249,13 @@ Preloads group members (`setGroupMembers`) and group link (`apiGetGroupLink`).
+ 
+ Key sections: group profile, group link, member list with roles, group preferences (disappearing messages, direct messages, full deletion, voice, files, SimpleX links, history), member admission, welcome message, reports view, and group deletion/leave.
+ 
++Below the member list, non-relay groups also show a **group-wide receiving address switch** section
++(`SwitchAllMembersAddressButton`): after a `showSwitchAllMembersAddressAlert` confirmation it calls
++`apiSwitchGroupMember` for every member whose `activeConn != null` and folds each returned
++`ConnectionStats` into the model via `updateGroupMemberConnectionStats`. Members without an active
++connection are skipped because the core rejects them with `CEGroupMemberNotActive`. Per-member and
++per-contact switching stays available in `GroupMemberInfoView` and `ChatInfoView`.
++
+ ---
+ 
+ ## 9. Source Files
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index 057faa800..dceb145b3 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -117,7 +117,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `views/chat/ComposeImageView.kt` | PC10 | Low | Image attachment preview in compose area |
+ | `views/chat/ContextItemView.kt` | PC6 | Low | Reply/edit quote preview |
+ | `views/chat/SelectableChatItemToolbars.kt` | PC7, PC10 | Medium | Multi-select toolbar (delete, forward) |
+-| `views/chat/ChatInfoView.kt` | PC2, PC13, PC20 | Medium | Contact details and verification |
++| `views/chat/ChatInfoView.kt` | PC2, PC13, PC20, PC33 | Medium | Contact details, verification, receiving-address switch, and the shared switch alerts |
+ | `views/chat/ContactPreferences.kt` | PC2, PC8 | Medium | Per-contact feature preferences |
+ | `views/chat/ChatItemInfoView.kt` | PC2, PC3 | Low | Message delivery detail |
+ | `views/chat/ChatItemsLoader.kt` | PC2, PC3 | Medium | Pagination and message loading logic |
+@@ -161,9 +161,9 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ 
+ | Source File | Product Concepts Affected | Risk Level | Notes |
+ |-------------|--------------------------|------------|-------|
+-| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30 | High | Group management hub |
++| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33 | High | Group management hub; includes the group-wide receiving-address switch row |
+ | `views/chat/group/AddGroupMembersView.kt` | PC14, PC16 | Medium | Member invitation flow |
+-| `views/chat/group/GroupMemberInfoView.kt` | PC3, PC14, PC16, PC30, PC31 | Medium | Member details and role management; relay-address + rejected-status info rows |
++| `views/chat/group/GroupMemberInfoView.kt` | PC3, PC14, PC16, PC30, PC31, PC33 | Medium | Member details and role management; relay-address + rejected-status info rows; per-member receiving-address switch |
+ | `views/chat/group/ChannelRelaysView.kt` | PC31 | Medium | Channel relay list, add/remove entries |
+ | `views/chat/group/AddGroupRelayView.kt` | PC31 | Low | Add relay sheet |
+ | `views/chat/group/GroupProfileView.kt` | PC3, PC14 | Medium | Group profile editing |
+diff --git a/plans/2026-10-12-group-wide-switch-address.md b/plans/2026-10-12-group-wide-switch-address.md
+new file mode 100644
+index 000000000..a2c0533c6
+--- /dev/null
++++ b/plans/2026-10-12-group-wide-switch-address.md
+@@ -0,0 +1,169 @@
++# Group: change every member's receiving address in one action
++
++## Problem
++
++Changing the receiving address of a connection already exists, but only one
++connection at a time:
++
++- a contact: `ChatInfoView.kt` → `apiSwitchContact`,
++- a single group member: `GroupMemberInfoView.kt` → `apiSwitchGroupMember`.
++
++A group always keeps one connection with every other member, so "move this
++group to different servers" means repeating that action for every member.
++TODO.md item 2 asks for a single action that does it for the whole group
++(`一键更改群中所有人的接收地址`, i.e. rebuilding all of the user's member
++connections at once).
++
++## Solution summary
++
++Add a group-level row, *Change all members' receiving addresses*, to
++`GroupChatInfoView.kt` below the member list, visible only for non-relay
++groups that have at least one member connection. After a confirmation alert
++it runs the existing per-member `apiSwitchGroupMember` for every member with
++an active connection and folds each result into the model with
++`updateGroupMemberConnectionStats`.
++
++The change reuses the existing layers untouched:
++
++- No core or API change: `APISwitchGroupMember` already switches exactly one
++  connection, and the client simply issues it per member.
++- No new preference or persisted state.
++- Per-member and per-contact switching keeps working exactly as before; the
++  new row only batches the same operation.
++
++The scope follows TODO.md item 3, which describes adding a manual server
++picker *inside* the existing "change receiving address" flow — confirming
++that item 2 is about batching that same flow, not about inventing a new one.
++
++## Detailed technical design
++
++### Which members are switched
++
++`GroupChatInfoView` already builds `activeSortedMembers` (members that are
++neither left nor removed, sorted by role). Only members whose `activeConn`
++is non-null are switched:
++
++```kotlin
++for (member in activeSortedMembers.filter { it.activeConn != null }) { ... }
++```
++
++A member without an active connection has no connection to move, and the core
++rejects the command with `CEGroupMemberNotActive` for such a member, which
++would only surface an error alert. The user's own membership is not part of
++`activeSortedMembers` (it is rendered separately from `groupInfo.membership`),
++so it is naturally excluded.
++
++Relay/channel groups (`groupInfo.useRelays`) are excluded by the same guard
++that hides the member list; their per-relay controls live in
++`ChannelRelaysView`.
++
++### The batch action
++
++`GroupChatInfoLayout` gains a `switchAllMembersAddress: () -> Unit` parameter.
++`ModalData.GroupChatInfoView` implements it as:
++
++```kotlin
++switchAllMembersAddress = {
++  showSwitchAllMembersAddressAlert {
++    withBGApi {
++      for (member in activeSortedMembers.filter { it.activeConn != null }) {
++        val r = chatModel.controller.apiSwitchGroupMember(rhId, groupInfo.apiId, member.groupMemberId)
++        if (r != null) {
++          withContext(Dispatchers.Main) {
++            chatModel.chatsContext.updateGroupMemberConnectionStats(rhId, groupInfo, r.first, r.second)
++          }
++          withContext(Dispatchers.Main) {
++            chatModel.secondaryChatsContext.value?.updateGroupMemberConnectionStats(rhId, groupInfo, r.first, r.second)
++          }
++        }
++      }
++    }
++  }
++}
++```
++
++This is the same stats-update sequence as the per-member path in
++`GroupMemberInfoView.kt`, only without `close.invoke()` (there is no member
++modal to close). `apiSwitchGroupMember` returns `null` and shows the existing
++`error_changing_address` alert on failure, so a failing member does not abort
++the remaining members.
++
++The loop runs on the background API dispatcher (`withBGApi`), so the UI stays
++responsive; only the model updates hop to `Dispatchers.Main`.
++
++### UI
++
++A new `item { }` block between the member rows and the destructive actions:
++
++```kotlin
++if (!groupInfo.nextConnectPrepared && !groupInfo.useRelays && activeSortedMembers.any { it.activeConn != null }) {
++  item {
++    SectionDividerSpaced()
++    SectionView {
++      SwitchAllMembersAddressButton(disabled = false, switchAllMembersAddress = switchAllMembersAddress)
++    }
++    SectionTextFooter(stringResource(MR.strings.switch_all_members_address_footer))
++  }
++}
++```
++
++`SwitchAllMembersAddressButton` and `showSwitchAllMembersAddressAlert` are
++added next to their single-connection counterparts in `ChatInfoView.kt`, reusing
++`SectionItemView` and `AlertManager.showAlertDialog` so the new row looks and
++behaves exactly like the existing "Change receiving address" row.
++
++### New strings
++
++`switch_all_members_address`, `switch_all_members_address_question`,
++`switch_all_members_address_desc`, `switch_all_members_address_footer`
++(English in `MR/base/strings.xml`, Chinese in `MR/zh-rCN/strings.xml`).
++
++### Affected documentation
++
++- `product/views/group-info.md` — the new section.
++- `product/concepts.md` — new concept row PC33.
++- `spec/impact.md` — PC33 on `ChatInfoView.kt`, `GroupChatInfoView.kt`,
++  `GroupMemberInfoView.kt`.
++- `spec/client/chat-view.md` — the GroupChatInfoView section.
++- `spec/api.md` — `apiSwitchGroupMember` / `apiAbortSwitchGroupMember` rows and
++  corrected line references for the switch/verification block.
++- `TODO.md` — the implementation note for item 2.
++
++## Detailed implementation steps
++
++1. Add the four strings to `MR/base/strings.xml` and `MR/zh-rCN/strings.xml`.
++2. Add `SwitchAllMembersAddressButton` and `showSwitchAllMembersAddressAlert`
++   to `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt`.
++3. Add the `switchAllMembersAddress` callback and its implementation to
++   `GroupChatInfoView.kt`, add the parameter to `GroupChatInfoLayout`, and add
++   the new section item (plus the preview call site).
++4. Run `./gradlew :common:desktopTest` and confirm a green run.
++5. Update the documents listed above, store the diff under `diff/`, and commit.
++
++### Testing notes
++
++The feature is UI plus an FFI call sequence, so there is no pure function to
++unit-test (the only predicate, `activeConn != null`, is a null check).
++Testing is the full `:common:desktopTest` run, which compiles every platform
++source set that matters here (commonMain commonMain/desktopMain) and runs the
++existing suite. A behavioural test would need a `ChatController` mock, which
++the project's test sources do not provide.
++
++## Adversarial self-review
++
++- Does the loop touch members the core cannot switch? No: only members with a
++  non-null `activeConn`, which is what makes `memberConnId` `Just` on the core
++  side. All others are skipped before the call.
++- Can the action be triggered for a group with no peers? No: the row is hidden
++  unless some member has an active connection.
++- Does a single failure abort the batch? No: `apiSwitchGroupMember` returns
++  `null` after showing its own alert, and the loop continues.
++- Does this change the single-member or contact flows? No: only a callback was
++  added; `GroupMemberInfoView` and the contact path are untouched.
++- Does it change relay/channel behaviour? No: the row is hidden for
++  `groupInfo.useRelays`.
++- Is the 7.0.4 default behaviour preserved? Yes — nothing changes unless the
++  user presses the new row.
++- Does the model end up consistent? Yes: every successful switch writes
++  through `updateGroupMemberConnectionStats` on both the primary and secondary
++  chats contexts, the same way the per-member path does.

@@ -1229,6 +1229,10 @@
     <string name="abort_switch_receiving_address_desc">将中止地址更改。将使用旧接收地址。</string>
     <string name="abort_switch_receiving_address_confirm">中止</string>
     <string name="abort_switch_receiving_address">中止地址更改</string>
+    <string name="switch_all_members_address">更改所有成员的接收地址</string>
+    <string name="switch_all_members_address_question">更改所有成员的接收地址？</string>
+    <string name="switch_all_members_address_desc">与本群所有成员的连接都将切换到其他服务器。每位成员的地址更改将在其上线后完成。</string>
+    <string name="switch_all_members_address_footer">将更改本群中每个成员连接的接收地址。这可能需要一些时间，对离线成员无法撤销。</string>
     <string name="allow_to_send_files">允许发送文件和媒体。</string>
     <string name="files_and_media">文件和媒体</string>
     <string name="only_owners_can_enable_files_and_media">只有群主可以启用文件和媒体。</string>

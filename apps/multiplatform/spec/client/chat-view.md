@@ -249,6 +249,13 @@ Preloads group members (`setGroupMembers`) and group link (`apiGetGroupLink`).
 
 Key sections: group profile, group link, member list with roles, group preferences (disappearing messages, direct messages, full deletion, voice, files, SimpleX links, history), member admission, welcome message, reports view, and group deletion/leave.
 
+Below the member list, non-relay groups also show a **group-wide receiving address switch** section
+(`SwitchAllMembersAddressButton`): after a `showSwitchAllMembersAddressAlert` confirmation it calls
+`apiSwitchGroupMember` for every member whose `activeConn != null` and folds each returned
+`ConnectionStats` into the model via `updateGroupMemberConnectionStats`. Members without an active
+connection are skipped because the core rejects them with `CEGroupMemberNotActive`. Per-member and
+per-contact switching stays available in `GroupMemberInfoView` and `ChatInfoView`.
+
 ---
 
 ## 9. Source Files
