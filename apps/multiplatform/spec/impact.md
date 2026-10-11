@@ -42,6 +42,7 @@
 | PC30 | Member Support Chat |
 | PC31 | Channels (Relays) |
 | PC32 | Terminal Chat Layout |
+| PC32 | Desktop Message Sending Keys |
 
 ---
 
@@ -209,7 +210,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29 | Medium | Settings navigation hub |
+| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29, PC32 | Medium | Settings navigation hub |
 | `views/usersettings/Appearance.kt` | PC24, PC32 | Low | Theme and appearance customization |
 | `views/usersettings/PrivacySettings.kt` | PC20, PC22 | Medium | Privacy and lock settings |
 | `views/usersettings/UserProfileView.kt` | PC19 | Medium | Profile display name and image editing |
@@ -436,7 +437,7 @@ Path prefix: `common/src/desktopMain/kotlin/chat/simplex/common/`
 | `platform/Notifications.desktop.kt` | PC18 | Low | Desktop notification setup |
 | `platform/Images.desktop.kt` | PC10 | Low | Desktop image processing |
 | `platform/AnimatedImage.desktop.kt` | PC10 | Low | Desktop animated image frame decoding (bounded) |
-| `platform/PlatformTextField.desktop.kt` | PC4 | Low | Desktop text field actual implementation |
+| `platform/PlatformTextField.desktop.kt` | PC4, PC32 | Low | Desktop text field actual implementation |
 | `platform/Share.desktop.kt` | PC10 | Low | Desktop clipboard/share |
 | `platform/Back.desktop.kt` | PC1 | Low | Desktop back navigation |
 | `platform/UI.desktop.kt` | PC24 | Low | Desktop density and locale |

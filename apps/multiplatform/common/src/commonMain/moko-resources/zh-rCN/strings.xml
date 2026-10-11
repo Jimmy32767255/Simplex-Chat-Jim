@@ -3016,4 +3016,11 @@
     <string name="v7_1_channels_descr">添加协管并签署每条消息。</string>
     <string name="v7_1_flat_layout">扁平布局和 Markdown</string>
     <string name="v7_1_flat_layout_descr">在外观设置中启用。</string>
+    <string name="settings_message_sending">消息发送</string>
+    <string name="send_message_with">发送消息的快捷键</string>
+    <string name="insert_newline_with">换行的快捷键</string>
+    <string name="enter_key_combination">Enter</string>
+    <string name="shift_enter_key_combination">Shift + Enter</string>
+    <string name="ctrl_enter_key_combination">Ctrl + Enter</string>
+    <string name="alt_enter_key_combination">Alt + Enter</string>
 </resources>
