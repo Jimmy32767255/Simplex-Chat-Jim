@@ -27,7 +27,7 @@ Custom toolbar with themed background:
 |---|---|
 | Back button | Returns to chat list; stops audio/video playback |
 | Contact/Group avatar | Small profile image in toolbar |
-| Chat name | Display name; tappable to open info view |
+| Chat name | Display name; tappable to open info view. In direct chats that are ready and active the name is preceded by the connection network status dot (`SubscriptionStatusDot`: filled green circle = connected, pending icon = connecting, error icon = subscription removed or missing), resolved per connection by `connectionSubStatus` and updated from `CR.SubscriptionStatusEvt` |
 | Verified shield | Shows verified contact checkmark (direct chats with verified contacts only) |
 | More menu button | Opens overflow menu containing search and audio/video call buttons (call buttons shown in direct chats only) |
 | Info button | Opens `ChatInfoView` (direct) or `GroupChatInfoView` (group) |

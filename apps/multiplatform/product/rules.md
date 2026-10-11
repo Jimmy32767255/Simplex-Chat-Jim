@@ -15,6 +15,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
 7. [Network Configuration (RULE-19)](#7-network-configuration)
 8. [Profile Images (RULE-20)](#8-profile-images)
 9. [Connection Status Display (RULE-21)](#9-connection-status-display)
+10. [Network Status Dot (RULE-22)](#10-network-status-dot)
 
 ---
 
@@ -345,3 +346,40 @@ attached to it -- is display metadata owned by the client.
 - `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/Section.kt`
   (`SectionViewWithButton` title button and card shape)
 - Test: `common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt`
+
+---
+
+## 10. Network Status Dot
+
+### RULE-22: The Connection Status Dot Reports One Connection Only
+
+1. **One dot, one connection.** A dot MUST describe exactly the connection it is attached to,
+   resolved by agent connection id (`connectionSubStatus`), never by chat or contact identity. A
+   status that belongs to a different connection MUST NOT be displayed on it.
+2. **The dot is a display only.** It MUST NOT change any state, MUST NOT be persisted, and MUST NOT
+   be added to `AppSettings` or to the cross-device backup format; the per-connection status map
+   (`ChatModel.connectionSubStatuses`) is session-local client state.
+3. **No status, no dot.** When no status is known for the connection (`null`), the dot MUST render
+   nothing rather than assuming a connected or a failed state, and it MUST NOT change the row layout
+   height.
+4. **Direct chats and members only.** The dot MUST only be shown for direct chats/contacts and for
+   group members that have an active connection. Group and channel rows MUST NOT show it, because
+   they have no single connection to report.
+5. **The chat title only reports the open chat.** The direct chat title MUST NOT display a status of
+   any connection other than the chat's own active connection - in particular it MUST NOT fall back
+   to `chatSubStatus` unless that connection is the one currently opened
+   (`chatModel.chatAgentConnId`), because `chatSubStatus` is not cleared when a chat is closed.
+
+**Enforcement:**
+- `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/SubscriptionStatusDot.kt`
+  (`SubscriptionStatusDot`)
+- `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`
+  (`connectionSubStatuses`, `connectionSubStatus`)
+- `common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`
+  (`CR.SubscriptionStatusEvt` handler)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt`
+  (`ChatInfoToolbarTitle`), `views/chatlist/ChatPreviewView.kt` (`chatPreviewTitle`),
+  `views/chat/group/GroupChatInfoView.kt` (`MemberRow`), `views/chat/ChatInfoView.kt`
+  (`SubStatusRow`, the info-page dot this component was extracted from)
+- Test: `common/src/commonTest/kotlin/chat/simplex/app/ConnectionSubStatusTest.kt`
+

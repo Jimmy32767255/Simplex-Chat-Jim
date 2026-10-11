@@ -169,6 +169,7 @@ Server configuration, proxy support, and connectivity.
 | Server operators | Configure and manage SMP/XFTP server operators | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/OperatorView.kt` |
 | Server groups and notes | Organize manually added servers into named groups and attach a note to each, stored client-side only | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServersView.kt` |
 | Server status | View aggregate server connectivity status | `common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ServersSummaryView.kt` |
+| Connection network status dot | Per-connection status dot (connected / connecting / subscription removed) shown next to the name in the direct chat title, the chat list rows and the group member list, and on the contact info page's **Network status** row | `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/SubscriptionStatusDot.kt` |
 | Network & servers hub | Central network configuration entry point | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt` |
 
 ### 8. Customization

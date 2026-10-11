@@ -66,6 +66,7 @@ Shown when `connectionStats` is available:
 | Element | Description |
 |---|---|
 | Connection stats | Server information, agent connection ID |
+| Servers and network status | Shown while the contact is ready and active: the **Servers** section lists the connection's server and the **Network status** row shows its subscription state as the shared `SubscriptionStatusDot` (filled green circle = connected/active, pending icon = connecting, error icon = subscription removed or missing); tapping the row explains the state. This is the same dot used by the direct chat title, the chat list rows and the group member list, and it is extracted into `views/helpers/SubscriptionStatusDot.kt` |
 | Switch address | Initiates SMP server address switch (`apiSwitchContact`) with confirmation alert |
 | Abort switch | Cancels an in-progress address switch (`apiAbortSwitchContact`) |
 | Sync connection | Fixes encryption ratchet synchronization (`apiSyncContactRatchet`) |

@@ -140,6 +140,12 @@ fun ChatPreviewView(
     when (cInfo) {
       is ChatInfo.Direct -> {
         Row(verticalAlignment = Alignment.CenterVertically) {
+          // Network status of the direct chat connection, shown next to the contact name
+          val connectionStatus = connectionSubStatus(cInfo.contact.activeConn, chatModel.connectionSubStatuses)
+          if (cInfo.contact.ready && cInfo.contact.active && connectionStatus != null) {
+            SubscriptionStatusDot(connectionStatus)
+            Spacer(Modifier.width(4.dp))
+          }
           if (cInfo.contact.verified) {
             VerifiedIcon()
           }

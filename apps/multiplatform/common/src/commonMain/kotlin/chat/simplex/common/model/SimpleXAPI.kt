@@ -3088,8 +3088,11 @@ object ChatController {
       }
       is CR.SubscriptionStatusEvt -> {
         val chatAgentConnId = chatModel.chatAgentConnId.value
-        if (chatAgentConnId != null && r.connections.contains(chatAgentConnId)) {
-          withContext(Dispatchers.Main) {
+        withContext(Dispatchers.Main) {
+          for (conn in r.connections) {
+            chatModel.connectionSubStatuses[conn] = r.subscriptionStatus
+          }
+          if (chatAgentConnId != null && r.connections.contains(chatAgentConnId)) {
             chatModel.chatSubStatus.value = r.subscriptionStatus
           }
         }
