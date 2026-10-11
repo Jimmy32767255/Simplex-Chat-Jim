@@ -48,6 +48,9 @@ fun ProtocolServerView(
   val testing = remember { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
   val draftServer = remember { mutableStateOf(server) }
+  // Client-side group/note for this server, saved together with the server on close.
+  val serverAddress = remember { server.server }
+  val serverMeta = remember { mutableStateOf(appPrefs.serverMetadata.get()[serverAddress] ?: ServerMeta.empty) }
 
   ModalView(
     close = {
@@ -73,6 +76,7 @@ fun ProtocolServerView(
             )
           } else {
             onUpdate(draftServer.value)
+            saveServerMetadata(serverAddress, draftServer.value.server, serverMeta.value)
             close()
           }
         } else {
@@ -91,6 +95,7 @@ fun ProtocolServerView(
         draftServer,
         serverProtocol,
         userServers,
+        serverMeta,
         testing.value,
         testServer = {
           testing.value = true
@@ -124,6 +129,7 @@ private fun ProtocolServerLayout(
   server: MutableState<UserServer>,
   serverProtocol: ServerProtocol,
   userServers: MutableState<List<UserOperatorServers>>,
+  serverMeta: MutableState<ServerMeta>,
   testing: Boolean,
   testServer: () -> Unit,
   onDelete: () -> Unit,
@@ -136,8 +142,39 @@ private fun ProtocolServerLayout(
     } else {
       CustomServer(server, testing, testServer, onDelete, serverProtocol, userServers)
     }
+    ServerGroupAndNoteSection(serverMeta)
     SectionBottomSpacer()
   }
+}
+
+@Composable
+fun ServerGroupAndNoteSection(meta: MutableState<ServerMeta>) {
+  val group = remember { mutableStateOf(meta.value.group ?: "") }
+  val note = remember { mutableStateOf(meta.value.note ?: "") }
+  LaunchedEffect(group.value, note.value) {
+    meta.value = ServerMeta(
+      group = group.value.trim().ifEmpty { null },
+      note = note.value.trim().ifEmpty { null }
+    )
+  }
+  SectionDividerSpaced()
+  SectionView(stringResource(MR.strings.smp_servers_group_and_note)) {
+    Text(
+      generalGetString(MR.strings.smp_servers_group),
+      color = MaterialTheme.colors.secondary,
+      style = MaterialTheme.typography.body2,
+      modifier = Modifier.padding(start = DEFAULT_PADDING, top = DEFAULT_PADDING_HALF)
+    )
+    TextEditor(group, Modifier.height(60.dp), placeholder = generalGetString(MR.strings.smp_servers_group_placeholder))
+    Text(
+      generalGetString(MR.strings.smp_servers_note),
+      color = MaterialTheme.colors.secondary,
+      style = MaterialTheme.typography.body2,
+      modifier = Modifier.padding(start = DEFAULT_PADDING, top = DEFAULT_PADDING_HALF)
+    )
+    TextEditor(note, Modifier.height(120.dp), placeholder = generalGetString(MR.strings.smp_servers_note_placeholder))
+  }
+  SectionTextFooter(generalGetString(MR.strings.smp_servers_group_and_note_footer))
 }
 
 @Composable

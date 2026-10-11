@@ -1,0 +1,825 @@
+diff --git a/TODO.md b/TODO.md
+index ba9dd6180..859c130a8 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -30,7 +30,14 @@
+   - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt`（新增 `serverAddresses`，重写 `addServer` 支持批量）、`.../networkAndServers/ProtocolServerView.kt`（`CustomServer` 新增 `allowMultipleAddresses` 参数）、`apps/multiplatform/common/src/commonMain/resources/MR/{base,zh-rCN}/strings.xml`（新增提示文案 `smp_servers_new_server_multiple_hint`）。
+   - 不修改核心（Haskell）与网络协议，仅把多行地址在客户端展开成多条既有的 `UserServer` 记录，便于日后跟随官方版本升级。
+   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/BatchServersTest.kt`（6 个用例，覆盖单地址、多地址、`\r\n`/`\r` 换行、空行与空白、去重顺序、空输入），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
+-- [ ] 服务器分组和备注（对手动添加的服务器允许手动分组和添加备注，不然现在全是地址根本不可读）
++- [x] 服务器分组和备注（对手动添加的服务器允许手动分组和添加备注，不然现在全是地址根本不可读）
++  - **已实现（基于 7.0.4）**：「添加服务器 → 手动输入服务器」与「编辑已有服务器」两个界面都新增了「分组与备注」一栏：分组名可选，备注可选，填写后服务器列表按分组显示（无分组的排在最前，保持原有顺序，之后按分组首次出现的顺序依次显示分组标题），备注作为第二行小字显示在地址下方。
++  - 分组/备注只保存在客户端偏好里（`AppPreferences.serverMetadata`，`Map<String, ServerMeta>`，以服务器地址字符串为键），**不会**写进 `UserServer`：因为 `UserServer` 会被序列化成核心命令 `/_servers` 并从句柄端读回，任何客户端专属字段都会在下一次往返时丢失。因此不动核心（Haskell）与网络协议，便于日后跟随官方版本升级。
++  - 编辑服务器地址时分组/备注会跟着迁移到新地址（旧键会被删除）；分组与备注都清空时对应记录会被删除，不留空条目。
++  - 批量添加服务器时，本次成功添加的每个地址都会写入同一份分组/备注（非法地址会被跳过）。
++  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`（新增 `ServerMeta`、`SHARED_PREFS_SERVER_METADATA`、`serverMetadata`）、`.../views/usersettings/networkAndServers/ProtocolServersView.kt`（`ServersSection`、`serverGroup`、`updatedServerMetadata`、`saveServerMetadata`）、`.../networkAndServers/ProtocolServerView.kt`（`ServerGroupAndNoteSection`）、`.../networkAndServers/NewServerView.kt`、`apps/multiplatform/common/src/commonMain/resources/MR/{base,zh-rCN}/strings.xml`。
++  - 与条目 1 一致，未加入 `AppSettings` 跨设备导入/导出结构，备份格式保持不变（代价是分组/备注不会随设备迁移一起带走，日后如需可再补上，新增可空字段是向后兼容的）。
++  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ServerMetadataTest.kt`（8 个用例，覆盖新增/更新/清空删除/改地址迁移/保留其他条目/分组名归一化），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
+ - [ ] 查看和复制头像（点击群和其他用户头像的时候）
+ - [ ] 群成员连接率和百分比显示（在群成员列表标题处，就像主页上方标题一样）
+ - [ ] 收起群成员列表（不然在大群里拉到最下面要很长时间）
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
+index b56122fa2..5311adcd5 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
+@@ -268,6 +268,14 @@ class AppPreferences {
+     jsonCoerceInputValues.decodeFromString(MapSerializer(String.serializer(), ThemeOverrides.serializer()), it)
+   }, settingsThemes)
+   val themeOverrides = mkThemeOverridesPreference()
++  // Client-only grouping/notes for the user's servers, keyed by the server address.
++  // It is deliberately kept out of the server list that is sent to the core, so it
++  // survives independently of the core's `UserServer` representation.
++  val serverMetadata = mkMapPreference(SHARED_PREFS_SERVER_METADATA, mapOf(), encode = {
++    json.encodeToString(MapSerializer(String.serializer(), ServerMeta.serializer()), it)
++  }, decode = {
++    jsonCoerceInputValues.decodeFromString(MapSerializer(String.serializer(), ServerMeta.serializer()), it)
++  })
+   val profileImageCornerRadius = mkFloatPreference(SHARED_PREFS_PROFILE_IMAGE_CORNER_RADIUS, 22.5f)
+   val chatItemRoundness = mkFloatPreference(SHARED_PREFS_CHAT_ITEM_ROUNDNESS, 0.75f)
+   val chatItemTail = mkBoolPreference(SHARED_PREFS_CHAT_ITEM_TAIL, true)
+@@ -536,6 +544,7 @@ class AppPreferences {
+     private const val SHARED_PREFS_CONNECT_REMOTE_VIA_MULTICAST_AUTO = "ConnectRemoteViaMulticastAuto"
+     private const val SHARED_PREFS_OFFER_REMOTE_MULTICAST = "OfferRemoteMulticast"
+     private const val SHARED_PREFS_DESKTOP_WINDOW_STATE = "DesktopWindowState"
++    private const val SHARED_PREFS_SERVER_METADATA = "ServerMetadata"
+     private const val SHARED_PREFS_DESKTOP_CLOSE_BEHAVIOR = "DesktopCloseBehavior"
+     private const val SHARED_PREFS_DESKTOP_MESSAGE_SEND_KEY = "DesktopMessageSendKey"
+     private const val SHARED_PREFS_DESKTOP_MESSAGE_NEWLINE_KEY = "DesktopMessageNewlineKey"
+@@ -4841,6 +4850,24 @@ data class GroupShortLinkInfo(
+   val publicGroupId: String? = null
+ )
+ 
++/**
++ * Client-side grouping and note for a server address, stored in [AppPreferences.serverMetadata].
++ * It is not part of [UserServer], which is serialized to the core, so the core neither sees nor
++ * persists it.
++ */
++@Serializable
++data class ServerMeta(
++  val group: String? = null,
++  val note: String? = null,
++) {
++  val isBlank: Boolean
++    get() = group.isNullOrBlank() && note.isNullOrBlank()
++
++  companion object {
++    val empty = ServerMeta()
++  }
++}
++
+ @Serializable
+ data class UserServer(
+   val remoteHostId: Long?,
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt
+index 824838cd8..731ecaae6 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt
+@@ -22,6 +22,7 @@ fun ModalData.NewServerView(
+   val testing = remember { mutableStateOf(false) }
+   val scope = rememberCoroutineScope()
+   val newServer = remember { mutableStateOf(UserServer.empty) }
++  val newServerMeta = remember { mutableStateOf(ServerMeta.empty) }
+ 
+   ModalView(close = {
+     addServer(
+@@ -31,12 +32,14 @@ fun ModalData.NewServerView(
+       serverErrors,
+       serverWarnings,
+       rhId,
++      meta = newServerMeta.value,
+       close = close
+     )
+   }) {
+     Box {
+       NewServerLayout(
+         newServer,
++        newServerMeta,
+         testing.value,
+         testServer = {
+           testing.value = true
+@@ -67,12 +70,14 @@ fun ModalData.NewServerView(
+ @Composable
+ private fun NewServerLayout(
+   server: MutableState<UserServer>,
++  meta: MutableState<ServerMeta>,
+   testing: Boolean,
+   testServer: () -> Unit,
+ ) {
+   ColumnWithScrollBar {
+     AppBarTitle(stringResource(MR.strings.smp_servers_new_server))
+     CustomServer(server, testing, testServer, onDelete = null, allowMultipleAddresses = true)
++    ServerGroupAndNoteSection(meta)
+     SectionBottomSpacer()
+   }
+ }
+@@ -115,6 +120,7 @@ fun addServer(
+   serverErrors: MutableState<List<UserServersError>>,
+   serverWarnings: MutableState<List<UserServersWarning>>? = null,
+   rhId: Long?,
++  meta: ServerMeta = ServerMeta.empty,
+   close: () -> Unit
+ ) {
+   // The address field may contain several addresses, one per line. Every server
+@@ -125,6 +131,7 @@ fun addServer(
+ 
+   val multiple = addresses.size > 1
+   val invalidAddresses = mutableListOf<String>()
++  val addedAddresses = mutableListOf<String>()
+   val addedOperators = mutableListOf<ServerOperator>()
+   var operatorNotFound = false
+   for (address in addresses) {
+@@ -161,9 +168,20 @@ fun addServer(
+     }
+ 
+     userServers.value = updatedUserServers
++    addedAddresses.add(one.server)
+     matchingOperator?.let { op -> if (addedOperators.none { it.operatorId == op.operatorId }) addedOperators.add(op) }
+   }
+ 
++  // Group/note is client-side metadata keyed by the server address, so it is not
++  // part of the server list that is sent to the core.
++  if (addedAddresses.isNotEmpty() && !meta.isBlank) {
++    val current = ChatController.appPrefs.serverMetadata.get().toMutableMap()
++    for (address in addedAddresses) {
++      current[address] = meta
++    }
++    ChatController.appPrefs.serverMetadata.set(current)
++  }
++
+   // Only one alert is shown at a time, so invalid addresses (if any) take precedence
+   if (invalidAddresses.isNotEmpty()) {
+     AlertManager.shared.showAlertMsg(
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServerView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServerView.kt
+index aa26e0cd8..9d02351c1 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServerView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServerView.kt
+@@ -48,6 +48,9 @@ fun ProtocolServerView(
+   val testing = remember { mutableStateOf(false) }
+   val scope = rememberCoroutineScope()
+   val draftServer = remember { mutableStateOf(server) }
++  // Client-side group/note for this server, saved together with the server on close.
++  val serverAddress = remember { server.server }
++  val serverMeta = remember { mutableStateOf(appPrefs.serverMetadata.get()[serverAddress] ?: ServerMeta.empty) }
+ 
+   ModalView(
+     close = {
+@@ -73,6 +76,7 @@ fun ProtocolServerView(
+             )
+           } else {
+             onUpdate(draftServer.value)
++            saveServerMetadata(serverAddress, draftServer.value.server, serverMeta.value)
+             close()
+           }
+         } else {
+@@ -91,6 +95,7 @@ fun ProtocolServerView(
+         draftServer,
+         serverProtocol,
+         userServers,
++        serverMeta,
+         testing.value,
+         testServer = {
+           testing.value = true
+@@ -124,6 +129,7 @@ private fun ProtocolServerLayout(
+   server: MutableState<UserServer>,
+   serverProtocol: ServerProtocol,
+   userServers: MutableState<List<UserOperatorServers>>,
++  serverMeta: MutableState<ServerMeta>,
+   testing: Boolean,
+   testServer: () -> Unit,
+   onDelete: () -> Unit,
+@@ -136,10 +142,41 @@ private fun ProtocolServerLayout(
+     } else {
+       CustomServer(server, testing, testServer, onDelete, serverProtocol, userServers)
+     }
++    ServerGroupAndNoteSection(serverMeta)
+     SectionBottomSpacer()
+   }
+ }
+ 
++@Composable
++fun ServerGroupAndNoteSection(meta: MutableState<ServerMeta>) {
++  val group = remember { mutableStateOf(meta.value.group ?: "") }
++  val note = remember { mutableStateOf(meta.value.note ?: "") }
++  LaunchedEffect(group.value, note.value) {
++    meta.value = ServerMeta(
++      group = group.value.trim().ifEmpty { null },
++      note = note.value.trim().ifEmpty { null }
++    )
++  }
++  SectionDividerSpaced()
++  SectionView(stringResource(MR.strings.smp_servers_group_and_note)) {
++    Text(
++      generalGetString(MR.strings.smp_servers_group),
++      color = MaterialTheme.colors.secondary,
++      style = MaterialTheme.typography.body2,
++      modifier = Modifier.padding(start = DEFAULT_PADDING, top = DEFAULT_PADDING_HALF)
++    )
++    TextEditor(group, Modifier.height(60.dp), placeholder = generalGetString(MR.strings.smp_servers_group_placeholder))
++    Text(
++      generalGetString(MR.strings.smp_servers_note),
++      color = MaterialTheme.colors.secondary,
++      style = MaterialTheme.typography.body2,
++      modifier = Modifier.padding(start = DEFAULT_PADDING, top = DEFAULT_PADDING_HALF)
++    )
++    TextEditor(note, Modifier.height(120.dp), placeholder = generalGetString(MR.strings.smp_servers_note_placeholder))
++  }
++  SectionTextFooter(generalGetString(MR.strings.smp_servers_group_and_note_footer))
++}
++
+ @Composable
+ private fun PresetServer(
+   server: MutableState<UserServer>,
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServersView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServersView.kt
+index 63365bd08..f4fe83309 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServersView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServersView.kt
+@@ -102,16 +102,12 @@ fun YourServersViewLayout(
+     if (userServers.value[operatorIndex].smpServers.any { !it.deleted }) {
+       SectionDividerSpaced()
+       SectionView(generalGetString(MR.strings.message_servers)) {
+-        userServers.value[operatorIndex].smpServers.forEachIndexed { i, server  ->
+-          if (server.deleted) return@forEachIndexed
+-          SectionItemView({ navigateToProtocolView(i, server, ServerProtocol.SMP) }) {
+-            ProtocolServerViewLink(
+-              srv = server,
+-              serverProtocol = ServerProtocol.SMP,
+-              duplicateHosts = duplicateHosts
+-            )
+-          }
+-        }
++        ServersSection(
++          userServers.value[operatorIndex].smpServers,
++          ServerProtocol.SMP,
++          duplicateHosts,
++          navigateToProtocolView = { i, server -> navigateToProtocolView(i, server, ServerProtocol.SMP) }
++        )
+       }
+       val smpErr = globalSMPServersError(serverErrors.value)
+       if (smpErr != null) {
+@@ -136,16 +132,12 @@ fun YourServersViewLayout(
+     if (userServers.value[operatorIndex].xftpServers.any { !it.deleted }) {
+       SectionDividerSpaced()
+       SectionView(generalGetString(MR.strings.media_and_file_servers)) {
+-        userServers.value[operatorIndex].xftpServers.forEachIndexed { i, server ->
+-          if (server.deleted) return@forEachIndexed
+-          SectionItemView({ navigateToProtocolView(i, server, ServerProtocol.XFTP) }) {
+-            ProtocolServerViewLink(
+-              srv = server,
+-              serverProtocol = ServerProtocol.XFTP,
+-              duplicateHosts = duplicateHosts
+-            )
+-          }
+-        }
++        ServersSection(
++          userServers.value[operatorIndex].xftpServers,
++          ServerProtocol.XFTP,
++          duplicateHosts,
++          navigateToProtocolView = { i, server -> navigateToProtocolView(i, server, ServerProtocol.XFTP) }
++        )
+       }
+       val xftpErr = globalXFTPServersError(serverErrors.value)
+       if (xftpErr != null) {
+@@ -313,7 +305,7 @@ fun showAddServerDialog(
+ }
+ 
+ @Composable
+-fun ProtocolServerViewLink(serverProtocol: ServerProtocol, srv: UserServer, duplicateHosts: Set<String>) {
++fun ProtocolServerViewLink(serverProtocol: ServerProtocol, srv: UserServer, duplicateHosts: Set<String>, note: String? = null) {
+   val address = parseServerAddress(srv.server)
+   when {
+     address == null || !address.valid || address.serverProtocol != serverProtocol || address.hostnames.any { it in duplicateHosts } -> InvalidServer()
+@@ -322,13 +314,81 @@ fun ProtocolServerViewLink(serverProtocol: ServerProtocol, srv: UserServer, dupl
+   }
+   Spacer(Modifier.padding(horizontal = 4.dp))
+   val text = address?.hostnames?.firstOrNull() ?: srv.server
+-  if (srv.enabled) {
+-    Text(text, color = MaterialTheme.colors.onBackground, maxLines = 1)
+-  } else {
+-    Text(text, maxLines = 1, color = MaterialTheme.colors.secondary)
++  Column {
++    if (srv.enabled) {
++      Text(text, color = MaterialTheme.colors.onBackground, maxLines = 1)
++    } else {
++      Text(text, maxLines = 1, color = MaterialTheme.colors.secondary)
++    }
++    if (!note.isNullOrBlank()) {
++      Text(
++        note,
++        color = MaterialTheme.colors.secondary,
++        style = MaterialTheme.typography.caption,
++        maxLines = 1
++      )
++    }
+   }
+ }
+ 
++/**
++ * The user's server list grouped by the client-side [ServerMeta.group], with the per-server note
++ * shown under the address. Servers without a group come first, in their original order; groups
++ * follow in the order they first appear among the servers.
++ */
++@Composable
++fun ServersSection(
++  servers: List<UserServer>,
++  serverProtocol: ServerProtocol,
++  duplicateHosts: Set<String>,
++  navigateToProtocolView: (Int, UserServer) -> Unit
++) {
++  val metadata = ChatController.appPrefs.serverMetadata.state.value
++  val visible = servers.withIndex().filter { !it.value.deleted }
++  val ordered = visible.sortedBy { serverGroup(metadata, it.value.server) ?: "" }
++  var currentGroup: String? = null
++  for ((index, server) in ordered) {
++    val group = serverGroup(metadata, server.server)
++    if (group != null && group != currentGroup) {
++      Text(
++        group,
++        color = MaterialTheme.colors.secondary,
++        style = MaterialTheme.typography.caption,
++        fontWeight = FontWeight.Medium,
++        modifier = Modifier.padding(start = DEFAULT_PADDING, top = DEFAULT_PADDING_HALF, bottom = 2.dp)
++      )
++    }
++    currentGroup = group
++    SectionItemView({ navigateToProtocolView(index, server) }) {
++      ProtocolServerViewLink(serverProtocol, server, duplicateHosts, metadata[server.server]?.note)
++    }
++  }
++}
++
++internal fun serverGroup(metadata: Map<String, ServerMeta>, address: String): String? =
++  metadata[address]?.group?.takeIf { it.isNotBlank() }
++
++/**
++ * Returns the new server metadata map after saving [meta] for [address], moving it from
++ * [previousAddress] when the address was edited, and dropping the entry when it became blank.
++ */
++internal fun updatedServerMetadata(
++  current: Map<String, ServerMeta>,
++  previousAddress: String,
++  address: String,
++  meta: ServerMeta
++): Map<String, ServerMeta> {
++  val updated = current.toMutableMap()
++  if (previousAddress != address) updated.remove(previousAddress)
++  if (meta.isBlank) updated.remove(address) else updated[address] = meta
++  return updated
++}
++
++internal fun saveServerMetadata(previousAddress: String, address: String, meta: ServerMeta) {
++  val prefs = ChatController.appPrefs.serverMetadata
++  prefs.set(updatedServerMetadata(prefs.get(), previousAddress, address, meta))
++}
++
+ @Composable
+ private fun HowToButton() {
+   val uriHandler = LocalUriHandler.current
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+index 01d1c4e6d..5b2e282ca 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+@@ -1054,6 +1054,12 @@
+   <string name="smp_servers_enter_manually">Enter server manually</string>
+   <string name="smp_servers_new_server">New server</string>
+   <string name="smp_servers_new_server_multiple_hint">You can add several servers at once: enter one address per line. The settings below are applied to all of them.</string>
++  <string name="smp_servers_group_and_note">Group and note</string>
++  <string name="smp_servers_group">Group</string>
++  <string name="smp_servers_group_placeholder">Group name (optional)</string>
++  <string name="smp_servers_note">Note</string>
++  <string name="smp_servers_note_placeholder">Note (optional)</string>
++  <string name="smp_servers_group_and_note_footer">Group and note are stored only on this device and are never sent to the servers.</string>
+   <string name="smp_servers_preset_server">Preset server</string>
+   <string name="smp_servers_your_server">Your server</string>
+   <string name="smp_servers_your_server_address">Your server address</string>
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+index d4390c456..b438a5bcc 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+@@ -2183,6 +2183,12 @@
+     <string name="error_updating_server_title">更新服务器出错</string>
+     <string name="smp_servers_new_server">新服务器</string>
+     <string name="smp_servers_new_server_multiple_hint">可以一次添加多台服务器：每行一个地址。下方的设置会应用到本次添加的所有服务器。</string>
++    <string name="smp_servers_group_and_note">分组与备注</string>
++    <string name="smp_servers_group">分组</string>
++    <string name="smp_servers_group_placeholder">分组名称（可选）</string>
++    <string name="smp_servers_note">备注</string>
++    <string name="smp_servers_note_placeholder">备注（可选）</string>
++    <string name="smp_servers_group_and_note_footer">分组和备注仅保存在本机，不会发送到服务器。</string>
+     <string name="no_media_servers_configured_for_private_routing">无文件接收服务器。</string>
+     <string name="v6_2_improved_chat_navigation_descr">- 在第一条未读消息上打开聊天.\n- 跳转到引用的消息.</string>
+     <string name="operator_review_conditions">审阅条款</string>
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ServerMetadataTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ServerMetadataTest.kt
+new file mode 100644
+index 000000000..4d8f03458
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ServerMetadataTest.kt
+@@ -0,0 +1,68 @@
++package chat.simplex.app
++
++import chat.simplex.common.model.ServerMeta
++import chat.simplex.common.views.usersettings.networkAndServers.serverGroup
++import chat.simplex.common.views.usersettings.networkAndServers.updatedServerMetadata
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertNull
++
++// use this command for testing:
++// ./gradlew desktopTest
++class ServerMetadataTest {
++  private val smp1 = "smp://a@one.example"
++  private val smp2 = "smp://b@two.example"
++
++  @Test
++  fun testAddEntry() {
++    val result = updatedServerMetadata(emptyMap(), smp1, smp1, ServerMeta(group = "Fast", note = "primary"))
++    assertEquals(mapOf(smp1 to ServerMeta(group = "Fast", note = "primary")), result)
++  }
++
++  @Test
++  fun testUpdateEntry() {
++    val current = mapOf(smp1 to ServerMeta(group = "Fast", note = null))
++    val result = updatedServerMetadata(current, smp1, smp1, ServerMeta(group = "Slow", note = "backup"))
++    assertEquals(mapOf(smp1 to ServerMeta(group = "Slow", note = "backup")), result)
++  }
++
++  @Test
++  fun testBlankMetaRemovesEntry() {
++    val current = mapOf(smp1 to ServerMeta(group = "Fast", note = "primary"))
++    assertEquals(emptyMap(), updatedServerMetadata(current, smp1, smp1, ServerMeta.empty))
++    assertEquals(emptyMap(), updatedServerMetadata(current, smp1, smp1, ServerMeta(group = "  ", note = "\t")))
++  }
++
++  @Test
++  fun testBlankMetaOnMissingEntryKeepsMap() {
++    assertEquals(emptyMap(), updatedServerMetadata(emptyMap(), smp1, smp1, ServerMeta.empty))
++  }
++
++  @Test
++  fun testAddressChangeMovesEntry() {
++    val current = mapOf(smp1 to ServerMeta(group = "Fast", note = "primary"))
++    val result = updatedServerMetadata(current, smp1, smp2, ServerMeta(group = "Fast", note = "primary"))
++    assertEquals(mapOf(smp2 to ServerMeta(group = "Fast", note = "primary")), result)
++  }
++
++  @Test
++  fun testAddressChangeToBlankRemovesOldEntry() {
++    val current = mapOf(smp1 to ServerMeta(group = "Fast", note = "primary"))
++    assertEquals(emptyMap(), updatedServerMetadata(current, smp1, smp2, ServerMeta.empty))
++  }
++
++  @Test
++  fun testOtherEntriesAreKept() {
++    val current = mapOf(smp1 to ServerMeta(group = "Fast", note = "primary"))
++    val result = updatedServerMetadata(current, smp2, smp2, ServerMeta(group = "Slow", note = null))
++    assertEquals(mapOf(smp1 to current.getValue(smp1), smp2 to ServerMeta(group = "Slow", note = null)), result)
++  }
++
++  @Test
++  fun testServerGroup() {
++    val metadata = mapOf(smp1 to ServerMeta(group = "Fast", note = null), smp2 to ServerMeta(group = "  ", note = "x"))
++    assertEquals("Fast", serverGroup(metadata, smp1))
++    assertNull(serverGroup(metadata, smp2))
++    assertNull(serverGroup(metadata, "smp://unknown@example"))
++  }
++}
+diff --git a/apps/multiplatform/product/README.md b/apps/multiplatform/product/README.md
+index bc0e80fff..63c8954e8 100644
+--- a/apps/multiplatform/product/README.md
++++ b/apps/multiplatform/product/README.md
+@@ -164,6 +164,7 @@ Server configuration, proxy support, and connectivity.
+ | Custom ICE servers | Configure WebRTC ICE/TURN servers | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/RTCServers.kt` |
+ | Network timeouts | Configure connection timeout parameters | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/AdvancedNetworkSettings.kt` |
+ | Server operators | Configure and manage SMP/XFTP server operators | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/OperatorView.kt` |
++| Server groups and notes | Organize manually added servers into named groups and attach a note to each, stored client-side only | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServersView.kt` |
+ | Server status | View aggregate server connectivity status | `common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ServersSummaryView.kt` |
+ | Network & servers hub | Central network configuration entry point | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt` |
+ 
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index f5e0c4569..72d7ddb93 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -52,6 +52,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC31 | Channels (Relays) | [views/group-info.md](views/group-info.md) | [spec/client/chat-view.md](../spec/client/chat-view.md), [spec/state.md](../spec/state.md) | `common/.../model/ChatModel.kt` (`RelayStatus` incl. `RsRejected`, `GroupRelay`, `GroupMemberRole.Relay`, `GroupMemberStatus.MemRejected`), `common/.../views/chat/group/ChannelRelaysView.kt`, `GroupMemberInfoView.kt` (rejected-status row), `common/.../views/newchat/AddChannelView.kt` (`RelayStatusIndicator` rejected branch), `common/.../views/chat/group/AddGroupRelayView.kt` | `Controller.hs` (`APIAddGroupRelays`, `APIAllowRelayGroup`, `XGrpRelayReject` CONF handler) |
+ | PC32 | Desktop Message Sending Keys | [views/settings.md](views/settings.md) | [spec/state.md](../spec/state.md), [spec/client/compose.md](../spec/client/compose.md) | `common/.../model/SimpleXAPI.kt` (`ChatEnterKeyCombination`, `messageSendKey`, `messageNewlineKey`), `common/.../views/usersettings/SettingsView.kt`, `common/.../platform/PlatformTextField.desktop.kt` | N/A (client-only) |
+ | PC33 | Receiving Address Switch | [views/group-info.md](views/group-info.md), [views/contact-info.md](views/contact-info.md) | [spec/api.md](../spec/api.md), [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../model/SimpleXAPI.kt` (`apiSwitchContact`, `apiSwitchGroupMember`, `apiAbortSwitchContact`, `apiAbortSwitchGroupMember`), `common/.../views/chat/ChatInfoView.kt` (`SwitchAddressButton`, `SwitchAllMembersAddressButton`, `showSwitchAddressAlert`, `showSwitchAllMembersAddressAlert`), `common/.../views/chat/group/GroupChatInfoView.kt` (group-wide switch row), `common/.../views/chat/group/GroupMemberInfoView.kt` | `Controller.hs` (`APISwitchContact`, `APISwitchGroupMember`, `APIAbortSwitchContact`, `APIAbortSwitchGroupMember`), `Commands.hs` |
++| PC34 | Server Grouping and Notes | [views/settings.md](views/settings.md) | [spec/api.md](../spec/api.md), [spec/state.md](../spec/state.md) | `common/.../model/SimpleXAPI.kt` (`ServerMeta`, `AppPreferences.serverMetadata`, `SHARED_PREFS_SERVER_METADATA`), `common/.../views/usersettings/networkAndServers/ProtocolServersView.kt` (`ServersSection`, `serverGroup`, `updatedServerMetadata`, `saveServerMetadata`), `ProtocolServerView.kt` (`ServerGroupAndNoteSection`), `NewServerView.kt` | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
+ - `common/.../` expands to `common/src/commonMain/kotlin/chat/simplex/common/`
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index 90a2dadad..8921bfab0 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -12,6 +12,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
+ 4. [File Transfer (RULE-14 through RULE-15)](#4-file-transfer)
+ 5. [Notification Delivery (RULE-16 through RULE-17)](#5-notification-delivery)
+ 6. [Call Integrity (RULE-18)](#6-call-integrity)
++7. [Network Configuration (RULE-19)](#7-network-configuration)
+ 
+ ---
+ 
+@@ -251,3 +252,36 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/call/WebRTC.kt`
+ - Android: `android/src/main/java/chat/simplex/app/CallService.kt`, `android/src/main/java/chat/simplex/app/views/call/CallActivity.kt`
+ - Desktop: `common/src/desktopMain/kotlin/chat/simplex/common/views/call/CallView.desktop.kt`
++
++---
++
++## 7. Network Configuration
++
++### RULE-19: Client-Only Server Display Metadata
++
++Organisational data about the user's servers -- the group a server belongs to and the free-form note
++attached to it -- is display metadata owned by the client.
++
++1. **`UserServer` MUST NOT gain client-only fields.** The user's server list is serialized verbatim
++   into the core command `/_servers <userId> <json>` (`ApiSetUserServers`) and parsed back out of the
++   core's reply, so any Kotlin-only field would be silently dropped on the next round-trip. Group
++   and note are therefore stored in the preference map `AppPreferences.serverMetadata`
++   (`Map<String, ServerMeta>`, `SharedPreferences` key `ServerMetadata`), keyed by the exact
++   `UserServer.server` address string.
++2. **Metadata MUST never be sent to the core or to a server.** `serverMetadata` is read and written
++   only through `AppPreferences`; it is not part of any `CC` command, and the UI states this to the
++   user ("Group and note are stored only on this device and are never sent to the servers.").
++3. **Metadata MUST follow the address.** When the user edits a server's address, the entry is moved
++   from the previous key to the new one and the old key is removed
++   (`updatedServerMetadata`), so an address edit never silently loses the group/note.
++4. **Blank metadata MUST be dropped.** Saving an empty group and note for an address removes the
++   entry rather than leaving an empty `ServerMeta` behind.
++
++**Enforcement:**
++- `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServersView.kt`
++  (`updatedServerMetadata`, `saveServerMetadata`, `serverGroup`, `ServersSection`)
++- `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServerView.kt`
++  (`ServerGroupAndNoteSection`, saved on modal close)
++- `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt`
++  (batch add applies the same metadata to every added address)
++- Test: `common/src/commonTest/kotlin/chat/simplex/app/ServerMetadataTest.kt`
+diff --git a/apps/multiplatform/product/views/settings.md b/apps/multiplatform/product/views/settings.md
+index 9c84d0beb..d8afe9fce 100644
+--- a/apps/multiplatform/product/views/settings.md
++++ b/apps/multiplatform/product/views/settings.md
+@@ -75,6 +75,24 @@ chat-relay option sit next to it). Used for both adding a server and editing an
+ Editing an existing server keeps the previous single-address behaviour (`allowMultipleAddresses`
+ defaults to `false`).
+ 
++##### Grouping and Notes
++
++Manually added servers can be organised into named groups and given a free-form note, so the list
++does not read as a bare list of addresses.
++
++| Element | Behaviour |
++|---|---|
++| Group field | Optional group name, in the add form and in the edit modal (`ServerGroupAndNoteSection`). Servers sharing a group name are shown together under a small caption header. |
++| Note field | Optional free-form note, shown as a second line under the server address in the list. |
++| Footer | "Group and note are stored only on this device and are never sent to the servers." |
++| Grouped list | `ServersSection` renders servers without a group first (original order), then each group in the order it first appears, keeping the original list indices for navigation. |
++| Renaming an address | The metadata entry follows the address: it is moved to the new key and the old key is dropped. |
++
++Group and note live in the client-only `serverMetadata` map preference, keyed by the server address
++string. They are deliberately *not* fields of `UserServer`: that structure is serialized into the
++`/_servers` core command and read back from the core, so client-only fields would be lost on the
++next round-trip (see `spec/api.md` §2.10).
++
+ #### Audio & Video Calls (`CallSettingsView`)
+ 
+ | Setting | Description |
+diff --git a/apps/multiplatform/spec/api.md b/apps/multiplatform/spec/api.md
+index 7a7a39d17..74795e2ae 100644
+--- a/apps/multiplatform/spec/api.md
++++ b/apps/multiplatform/spec/api.md
+@@ -261,14 +261,14 @@ All functions below are `suspend fun` members of `ChatController` ([SimpleXAPI.k
+ 
+ | Command | Parameters | Description | Line |
+ |---------|-----------|-------------|------|
+-| `getServerOperators` | `rh: Long?` | Get server operator conditions detail | [L1219](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1219) |
+-| `setServerOperators` | `rh: Long?, operators: List<ServerOperator>` | Update the list of server operators | [L1226](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1226) |
+-| `getUserServers` | `rh: Long?` | Get the user's configured servers per operator | [L1233](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1233) |
+-| `setUserServers` | `rh: Long?, userServers: List<UserOperatorServers>` | Save user's configured servers per operator | [L1241](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1241) |
+-| `validateServers` | `rh: Long?, userServers: List<UserOperatorServers>` | Validate server configuration for errors | [L1253](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1253) |
+-| `getUsageConditions` | `rh: Long?` | Get current and accepted usage conditions | [L1261](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1261) |
+-| `setConditionsNotified` | `rh: Long?, conditionsId: Long` | Mark conditions as shown to user | [L1268](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1268) |
+-| `acceptConditions` | `rh: Long?, conditionsId: Long, operatorIds: List<Long>` | Accept usage conditions for operators | [L1275](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1275) |
++| `getServerOperators` | `rh: Long?` | Get server operator conditions detail | [L1318](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1318) |
++| `setServerOperators` | `rh: Long?, operators: List<ServerOperator>` | Update the list of server operators | [L1325](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1325) |
++| `getUserServers` | `rh: Long?` | Get the user's configured servers per operator | [L1332](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1332) |
++| `setUserServers` | `rh: Long?, userServers: List<UserOperatorServers>` | Save user's configured servers per operator | [L1340](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1340) |
++| `validateServers` | `rh: Long?, userServers: List<UserOperatorServers>` | Validate server configuration for errors | [L1352](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1352) |
++| `getUsageConditions` | `rh: Long?` | Get current and accepted usage conditions | [L1360](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1360) |
++| `setConditionsNotified` | `rh: Long?, conditionsId: Long` | Mark conditions as shown to user | [L1367](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1367) |
++| `acceptConditions` | `rh: Long?, conditionsId: Long, operatorIds: List<Long>` | Accept usage conditions for operators | [L1374](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1374) |
+ 
+ The user's server list is edited entirely client-side and is only sent to the core on save: the
+ settings view keeps a `List<UserOperatorServers>` state
+@@ -277,18 +277,34 @@ validates it reactively with `validateServers_` and persists it with `setUserSer
+ `saveServers`
+ ([`NetworkAndServers.kt#L996`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt#L996)).
+ Each entry of `smpServers`/`xftpServers` is a `UserServer`
+-([`SimpleXAPI.kt#L4845`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L4845)).
++([`SimpleXAPI.kt#L4872`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L4872)).
++
++Because `ApiSetUserServers` serializes this list straight into `/_servers <userId> <json>` and the
++client list is parsed back out of the core's reply, `UserServer` is effectively a core-owned
++structure: a Kotlin-only field added to it would be dropped on the next round-trip. Client-only
++display metadata is therefore kept in a separate preference, keyed by the server address string:
++
++| Data | Type | Stored in | Notes |
++|---|---|---|---|
++| Server group and note | `Map<String, ServerMeta>` | `AppPreferences.serverMetadata` (`SharedPreferences` key `ServerMetadata`) | `ServerMeta(group: String? = null, note: String? = null)`; key is the exact `UserServer.server` string |
++
++`serverMetadata` is a `mkMapPreference`, so changes are visible to Compose through its `state`.
++`updatedServerMetadata` (pure) computes the new map — it drops the entry when the metadata is blank
++and moves the entry from the previous address to the new one when the address is edited — and
++`saveServerMetadata` writes it back. `serverGroup` normalizes a blank group to `null`. The fields are
++read only by `views/usersettings/networkAndServers/ProtocolServersView.kt` (list rendering) and
++`ProtocolServerView.kt` (edit form); nothing here is ever sent to the core.
+ 
+ Adding a server by hand (`NewServerView.kt`) accepts several addresses at once. The address field
+ is split by `serverAddresses`
+-([`NewServerView.kt#L87`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L87))
++([`NewServerView.kt#L92`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L92))
+ into distinct, trimmed, non-blank lines, and `addServer`
+-([`NewServerView.kt#L111`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L111))
++([`NewServerView.kt#L116`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L116))
+ creates one `UserServer` per address from the same template (so every server of the batch shares the
+ entered settings), filing each one under the operator matched by `serverProtocolAndOperator`
+-([`NewServerView.kt#L90`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L90)).
++([`NewServerView.kt#L95`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L95)).
+ `CustomServer`
+-([`ProtocolServerView.kt#L166`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServerView.kt#L166))
++([`ProtocolServerView.kt#L203`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServerView.kt#L203))
+ validates every line in that mode (`allowMultipleAddresses = true`), hides the single-address QR
+ code and disables the one-shot test row when more than one address is entered. Invalid lines don't
+ block the valid ones — the valid addresses are added and the invalid ones are listed in the
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index e8c03042f..cd5428d6a 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -56,7 +56,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `App.kt` | PC1 through PC31 | High | Root composable — navigation scaffold for all features |
+ | `AppLock.kt` | PC22 | Medium | App lock state and authorization lifecycle |
+ | `model/ChatModel.kt` | PC1 through PC31 | High | Central state object — every feature reads or writes here |
+-| `model/SimpleXAPI.kt` | PC1 through PC32 | High | FFI bridge to Haskell core — all commands and responses |
++| `model/SimpleXAPI.kt` | PC1 through PC34 | High | FFI bridge to Haskell core — all commands and responses |
+ | `model/CryptoFile.kt` | PC10, PC23 | Medium | Encrypted file read/write helpers |
+ | `platform/Core.kt` | PC1 through PC31 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
+ | `platform/AppCommon.kt` | PC1 through PC31 | Medium | Shared app initialization logic |
+@@ -227,9 +227,9 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `views/usersettings/networkAndServers/NetworkAndServers.kt` | PC25 | High | Server and network configuration hub |
+ | `views/usersettings/networkAndServers/AdvancedNetworkSettings.kt` | PC25 | Medium | SOCKS proxy, timeouts, etc. |
+ | `views/usersettings/networkAndServers/OperatorView.kt` | PC25 | Medium | Server operator management |
+-| `views/usersettings/networkAndServers/ProtocolServersView.kt` | PC25 | Medium | SMP/XFTP server list |
+-| `views/usersettings/networkAndServers/ProtocolServerView.kt` | PC25 | Low | Individual server editing |
+-| `views/usersettings/networkAndServers/NewServerView.kt` | PC25 | Low | Add new server(s) by hand (one address per line for a batch) |
++| `views/usersettings/networkAndServers/ProtocolServersView.kt` | PC25, PC34 | Medium | SMP/XFTP server list, grouped by client-side group |
++| `views/usersettings/networkAndServers/ProtocolServerView.kt` | PC25, PC34 | Low | Individual server editing, incl. group/note |
++| `views/usersettings/networkAndServers/NewServerView.kt` | PC25, PC34 | Low | Add new server(s) by hand (one address per line for a batch), incl. group/note |
+ | `views/usersettings/networkAndServers/ScanProtocolServer.kt` | PC25 | Low | QR scan for server address |
+ 
+ ### 1.10 Views — Database & Migration
+diff --git a/apps/multiplatform/spec/state.md b/apps/multiplatform/spec/state.md
+index dbce5cfd2..0af122ec8 100644
+--- a/apps/multiplatform/spec/state.md
++++ b/apps/multiplatform/spec/state.md
+@@ -460,6 +460,16 @@ Desktop-only Enter key bindings for the compose field. Values are `ChatEnterKeyC
+ | `messageSendKey` | `ChatEnterKeyCombination` | `ENTER` | Enter combination that sends the message |
+ | `messageNewlineKey` | `ChatEnterKeyCombination` | `SHIFT_ENTER` | Enter combination that inserts a newline |
+ 
++#### Server Metadata (client-only)
++
++Group and note for the user's manually added servers. Deliberately *not* part of `UserServer`, which
++is serialized into the `/_servers` core command and read back from the core; this map is keyed by the
++exact `UserServer.server` address string and never leaves the device.
++
++| Key | Type | Default | Purpose |
++|---|---|---|---|
++| `serverMetadata` | `Map<String, ServerMeta>` | `mapOf()` | `ServerMeta(group: String? = null, note: String? = null)` per server address |
++
+ #### Remote Access (lines 238-243)
+ 
+ | Key | Type | Default | Purpose |
+@@ -506,7 +516,7 @@ Factory methods: `mkBoolPreference`, `mkIntPreference`, `mkLongPreference`, `mkF
+ | File | Path | Key Contents |
+ |---|---|---|
+ | ChatModel.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt) | `ChatModel` singleton (line 86), `ChatsContext` (line 339), `Chat` (line 1328), `ChatInfo` (line 1391), `ChatStats` (line 1370), helper methods |
+-| SimpleXAPI.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt) | `ChatEnterKeyCombination` (line 101), `AppPreferences` (line 128), `ChatController` (line 555), `startReceiver` (line 722), `sendCmd` (line 872), `recvMsg` (line 897), `processReceivedMsg` (line 2824) |
++| SimpleXAPI.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt) | `ChatEnterKeyCombination` (line 101), `AppPreferences` (line 128), `serverMetadata` (line 274), `ChatController` (line 567), `startReceiver` (line 731), `sendCmd` (line 881), `recvMsg` (line 906), `processReceivedMsg` (line 2833), `ServerMeta` (line 4859) |
+ | ChatItemsMerger.kt | [`common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatItemsMerger.kt`](../common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatItemsMerger.kt) | `ActiveChatState` (line 196), chat item merge/diff logic |
+ | Core.kt | [`common/src/commonMain/kotlin/chat/simplex/common/platform/Core.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Core.kt) | `initChatController` (line 62), state initialization flow |
+ | App.kt | [`common/src/commonMain/kotlin/chat/simplex/common/App.kt`](../common/src/commonMain/kotlin/chat/simplex/common/App.kt) | `AppScreen` (line 47), `MainScreen` (line 84), top-level UI state reads |
+diff --git a/plans/2026-10-12-server-group-and-note.md b/plans/2026-10-12-server-group-and-note.md
+new file mode 100644
+index 000000000..72b683bc2
+--- /dev/null
++++ b/plans/2026-10-12-server-group-and-note.md
+@@ -0,0 +1,110 @@
++# Plan: Server Grouping and Notes (TODO item 5)
++
++Date: 2026-10-12
++Base version: 7.0.4
++Status: implemented
++
++## Problem
++
++The user's server list (`Settings -> Advanced settings -> Network and servers -> Your servers`)
++renders one row per server showing only the host address. With several manually added servers the
++list is hard to read and impossible to organize. The request (TODO.md item 5) is to let the user put
++manually added servers into groups and attach a free-form note to each server.
++
++## Why not store this on `UserServer`
++
++`UserServer` is not a client-only structure. The whole `List<UserOperatorServers>` is serialized
++straight into a core command:
++
++```
++// model/SimpleXAPI.kt
++is ApiSetUserServers -> "/_servers $userId ${json.encodeToString(userServers)}"
++```
++
++and the client list is the result of parsing the core's reply (`getUserServers`). The Haskell store
++owns the server list; any Kotlin-only field added to `UserServer` would survive at most one
++round-trip and then silently disappear (or, worse, make the core command fail to decode). Adding the
++metadata to the core would require changes in the pinned `simplexmq` / simplex-chat core, which the
++TODO.md portability requirement asks us to avoid for a purely cosmetic feature.
++
++## Solution
++
++Store the metadata in client preferences, keyed by the server address string:
++
++```kotlin
++@Serializable data class ServerMeta(val group: String? = null, val note: String? = null)
++
++// AppPreferences
++val serverMetadata = mkMapPreference(
++  SHARED_PREFS_SERVER_METADATA, mapOf(),
++  encode = { json.encodeToString(MapSerializer(String.serializer(), ServerMeta.serializer()), it) },
++  decode = { jsonCoerceInputValues.decodeFromString(MapSerializer(String.serializer(), ServerMeta.serializer()), it) }
++)
++```
++
++- `SharedPreference.state` is a Compose `State`, so the server list recomposes as soon as metadata
++  is saved (no extra plumbing).
++- `jsonCoerceInputValues` tolerates unknown values on decode, so a future `ServerMeta` with more
++  fields stays forward/backward compatible.
++- Entries for servers that no longer exist remain in the map but are never rendered; they are
++  dropped when a blank metadata is saved for that address.
++
++## Design decisions
++
++- **Keyed by address, not by `serverId`.** `UserServer.serverId` and `remoteHostId` are assigned by
++  the core and change when a server is re-added; the address is what the user sees and edits. When
++  the user edits the address in `ProtocolServerView`, `saveServerMetadata(previousAddress, address,
++  meta)` moves the entry to the new key.
++- **Split of the pure part.** `updatedServerMetadata` is a pure function over the map so it can be
++  unit tested without preferences; `saveServerMetadata` only wires it to `appPrefs`.
++- **Grouped rendering in one place.** `ServersSection` renders one protocol's list (SMP or XFTP):
++  servers without a group first in their original order, then groups in first-appearance order
++  (stable `sortedBy`, ungrouped = `""`), with a small caption header before each group. The indices
++  are kept from the original list so `navigateToProtocolView(i, server, protocol)` still addresses
++  the right item.
++- **Editable in both modals.** `ServerGroupAndNoteSection` is shared by the add form
++  (`NewServerView`) and the edit modal (`ProtocolServerView`), so a server can be grouped when it is
++  added or later.
++- **Batch add.** When several servers are added at once (TODO item 4), the same group/note is applied
++  to every address that was actually added (invalid lines are skipped).
++- **Localized text.** New strings are `smp_servers_group_and_note`, `smp_servers_group`,
++  `smp_servers_group_placeholder`, `smp_servers_note`, `smp_servers_note_placeholder`,
++  `smp_servers_group_and_note_footer` (base + zh-rCN). The footer tells the user the data never
++  leaves the device.
++- **Not part of `AppSettings`.** Like the desktop Enter-key preferences (TODO item 1), this stays a
++  device-local preference and the cross-device backup format is unchanged. The tradeoff is that the
++  group/note does not follow a device migration; folding the map into `AppSettings` later is
++  possible (nullable fields are backward-compatible) but was out of scope here.
++
++## Steps
++
++1. `model/SimpleXAPI.kt`: add `ServerMeta`, `SHARED_PREFS_SERVER_METADATA`, `serverMetadata`.
++2. `ProtocolServersView.kt`: note line in `ProtocolServerViewLink`, new `ServersSection`,
++   `serverGroup` / `updatedServerMetadata` / `saveServerMetadata`; use `ServersSection` for the SMP
++   and XFTP lists.
++3. `ProtocolServerView.kt`: load metadata for the edited server, save it on close, new shared
++   `ServerGroupAndNoteSection`.
++4. `NewServerView.kt`: metadata state, section in the add form, write metadata for every added
++   address in `addServer`.
++5. `strings.xml` (base + zh-rCN).
++6. Test `updatedServerMetadata` / `serverGroup` in `ServerMetadataTest.kt`.
++7. Docs: `product/concepts.md` (PC34), `product/views/settings.md`, `product/rules.md` (RULE-19),
++   `spec/api.md` §2.10, `spec/impact.md`, `spec/state.md`.
++
++## Adversarial review
++
++- *Does a missing entry break rendering?* No: `serverGroup` returns `null` and `metadata[address]`
++  is `null`, so the row renders exactly as before.
++- *Does the metadata leak to the core?* No: it is only read/written through `appPrefs`, and
++  `UserServer` is untouched (the FFI/JSON payload is byte-identical to before, so
++  `ApiSetUserServers` keeps working).
++- *Does the sort break navigation?* `sortedBy` is stable and the `IndexedValue` index is carried
++  through, so `navigateToProtocolView` still gets the list index.
++- *Can a group header be emitted twice?* Only when the group changes (`group != currentGroup`), and
++  `currentGroup` tracks the last emitted group; equal groups are adjacent because of the sort.
++- *Is a stale entry a leak?* It is a few bytes in a preference; it is removed whenever the user
++  saves a blank group/note for that key and cannot be displayed, since it is keyed by an address
++  that no longer exists in the list.
++- *Untested UI path?* The composables are not unit-testable in this project (no Compose test
++  harness), so the test target is the pure metadata map logic plus the full desktop test run; the
++  two clean passes were done by re-reading the final diff.

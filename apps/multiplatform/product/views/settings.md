@@ -75,6 +75,24 @@ chat-relay option sit next to it). Used for both adding a server and editing an 
 Editing an existing server keeps the previous single-address behaviour (`allowMultipleAddresses`
 defaults to `false`).
 
+##### Grouping and Notes
+
+Manually added servers can be organised into named groups and given a free-form note, so the list
+does not read as a bare list of addresses.
+
+| Element | Behaviour |
+|---|---|
+| Group field | Optional group name, in the add form and in the edit modal (`ServerGroupAndNoteSection`). Servers sharing a group name are shown together under a small caption header. |
+| Note field | Optional free-form note, shown as a second line under the server address in the list. |
+| Footer | "Group and note are stored only on this device and are never sent to the servers." |
+| Grouped list | `ServersSection` renders servers without a group first (original order), then each group in the order it first appears, keeping the original list indices for navigation. |
+| Renaming an address | The metadata entry follows the address: it is moved to the new key and the old key is dropped. |
+
+Group and note live in the client-only `serverMetadata` map preference, keyed by the server address
+string. They are deliberately *not* fields of `UserServer`: that structure is serialized into the
+`/_servers` core command and read back from the core, so client-only fields would be lost on the
+next round-trip (see `spec/api.md` §2.10).
+
 #### Audio & Video Calls (`CallSettingsView`)
 
 | Setting | Description |

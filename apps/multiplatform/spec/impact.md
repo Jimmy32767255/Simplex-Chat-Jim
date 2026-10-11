@@ -56,7 +56,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `App.kt` | PC1 through PC31 | High | Root composable — navigation scaffold for all features |
 | `AppLock.kt` | PC22 | Medium | App lock state and authorization lifecycle |
 | `model/ChatModel.kt` | PC1 through PC31 | High | Central state object — every feature reads or writes here |
-| `model/SimpleXAPI.kt` | PC1 through PC32 | High | FFI bridge to Haskell core — all commands and responses |
+| `model/SimpleXAPI.kt` | PC1 through PC34 | High | FFI bridge to Haskell core — all commands and responses |
 | `model/CryptoFile.kt` | PC10, PC23 | Medium | Encrypted file read/write helpers |
 | `platform/Core.kt` | PC1 through PC31 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
 | `platform/AppCommon.kt` | PC1 through PC31 | Medium | Shared app initialization logic |
@@ -227,9 +227,9 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `views/usersettings/networkAndServers/NetworkAndServers.kt` | PC25 | High | Server and network configuration hub |
 | `views/usersettings/networkAndServers/AdvancedNetworkSettings.kt` | PC25 | Medium | SOCKS proxy, timeouts, etc. |
 | `views/usersettings/networkAndServers/OperatorView.kt` | PC25 | Medium | Server operator management |
-| `views/usersettings/networkAndServers/ProtocolServersView.kt` | PC25 | Medium | SMP/XFTP server list |
-| `views/usersettings/networkAndServers/ProtocolServerView.kt` | PC25 | Low | Individual server editing |
-| `views/usersettings/networkAndServers/NewServerView.kt` | PC25 | Low | Add new server(s) by hand (one address per line for a batch) |
+| `views/usersettings/networkAndServers/ProtocolServersView.kt` | PC25, PC34 | Medium | SMP/XFTP server list, grouped by client-side group |
+| `views/usersettings/networkAndServers/ProtocolServerView.kt` | PC25, PC34 | Low | Individual server editing, incl. group/note |
+| `views/usersettings/networkAndServers/NewServerView.kt` | PC25, PC34 | Low | Add new server(s) by hand (one address per line for a batch), incl. group/note |
 | `views/usersettings/networkAndServers/ScanProtocolServer.kt` | PC25 | Low | QR scan for server address |
 
 ### 1.10 Views — Database & Migration

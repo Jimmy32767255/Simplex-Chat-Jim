@@ -460,6 +460,16 @@ Desktop-only Enter key bindings for the compose field. Values are `ChatEnterKeyC
 | `messageSendKey` | `ChatEnterKeyCombination` | `ENTER` | Enter combination that sends the message |
 | `messageNewlineKey` | `ChatEnterKeyCombination` | `SHIFT_ENTER` | Enter combination that inserts a newline |
 
+#### Server Metadata (client-only)
+
+Group and note for the user's manually added servers. Deliberately *not* part of `UserServer`, which
+is serialized into the `/_servers` core command and read back from the core; this map is keyed by the
+exact `UserServer.server` address string and never leaves the device.
+
+| Key | Type | Default | Purpose |
+|---|---|---|---|
+| `serverMetadata` | `Map<String, ServerMeta>` | `mapOf()` | `ServerMeta(group: String? = null, note: String? = null)` per server address |
+
 #### Remote Access (lines 238-243)
 
 | Key | Type | Default | Purpose |
@@ -506,7 +516,7 @@ Factory methods: `mkBoolPreference`, `mkIntPreference`, `mkLongPreference`, `mkF
 | File | Path | Key Contents |
 |---|---|---|
 | ChatModel.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt) | `ChatModel` singleton (line 86), `ChatsContext` (line 339), `Chat` (line 1328), `ChatInfo` (line 1391), `ChatStats` (line 1370), helper methods |
-| SimpleXAPI.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt) | `ChatEnterKeyCombination` (line 101), `AppPreferences` (line 128), `ChatController` (line 555), `startReceiver` (line 722), `sendCmd` (line 872), `recvMsg` (line 897), `processReceivedMsg` (line 2824) |
+| SimpleXAPI.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt) | `ChatEnterKeyCombination` (line 101), `AppPreferences` (line 128), `serverMetadata` (line 274), `ChatController` (line 567), `startReceiver` (line 731), `sendCmd` (line 881), `recvMsg` (line 906), `processReceivedMsg` (line 2833), `ServerMeta` (line 4859) |
 | ChatItemsMerger.kt | [`common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatItemsMerger.kt`](../common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatItemsMerger.kt) | `ActiveChatState` (line 196), chat item merge/diff logic |
 | Core.kt | [`common/src/commonMain/kotlin/chat/simplex/common/platform/Core.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Core.kt) | `initChatController` (line 62), state initialization flow |
 | App.kt | [`common/src/commonMain/kotlin/chat/simplex/common/App.kt`](../common/src/commonMain/kotlin/chat/simplex/common/App.kt) | `AppScreen` (line 47), `MainScreen` (line 84), top-level UI state reads |

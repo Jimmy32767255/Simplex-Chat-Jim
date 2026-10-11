@@ -268,6 +268,14 @@ class AppPreferences {
     jsonCoerceInputValues.decodeFromString(MapSerializer(String.serializer(), ThemeOverrides.serializer()), it)
   }, settingsThemes)
   val themeOverrides = mkThemeOverridesPreference()
+  // Client-only grouping/notes for the user's servers, keyed by the server address.
+  // It is deliberately kept out of the server list that is sent to the core, so it
+  // survives independently of the core's `UserServer` representation.
+  val serverMetadata = mkMapPreference(SHARED_PREFS_SERVER_METADATA, mapOf(), encode = {
+    json.encodeToString(MapSerializer(String.serializer(), ServerMeta.serializer()), it)
+  }, decode = {
+    jsonCoerceInputValues.decodeFromString(MapSerializer(String.serializer(), ServerMeta.serializer()), it)
+  })
   val profileImageCornerRadius = mkFloatPreference(SHARED_PREFS_PROFILE_IMAGE_CORNER_RADIUS, 22.5f)
   val chatItemRoundness = mkFloatPreference(SHARED_PREFS_CHAT_ITEM_ROUNDNESS, 0.75f)
   val chatItemTail = mkBoolPreference(SHARED_PREFS_CHAT_ITEM_TAIL, true)
@@ -536,6 +544,7 @@ class AppPreferences {
     private const val SHARED_PREFS_CONNECT_REMOTE_VIA_MULTICAST_AUTO = "ConnectRemoteViaMulticastAuto"
     private const val SHARED_PREFS_OFFER_REMOTE_MULTICAST = "OfferRemoteMulticast"
     private const val SHARED_PREFS_DESKTOP_WINDOW_STATE = "DesktopWindowState"
+    private const val SHARED_PREFS_SERVER_METADATA = "ServerMetadata"
     private const val SHARED_PREFS_DESKTOP_CLOSE_BEHAVIOR = "DesktopCloseBehavior"
     private const val SHARED_PREFS_DESKTOP_MESSAGE_SEND_KEY = "DesktopMessageSendKey"
     private const val SHARED_PREFS_DESKTOP_MESSAGE_NEWLINE_KEY = "DesktopMessageNewlineKey"
@@ -4840,6 +4849,24 @@ data class GroupShortLinkInfo(
   val groupRelays: List<String>,
   val publicGroupId: String? = null
 )
+
+/**
+ * Client-side grouping and note for a server address, stored in [AppPreferences.serverMetadata].
+ * It is not part of [UserServer], which is serialized to the core, so the core neither sees nor
+ * persists it.
+ */
+@Serializable
+data class ServerMeta(
+  val group: String? = null,
+  val note: String? = null,
+) {
+  val isBlank: Boolean
+    get() = group.isNullOrBlank() && note.isNullOrBlank()
+
+  companion object {
+    val empty = ServerMeta()
+  }
+}
 
 @Serializable
 data class UserServer(

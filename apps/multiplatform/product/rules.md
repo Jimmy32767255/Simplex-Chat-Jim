@@ -12,6 +12,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
 4. [File Transfer (RULE-14 through RULE-15)](#4-file-transfer)
 5. [Notification Delivery (RULE-16 through RULE-17)](#5-notification-delivery)
 6. [Call Integrity (RULE-18)](#6-call-integrity)
+7. [Network Configuration (RULE-19)](#7-network-configuration)
 
 ---
 
@@ -251,3 +252,36 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
 - `common/src/commonMain/kotlin/chat/simplex/common/views/call/WebRTC.kt`
 - Android: `android/src/main/java/chat/simplex/app/CallService.kt`, `android/src/main/java/chat/simplex/app/views/call/CallActivity.kt`
 - Desktop: `common/src/desktopMain/kotlin/chat/simplex/common/views/call/CallView.desktop.kt`
+
+---
+
+## 7. Network Configuration
+
+### RULE-19: Client-Only Server Display Metadata
+
+Organisational data about the user's servers -- the group a server belongs to and the free-form note
+attached to it -- is display metadata owned by the client.
+
+1. **`UserServer` MUST NOT gain client-only fields.** The user's server list is serialized verbatim
+   into the core command `/_servers <userId> <json>` (`ApiSetUserServers`) and parsed back out of the
+   core's reply, so any Kotlin-only field would be silently dropped on the next round-trip. Group
+   and note are therefore stored in the preference map `AppPreferences.serverMetadata`
+   (`Map<String, ServerMeta>`, `SharedPreferences` key `ServerMetadata`), keyed by the exact
+   `UserServer.server` address string.
+2. **Metadata MUST never be sent to the core or to a server.** `serverMetadata` is read and written
+   only through `AppPreferences`; it is not part of any `CC` command, and the UI states this to the
+   user ("Group and note are stored only on this device and are never sent to the servers.").
+3. **Metadata MUST follow the address.** When the user edits a server's address, the entry is moved
+   from the previous key to the new one and the old key is removed
+   (`updatedServerMetadata`), so an address edit never silently loses the group/note.
+4. **Blank metadata MUST be dropped.** Saving an empty group and note for an address removes the
+   entry rather than leaving an empty `ServerMeta` behind.
+
+**Enforcement:**
+- `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServersView.kt`
+  (`updatedServerMetadata`, `saveServerMetadata`, `serverGroup`, `ServersSection`)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServerView.kt`
+  (`ServerGroupAndNoteSection`, saved on modal close)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt`
+  (batch add applies the same metadata to every added address)
+- Test: `common/src/commonTest/kotlin/chat/simplex/app/ServerMetadataTest.kt`

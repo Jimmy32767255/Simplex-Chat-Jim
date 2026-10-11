@@ -102,16 +102,12 @@ fun YourServersViewLayout(
     if (userServers.value[operatorIndex].smpServers.any { !it.deleted }) {
       SectionDividerSpaced()
       SectionView(generalGetString(MR.strings.message_servers)) {
-        userServers.value[operatorIndex].smpServers.forEachIndexed { i, server  ->
-          if (server.deleted) return@forEachIndexed
-          SectionItemView({ navigateToProtocolView(i, server, ServerProtocol.SMP) }) {
-            ProtocolServerViewLink(
-              srv = server,
-              serverProtocol = ServerProtocol.SMP,
-              duplicateHosts = duplicateHosts
-            )
-          }
-        }
+        ServersSection(
+          userServers.value[operatorIndex].smpServers,
+          ServerProtocol.SMP,
+          duplicateHosts,
+          navigateToProtocolView = { i, server -> navigateToProtocolView(i, server, ServerProtocol.SMP) }
+        )
       }
       val smpErr = globalSMPServersError(serverErrors.value)
       if (smpErr != null) {
@@ -136,16 +132,12 @@ fun YourServersViewLayout(
     if (userServers.value[operatorIndex].xftpServers.any { !it.deleted }) {
       SectionDividerSpaced()
       SectionView(generalGetString(MR.strings.media_and_file_servers)) {
-        userServers.value[operatorIndex].xftpServers.forEachIndexed { i, server ->
-          if (server.deleted) return@forEachIndexed
-          SectionItemView({ navigateToProtocolView(i, server, ServerProtocol.XFTP) }) {
-            ProtocolServerViewLink(
-              srv = server,
-              serverProtocol = ServerProtocol.XFTP,
-              duplicateHosts = duplicateHosts
-            )
-          }
-        }
+        ServersSection(
+          userServers.value[operatorIndex].xftpServers,
+          ServerProtocol.XFTP,
+          duplicateHosts,
+          navigateToProtocolView = { i, server -> navigateToProtocolView(i, server, ServerProtocol.XFTP) }
+        )
       }
       val xftpErr = globalXFTPServersError(serverErrors.value)
       if (xftpErr != null) {
@@ -313,7 +305,7 @@ fun showAddServerDialog(
 }
 
 @Composable
-fun ProtocolServerViewLink(serverProtocol: ServerProtocol, srv: UserServer, duplicateHosts: Set<String>) {
+fun ProtocolServerViewLink(serverProtocol: ServerProtocol, srv: UserServer, duplicateHosts: Set<String>, note: String? = null) {
   val address = parseServerAddress(srv.server)
   when {
     address == null || !address.valid || address.serverProtocol != serverProtocol || address.hostnames.any { it in duplicateHosts } -> InvalidServer()
@@ -322,11 +314,79 @@ fun ProtocolServerViewLink(serverProtocol: ServerProtocol, srv: UserServer, dupl
   }
   Spacer(Modifier.padding(horizontal = 4.dp))
   val text = address?.hostnames?.firstOrNull() ?: srv.server
-  if (srv.enabled) {
-    Text(text, color = MaterialTheme.colors.onBackground, maxLines = 1)
-  } else {
-    Text(text, maxLines = 1, color = MaterialTheme.colors.secondary)
+  Column {
+    if (srv.enabled) {
+      Text(text, color = MaterialTheme.colors.onBackground, maxLines = 1)
+    } else {
+      Text(text, maxLines = 1, color = MaterialTheme.colors.secondary)
+    }
+    if (!note.isNullOrBlank()) {
+      Text(
+        note,
+        color = MaterialTheme.colors.secondary,
+        style = MaterialTheme.typography.caption,
+        maxLines = 1
+      )
+    }
   }
+}
+
+/**
+ * The user's server list grouped by the client-side [ServerMeta.group], with the per-server note
+ * shown under the address. Servers without a group come first, in their original order; groups
+ * follow in the order they first appear among the servers.
+ */
+@Composable
+fun ServersSection(
+  servers: List<UserServer>,
+  serverProtocol: ServerProtocol,
+  duplicateHosts: Set<String>,
+  navigateToProtocolView: (Int, UserServer) -> Unit
+) {
+  val metadata = ChatController.appPrefs.serverMetadata.state.value
+  val visible = servers.withIndex().filter { !it.value.deleted }
+  val ordered = visible.sortedBy { serverGroup(metadata, it.value.server) ?: "" }
+  var currentGroup: String? = null
+  for ((index, server) in ordered) {
+    val group = serverGroup(metadata, server.server)
+    if (group != null && group != currentGroup) {
+      Text(
+        group,
+        color = MaterialTheme.colors.secondary,
+        style = MaterialTheme.typography.caption,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier.padding(start = DEFAULT_PADDING, top = DEFAULT_PADDING_HALF, bottom = 2.dp)
+      )
+    }
+    currentGroup = group
+    SectionItemView({ navigateToProtocolView(index, server) }) {
+      ProtocolServerViewLink(serverProtocol, server, duplicateHosts, metadata[server.server]?.note)
+    }
+  }
+}
+
+internal fun serverGroup(metadata: Map<String, ServerMeta>, address: String): String? =
+  metadata[address]?.group?.takeIf { it.isNotBlank() }
+
+/**
+ * Returns the new server metadata map after saving [meta] for [address], moving it from
+ * [previousAddress] when the address was edited, and dropping the entry when it became blank.
+ */
+internal fun updatedServerMetadata(
+  current: Map<String, ServerMeta>,
+  previousAddress: String,
+  address: String,
+  meta: ServerMeta
+): Map<String, ServerMeta> {
+  val updated = current.toMutableMap()
+  if (previousAddress != address) updated.remove(previousAddress)
+  if (meta.isBlank) updated.remove(address) else updated[address] = meta
+  return updated
+}
+
+internal fun saveServerMetadata(previousAddress: String, address: String, meta: ServerMeta) {
+  val prefs = ChatController.appPrefs.serverMetadata
+  prefs.set(updatedServerMetadata(prefs.get(), previousAddress, address, meta))
 }
 
 @Composable

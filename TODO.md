@@ -30,7 +30,14 @@
   - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt`（新增 `serverAddresses`，重写 `addServer` 支持批量）、`.../networkAndServers/ProtocolServerView.kt`（`CustomServer` 新增 `allowMultipleAddresses` 参数）、`apps/multiplatform/common/src/commonMain/resources/MR/{base,zh-rCN}/strings.xml`（新增提示文案 `smp_servers_new_server_multiple_hint`）。
   - 不修改核心（Haskell）与网络协议，仅把多行地址在客户端展开成多条既有的 `UserServer` 记录，便于日后跟随官方版本升级。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/BatchServersTest.kt`（6 个用例，覆盖单地址、多地址、`\r\n`/`\r` 换行、空行与空白、去重顺序、空输入），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
-- [ ] 服务器分组和备注（对手动添加的服务器允许手动分组和添加备注，不然现在全是地址根本不可读）
+- [x] 服务器分组和备注（对手动添加的服务器允许手动分组和添加备注，不然现在全是地址根本不可读）
+  - **已实现（基于 7.0.4）**：「添加服务器 → 手动输入服务器」与「编辑已有服务器」两个界面都新增了「分组与备注」一栏：分组名可选，备注可选，填写后服务器列表按分组显示（无分组的排在最前，保持原有顺序，之后按分组首次出现的顺序依次显示分组标题），备注作为第二行小字显示在地址下方。
+  - 分组/备注只保存在客户端偏好里（`AppPreferences.serverMetadata`，`Map<String, ServerMeta>`，以服务器地址字符串为键），**不会**写进 `UserServer`：因为 `UserServer` 会被序列化成核心命令 `/_servers` 并从句柄端读回，任何客户端专属字段都会在下一次往返时丢失。因此不动核心（Haskell）与网络协议，便于日后跟随官方版本升级。
+  - 编辑服务器地址时分组/备注会跟着迁移到新地址（旧键会被删除）；分组与备注都清空时对应记录会被删除，不留空条目。
+  - 批量添加服务器时，本次成功添加的每个地址都会写入同一份分组/备注（非法地址会被跳过）。
+  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`（新增 `ServerMeta`、`SHARED_PREFS_SERVER_METADATA`、`serverMetadata`）、`.../views/usersettings/networkAndServers/ProtocolServersView.kt`（`ServersSection`、`serverGroup`、`updatedServerMetadata`、`saveServerMetadata`）、`.../networkAndServers/ProtocolServerView.kt`（`ServerGroupAndNoteSection`）、`.../networkAndServers/NewServerView.kt`、`apps/multiplatform/common/src/commonMain/resources/MR/{base,zh-rCN}/strings.xml`。
+  - 与条目 1 一致，未加入 `AppSettings` 跨设备导入/导出结构，备份格式保持不变（代价是分组/备注不会随设备迁移一起带走，日后如需可再补上，新增可空字段是向后兼容的）。
+  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ServerMetadataTest.kt`（8 个用例，覆盖新增/更新/清空删除/改地址迁移/保留其他条目/分组名归一化），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
 - [ ] 查看和复制头像（点击群和其他用户头像的时候）
 - [ ] 群成员连接率和百分比显示（在群成员列表标题处，就像主页上方标题一样）
 - [ ] 收起群成员列表（不然在大群里拉到最下面要很长时间）
