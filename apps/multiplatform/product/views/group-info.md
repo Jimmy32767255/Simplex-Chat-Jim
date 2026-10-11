@@ -78,6 +78,18 @@ Displays `activeSortedMembers` (excluding left/removed members, sorted by role d
 | Member status | Active, connecting, pending, left, removed |
 | Tap action | Opens `GroupMemberInfoView` with connection stats and verification code |
 
+### Change All Members' Receiving Address
+
+Shown below the member list in non-relay groups (hidden when the user has no active member
+connections). Requires confirmation via `showSwitchAllMembersAddressAlert`.
+
+| Element | Description |
+|---|---|
+| Change all members' receiving addresses | Iterates every member with a non-null `activeConn` and runs `apiSwitchGroupMember` for each, updating connection stats through `updateGroupMemberConnectionStats`; members without an active connection are skipped (the core would reject them with `CEGroupMemberNotActive`) |
+| Footer | Explains that every member connection switches server and that the change may take time for offline members |
+
+Relay/channel groups (`groupInfo.useRelays`) keep using the per-relay controls in `ChannelRelaysView`.
+
 ### Group Link (`GroupLinkView`)
 
 | Element | Description |

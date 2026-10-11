@@ -198,11 +198,13 @@ All functions below are `suspend fun` members of `ChatController` ([SimpleXAPI.k
 | `apiSetUserAddressSettings` | `rh: Long?, settings: AddressSettings` | Configure auto-accept for incoming contact requests | [L1795](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1795) |
 | `apiAcceptContactRequest` | `rh: Long?, incognito: Boolean, contactReqId: Long` | Accept an incoming contact request | [L1809](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1809) |
 | `apiRejectContactRequest` | `rh: Long?, contactReqId: Long` | Reject an incoming contact request | [L1832](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1832) |
-| `apiSwitchContact` | `rh: Long?, contactId: Long` | Initiate SMP server switch for a contact | [L1374](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1374) |
-| `apiAbortSwitchContact` | `rh: Long?, contactId: Long` | Abort an in-progress server switch | [L1388](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1388) |
-| `apiSyncContactRatchet` | `rh: Long?, contactId: Long, force: Boolean` | Force ratchet synchronization with a contact | [L1402](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1402) |
-| `apiGetContactCode` | `rh: Long?, contactId: Long` | Get the security verification code for a contact | [L1416](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1416) |
-| `apiVerifyContact` | `rh: Long?, contactId: Long, connectionCode: String?` | Verify a contact's security code | [L1430](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1430) |
+| `apiSwitchContact` | `rh: Long?, contactId: Long` | Initiate SMP server switch for a contact | [L1470](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1470) |
+| `apiSwitchGroupMember` | `rh: Long?, groupId: Long, groupMemberId: Long` | Initiate SMP server switch for one group member connection; returns the updated member and stats, or `null` on error | [L1477](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1477) |
+| `apiAbortSwitchContact` | `rh: Long?, contactId: Long` | Abort an in-progress server switch | [L1484](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1484) |
+| `apiAbortSwitchGroupMember` | `rh: Long?, groupId: Long, groupMemberId: Long` | Abort an in-progress server switch for one group member connection | [L1491](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1491) |
+| `apiSyncContactRatchet` | `rh: Long?, contactId: Long, force: Boolean` | Force ratchet synchronization with a contact | [L1498](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1498) |
+| `apiGetContactCode` | `rh: Long?, contactId: Long` | Get the security verification code for a contact | [L1512](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1512) |
+| `apiVerifyContact` | `rh: Long?, contactId: Long, connectionCode: String?` | Verify a contact's security code | [L1526](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1526) |
 
 ### 2.6 File Operations
 

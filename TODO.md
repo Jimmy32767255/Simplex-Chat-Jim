@@ -11,7 +11,13 @@
   - 输入框改动：`apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/PlatformTextField.desktop.kt`；设置界面改动：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt`。
   - 未加入 `AppSettings` 跨设备导入/导出结构（该设置与设备、输入方式相关），因此备份格式保持不变。
   - 测试：新增 `ChatEnterKeyCombinationTest`，`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
-- [ ] 一键更改群中所有人的接收地址（其实就是重建所有连接，基本上相当于重新进群）
+- [x] 一键更改群中所有人的接收地址（其实就是重建所有连接，基本上相当于重新进群）
+  - **已实现（基于 7.0.4）**：群资料页成员列表下方新增「更改所有成员的接收地址」一行（仅普通群显示，频道/中继群不显示），点击后先弹确认框。
+  - 确认后对每一个拥有活动连接的成员依次调用既有的 `apiSwitchGroupMember`，并把返回的连接状态通过 `updateGroupMemberConnectionStats` 写回模型（主、副聊天上下文都会更新），行为与成员详情页里单个成员的「更改接收地址」完全一致。
+  - 没有活动连接的成员会被跳过：核心端对这类成员会返回 `CEGroupMemberNotActive`；没有任何成员连接时该行不显示。单个成员失败只弹一次 `error_changing_address` 提示，不会中断其余成员。
+  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`（新增回调与按钮行）、`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt`（`SwitchAllMembersAddressButton`、`showSwitchAllMembersAddressAlert`）。
+  - 不修改核心（Haskell）与网络协议，纯粹复用已有的单连接切换命令，便于日后跟随官方版本升级。
+  - 测试：`./gradlew :common:desktopTest` 通过（该改动为 UI + 既有 FFI 调用序列，无独立可测纯函数）。差异补丁见 `diff/`。
 - [ ] 手动指定接收地址（更改接受地址的时候添加一个手动选择的按钮，然后列出当前所有服务器，全部变成复选框的形式，还要有全选和反选按钮）
 - [ ] 批量添加服务器（在 设置→高级设置→网络和服务器→你的服务器→添加服务器→手动输入服务器 里面允许一次添加多台服务器，使用换行分隔，这一次添加的所有服务器都统一使用下方的设置）
 - [ ] 服务器分组和备注（对手动添加的服务器允许手动分组和添加备注，不然现在全是地址根本不可读）

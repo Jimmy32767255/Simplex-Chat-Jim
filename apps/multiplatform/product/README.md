@@ -101,6 +101,7 @@ Multi-party encrypted conversations with role-based management.
 | Content moderation | Member reports and moderator actions | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/MemberSupportView.kt` |
 | Group preferences | Configure group-level feature settings | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupPreferences.kt` |
 | Member direct contacts | Establish direct chats from group membership | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupMemberInfoView.kt` |
+| Change all members' receiving address | Switch the receiving server for every member connection in one action | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt` |
 | Group mentions | @-mention members in group messages | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupMentions.kt` |
 | Welcome message | Custom welcome message for new group members | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/WelcomeMessageView.kt` |
 | Group profile | Edit group name, image, description | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupProfileView.kt` |
