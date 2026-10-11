@@ -132,12 +132,12 @@ fun SectionView(
 }
 
 @Composable
-fun SectionViewWithButton(title: String? = null, titleButton: (@Composable () -> Unit)?, contentPadding: PaddingValues = PaddingValues(), headerBottomPadding: Dp = DEFAULT_PADDING, content: (@Composable ColumnScope.() -> Unit)) {
+fun SectionViewWithButton(title: String? = null, titleButton: (@Composable () -> Unit)?, contentPadding: PaddingValues = PaddingValues(), headerBottomPadding: Dp = DEFAULT_PADDING, cardShape: Shape = SectionCardShape, content: (@Composable ColumnScope.() -> Unit)) {
   val card = LocalCardScreen.current
   Column {
     if (title != null || titleButton != null) {
       val hPadding = if (card) DEFAULT_PADDING + DEFAULT_PADDING_HALF else DEFAULT_PADDING
-      Row(modifier = Modifier.padding(start = hPadding, end = hPadding, bottom = if (card) 8.dp else headerBottomPadding).fillMaxWidth()) {
+      Row(modifier = Modifier.padding(start = hPadding, end = hPadding, bottom = if (card) 8.dp else headerBottomPadding).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         if (title != null) {
           Text(title, color = MaterialTheme.colors.secondary, style = MaterialTheme.typography.body2, fontSize = if (card) 14.sp else 12.sp, fontWeight = if (card) FontWeight.Medium else FontWeight.Normal)
         }
@@ -147,7 +147,7 @@ fun SectionViewWithButton(title: String? = null, titleButton: (@Composable () ->
         }
       }
     }
-    CardColumn(contentPadding) { content() }
+    CardColumn(contentPadding, cardShape) { content() }
   }
 }
 

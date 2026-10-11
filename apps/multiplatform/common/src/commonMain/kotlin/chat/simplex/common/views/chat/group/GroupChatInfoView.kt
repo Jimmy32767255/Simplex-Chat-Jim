@@ -9,6 +9,7 @@ import SectionItemViewSpaceBetween
 import SectionDividerSpaced
 import SectionTextFooter
 import SectionView
+import SectionViewWithButton
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.desktop.ui.tooling.preview.Preview
@@ -52,6 +53,7 @@ import chat.simplex.common.views.newchat.SimpleXLinkQRCode
 import chat.simplex.res.MR
 import dev.icerock.moko.resources.StringResource
 import kotlinx.coroutines.*
+import kotlin.math.floor
 
 const val SMALL_GROUPS_RCPS_MEM_LIMIT: Int = 20
 val MEMBER_ROW_AVATAR_SIZE = 42.dp
@@ -768,7 +770,12 @@ fun ModalData.GroupChatInfoLayout(
       SectionDividerSpaced()
 
       if (!groupInfo.nextConnectPrepared && !groupInfo.useRelays) {
-        SectionView(title = String.format(generalGetString(MR.strings.group_info_section_title_num_members), activeSortedMembers.count() + 1), cardShape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)) {
+        val (connectedMembers, totalMembers) = groupMembersConnection(activeSortedMembers, groupInfo.membership)
+        SectionViewWithButton(
+          title = String.format(generalGetString(MR.strings.group_info_section_title_num_members), totalMembers),
+          titleButton = { GroupMembersConnectionStatus(connectedMembers, totalMembers) },
+          cardShape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+        ) {
           if (groupInfo.canAddMembers) {
             val onAddMembersClick = if (chat.chatInfo.incognito) ::cantInviteIncognitoAlert else addMembers
             val tint = if (chat.chatInfo.incognito) MaterialTheme.colors.secondary else MaterialTheme.colors.primary
@@ -1123,6 +1130,46 @@ private fun AddMembersButton(titleId: StringResource, tint: Color = MaterialThem
     iconColor = tint,
     textColor = tint
   )
+}
+
+enum class GroupMembersConnectionRate {
+  ALL_CONNECTED, PARTIALLY_CONNECTED, NONE_CONNECTED
+}
+
+/**
+ * The number of connected members and the total number of members of a group.
+ * The current user's membership is counted in both, as it is in the member list title.
+ */
+internal fun groupMembersConnection(members: List<GroupMember>, currentMembership: GroupMember): Pair<Int, Int> =
+  (members.count { it.ready } + if (currentMembership.ready) 1 else 0) to (members.size + 1)
+
+/** The connection rate of a group as a whole, based on how many members have a ready connection. */
+internal fun groupMembersConnectionRate(connected: Int, total: Int): GroupMembersConnectionRate = when {
+  total <= 0 || connected <= 0 -> GroupMembersConnectionRate.NONE_CONNECTED
+  connected >= total -> GroupMembersConnectionRate.ALL_CONNECTED
+  else -> GroupMembersConnectionRate.PARTIALLY_CONNECTED
+}
+
+@Composable
+private fun GroupMembersConnectionStatus(connected: Int, total: Int) {
+  val percentage = if (total > 0) floor(100f * connected / total).toInt() else 0
+  val (icon, tint) = when (groupMembersConnectionRate(connected, total)) {
+    GroupMembersConnectionRate.ALL_CONNECTED -> MR.images.ic_circle_filled to Color.Green
+    GroupMembersConnectionRate.PARTIALLY_CONNECTED -> MR.images.ic_pending_filled to WarningYellow
+    GroupMembersConnectionRate.NONE_CONNECTED -> MR.images.ic_error_filled to MaterialTheme.colors.secondary
+  }
+  Row(
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(DEFAULT_SPACE_AFTER_ICON)
+  ) {
+    Text(
+      "$connected/$total ($percentage%)",
+      color = MaterialTheme.colors.secondary,
+      style = MaterialTheme.typography.caption,
+      fontSize = 12.sp
+    )
+    Icon(painterResource(icon), null, Modifier.size(16.dp), tint = tint)
+  }
 }
 
 @Composable

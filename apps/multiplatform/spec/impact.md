@@ -161,7 +161,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33, PC35 | High | Group management hub; includes the group-wide receiving-address switch row and the clickable group / member avatars |
+| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33, PC35, PC36 | High | Group management hub; includes the group-wide receiving-address switch row, the member-list connection rate and the clickable group / member avatars |
 | `views/chat/group/AddGroupMembersView.kt` | PC14, PC16 | Medium | Member invitation flow |
 | `views/chat/group/GroupMemberInfoView.kt` | PC3, PC14, PC16, PC30, PC31, PC33, PC35 | Medium | Member details and role management; relay-address + rejected-status info rows; per-member receiving-address switch; clickable avatar |
 | `views/chat/group/ChannelRelaysView.kt` | PC31 | Medium | Channel relay list, add/remove entries |
@@ -289,7 +289,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `views/helpers/AnimationUtils.kt` | PC24 | Low | Animation helpers |
 | `views/helpers/DefaultDialog.kt` | — | Low | Dialog composable primitives |
 | `views/helpers/DefaultDropdownMenu.kt` | — | Low | Dropdown menu composable |
-| `views/helpers/Section.kt` | — | Low | Settings section composable |
+| `views/helpers/Section.kt` | PC36 | Low | Settings section composable (incl. the section header with a trailing title button) |
 | `views/helpers/SimpleButton.kt` | — | Low | Button composable |
 | `views/helpers/DefaultTopAppBar.kt` | — | Low | App bar composable |
 | `views/helpers/DefaultBasicTextField.kt` | PC4 | Low | Text field composable |

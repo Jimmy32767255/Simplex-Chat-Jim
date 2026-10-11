@@ -72,6 +72,8 @@ Displays `activeSortedMembers` (excluding left/removed members, sorted by role d
 
 | Element | Description |
 |---|---|
+| Section title | "N members" (`group_info_section_title_num_members`) with the group connection rate at its right end (rendered by `SectionViewWithButton`) |
+| Connection rate | `connected/total (pct%)` of the members with a ready connection (`GroupMember.ready`), including the current user's own membership; next to the text is a status dot that is green when everyone is connected, yellow when some are connected and grey when nobody is |
 | Member avatar | `MEMBER_ROW_AVATAR_SIZE` (42dp) profile image; tapping it opens the profile image viewer (full-size image + **Copy image**) |
 | Member name | Display name with role badge |
 | Member role | Owner, Admin, Moderator, Member, Observer |

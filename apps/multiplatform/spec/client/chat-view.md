@@ -257,6 +257,18 @@ Below the member list, non-relay groups also show a **group-wide receiving addre
 connection are skipped because the core rejects them with `CEGroupMemberNotActive`. Per-member and
 per-contact switching stays available in `GroupMemberInfoView` and `ChatInfoView`.
 
+The member list section title (non-relay groups only, and not while `nextConnectPrepared`) carries
+the group **connection rate**: `groupMembersConnection(members, currentMembership)` returns
+`(connected, total)` where a member counts as connected when `GroupMember.ready` is true
+(`activeConn?.connStatus == ConnStatus.Ready`) and the current user's own membership is part of both
+values, matching the `N members` count in the same title. `GroupMembersConnectionStatus` renders it
+as `connected/total (pct%)` with `floor`-rounded percentage (the same rounding the chat-list
+subscription indicator uses) followed by a status dot: green `ic_circle_filled` when everybody is
+connected, yellow `ic_pending_filled` when only some are (`GroupMembersConnectionRate`) and grey
+`ic_error_filled` when nobody is. The title is laid out with `SectionViewWithButton`, whose
+`titleButton` slot right-aligns the indicator and whose new `cardShape` parameter keeps the member
+card's top-rounded corners.
+
 ---
 
 ## 9. Profile Image Viewer

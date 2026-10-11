@@ -45,7 +45,14 @@
   - 新增字符串 `copy_image`、`image_copied`、`image_copy_failed`（base + zh-rCN）。
   - 与条目 1、5 一致，未改动 `AppSettings` 跨设备导入/导出结构，也未改核心（纯客户端功能）。
   - 测试：新增 `apps/multiplatform/common/src/desktopTest/kotlin/chat/simplex/app/ImageClipboardTest.kt`（4 个用例，覆盖 imageFlavor 支持、其他 flavor 不支持、取回同一张图、不支持 flavor 抛 `UnsupportedFlavorException`；因单元测试 JVM 不加载 Skia 原生库，测试直接覆盖 `bufferedImageToTransferable` 而非 `ImageBitmap` 转换），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
-- [ ] 群成员连接率和百分比显示（在群成员列表标题处，就像主页上方标题一样）
+- [x] 群成员连接率和百分比显示（在群成员列表标题处，就像主页上方标题一样）
+  - 已实现（基于 7.0.4）：群详情页成员列表的分组标题右侧新增连接率指示：`已连接/总数 (百分比%)` 文字 + 一个会变色的圆点（全部连接为绿色 `ic_circle_filled`，部分连接为黄色 `ic_pending_filled`，无人连接为灰色 `ic_error_filled`），样式参照主页标题的订阅状态指示。
+  - 「已连接」只统计 `GroupMember.ready`（即 `activeConn?.connStatus == ConnStatus.Ready`）的成员；仅 prepared/SndReady/失败的连接不算已连接。新增 `groupMembersConnection(members, currentMembership)` 计算分子分母，自己的成员身份同时计入分子与分母，因此与同一标题里的「N 位成员」保持一致，全部连接时显示 `N/N (100%)`。
+  - 百分比用 `floor` 取整（与主页订阅指示一致），因此只有真正全部连接时才会出现 100%。
+  - 只在非中继（`!groupInfo.useRelays`）且未处于 `nextConnectPrepared` 的群成员区显示，与原有成员区显示条件一致；成员搜索框不会影响该比率（用全量成员计算）。
+  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`（新增 `GroupMembersConnectionRate`、`groupMembersConnection`、`groupMembersConnectionRate`、`GroupMembersConnectionStatus`，标题改用 `SectionViewWithButton`）、`.../views/helpers/Section.kt`（`SectionViewWithButton` 新增可选的 `cardShape` 参数并把标题行改为垂直居中，默认值保证其他调用点行为不变）。
+  - 与条目 1、5、6 一致，未改动 `AppSettings` 跨设备导入/导出结构，也未改核心（纯客户端显示）。
+  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt`（8 个用例，覆盖全部连接/部分连接/无人连接、SndReady 不计入、空群只算自己、总数与上界），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
 - [ ] 收起群成员列表（不然在大群里拉到最下面要很长时间）
 - [ ] 删除已保存的消息（长按一条消息点开信息的时候，允许在历史记录那里对任何历史记录进行仅客户端侧的删除）
 - [ ] 成员头像旁边的网络状态图标（其实就是把用户 页面→服务器→网络状态 右边的那个会变色的点，也复制到私聊标题、主页用户名左侧以及群用户列表的用户名左边）

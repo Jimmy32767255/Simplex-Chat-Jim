@@ -1,0 +1,409 @@
+diff --git a/TODO.md b/TODO.md
+index c15128844..d49c046cd 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -45,7 +45,14 @@
+   - 新增字符串 `copy_image`、`image_copied`、`image_copy_failed`（base + zh-rCN）。
+   - 与条目 1、5 一致，未改动 `AppSettings` 跨设备导入/导出结构，也未改核心（纯客户端功能）。
+   - 测试：新增 `apps/multiplatform/common/src/desktopTest/kotlin/chat/simplex/app/ImageClipboardTest.kt`（4 个用例，覆盖 imageFlavor 支持、其他 flavor 不支持、取回同一张图、不支持 flavor 抛 `UnsupportedFlavorException`；因单元测试 JVM 不加载 Skia 原生库，测试直接覆盖 `bufferedImageToTransferable` 而非 `ImageBitmap` 转换），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
+-- [ ] 群成员连接率和百分比显示（在群成员列表标题处，就像主页上方标题一样）
++- [x] 群成员连接率和百分比显示（在群成员列表标题处，就像主页上方标题一样）
++  - 已实现（基于 7.0.4）：群详情页成员列表的分组标题右侧新增连接率指示：`已连接/总数 (百分比%)` 文字 + 一个会变色的圆点（全部连接为绿色 `ic_circle_filled`，部分连接为黄色 `ic_pending_filled`，无人连接为灰色 `ic_error_filled`），样式参照主页标题的订阅状态指示。
++  - 「已连接」只统计 `GroupMember.ready`（即 `activeConn?.connStatus == ConnStatus.Ready`）的成员；仅 prepared/SndReady/失败的连接不算已连接。新增 `groupMembersConnection(members, currentMembership)` 计算分子分母，自己的成员身份同时计入分子与分母，因此与同一标题里的「N 位成员」保持一致，全部连接时显示 `N/N (100%)`。
++  - 百分比用 `floor` 取整（与主页订阅指示一致），因此只有真正全部连接时才会出现 100%。
++  - 只在非中继（`!groupInfo.useRelays`）且未处于 `nextConnectPrepared` 的群成员区显示，与原有成员区显示条件一致；成员搜索框不会影响该比率（用全量成员计算）。
++  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`（新增 `GroupMembersConnectionRate`、`groupMembersConnection`、`groupMembersConnectionRate`、`GroupMembersConnectionStatus`，标题改用 `SectionViewWithButton`）、`.../views/helpers/Section.kt`（`SectionViewWithButton` 新增可选的 `cardShape` 参数并把标题行改为垂直居中，默认值保证其他调用点行为不变）。
++  - 与条目 1、5、6 一致，未改动 `AppSettings` 跨设备导入/导出结构，也未改核心（纯客户端显示）。
++  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt`（8 个用例，覆盖全部连接/部分连接/无人连接、SndReady 不计入、空群只算自己、总数与上界），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
+ - [ ] 收起群成员列表（不然在大群里拉到最下面要很长时间）
+ - [ ] 删除已保存的消息（长按一条消息点开信息的时候，允许在历史记录那里对任何历史记录进行仅客户端侧的删除）
+ - [ ] 成员头像旁边的网络状态图标（其实就是把用户 页面→服务器→网络状态 右边的那个会变色的点，也复制到私聊标题、主页用户名左侧以及群用户列表的用户名左边）
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
+index 637b12ea4..86a789591 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
+@@ -9,6 +9,7 @@ import SectionItemViewSpaceBetween
+ import SectionDividerSpaced
+ import SectionTextFooter
+ import SectionView
++import SectionViewWithButton
+ import androidx.compose.animation.*
+ import androidx.compose.animation.core.animateDpAsState
+ import androidx.compose.desktop.ui.tooling.preview.Preview
+@@ -52,6 +53,7 @@ import chat.simplex.common.views.newchat.SimpleXLinkQRCode
+ import chat.simplex.res.MR
+ import dev.icerock.moko.resources.StringResource
+ import kotlinx.coroutines.*
++import kotlin.math.floor
+ 
+ const val SMALL_GROUPS_RCPS_MEM_LIMIT: Int = 20
+ val MEMBER_ROW_AVATAR_SIZE = 42.dp
+@@ -768,7 +770,12 @@ fun ModalData.GroupChatInfoLayout(
+       SectionDividerSpaced()
+ 
+       if (!groupInfo.nextConnectPrepared && !groupInfo.useRelays) {
+-        SectionView(title = String.format(generalGetString(MR.strings.group_info_section_title_num_members), activeSortedMembers.count() + 1), cardShape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)) {
++        val (connectedMembers, totalMembers) = groupMembersConnection(activeSortedMembers, groupInfo.membership)
++        SectionViewWithButton(
++          title = String.format(generalGetString(MR.strings.group_info_section_title_num_members), totalMembers),
++          titleButton = { GroupMembersConnectionStatus(connectedMembers, totalMembers) },
++          cardShape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
++        ) {
+           if (groupInfo.canAddMembers) {
+             val onAddMembersClick = if (chat.chatInfo.incognito) ::cantInviteIncognitoAlert else addMembers
+             val tint = if (chat.chatInfo.incognito) MaterialTheme.colors.secondary else MaterialTheme.colors.primary
+@@ -1125,6 +1132,46 @@ private fun AddMembersButton(titleId: StringResource, tint: Color = MaterialThem
+   )
+ }
+ 
++enum class GroupMembersConnectionRate {
++  ALL_CONNECTED, PARTIALLY_CONNECTED, NONE_CONNECTED
++}
++
++/**
++ * The number of connected members and the total number of members of a group.
++ * The current user's membership is counted in both, as it is in the member list title.
++ */
++internal fun groupMembersConnection(members: List<GroupMember>, currentMembership: GroupMember): Pair<Int, Int> =
++  (members.count { it.ready } + if (currentMembership.ready) 1 else 0) to (members.size + 1)
++
++/** The connection rate of a group as a whole, based on how many members have a ready connection. */
++internal fun groupMembersConnectionRate(connected: Int, total: Int): GroupMembersConnectionRate = when {
++  total <= 0 || connected <= 0 -> GroupMembersConnectionRate.NONE_CONNECTED
++  connected >= total -> GroupMembersConnectionRate.ALL_CONNECTED
++  else -> GroupMembersConnectionRate.PARTIALLY_CONNECTED
++}
++
++@Composable
++private fun GroupMembersConnectionStatus(connected: Int, total: Int) {
++  val percentage = if (total > 0) floor(100f * connected / total).toInt() else 0
++  val (icon, tint) = when (groupMembersConnectionRate(connected, total)) {
++    GroupMembersConnectionRate.ALL_CONNECTED -> MR.images.ic_circle_filled to Color.Green
++    GroupMembersConnectionRate.PARTIALLY_CONNECTED -> MR.images.ic_pending_filled to WarningYellow
++    GroupMembersConnectionRate.NONE_CONNECTED -> MR.images.ic_error_filled to MaterialTheme.colors.secondary
++  }
++  Row(
++    verticalAlignment = Alignment.CenterVertically,
++    horizontalArrangement = Arrangement.spacedBy(DEFAULT_SPACE_AFTER_ICON)
++  ) {
++    Text(
++      "$connected/$total ($percentage%)",
++      color = MaterialTheme.colors.secondary,
++      style = MaterialTheme.typography.caption,
++      fontSize = 12.sp
++    )
++    Icon(painterResource(icon), null, Modifier.size(16.dp), tint = tint)
++  }
++}
++
+ @Composable
+ fun MemberRow(member: GroupMember, user: Boolean = false, infoPage: Boolean = true, showlocalAliasAndFullName: Boolean = false, selected: Boolean = false, isChannel: Boolean = false) {
+   @Composable
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/helpers/Section.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/helpers/Section.kt
+index 5196a144b..cfa419211 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/helpers/Section.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/helpers/Section.kt
+@@ -132,12 +132,12 @@ fun SectionView(
+ }
+ 
+ @Composable
+-fun SectionViewWithButton(title: String? = null, titleButton: (@Composable () -> Unit)?, contentPadding: PaddingValues = PaddingValues(), headerBottomPadding: Dp = DEFAULT_PADDING, content: (@Composable ColumnScope.() -> Unit)) {
++fun SectionViewWithButton(title: String? = null, titleButton: (@Composable () -> Unit)?, contentPadding: PaddingValues = PaddingValues(), headerBottomPadding: Dp = DEFAULT_PADDING, cardShape: Shape = SectionCardShape, content: (@Composable ColumnScope.() -> Unit)) {
+   val card = LocalCardScreen.current
+   Column {
+     if (title != null || titleButton != null) {
+       val hPadding = if (card) DEFAULT_PADDING + DEFAULT_PADDING_HALF else DEFAULT_PADDING
+-      Row(modifier = Modifier.padding(start = hPadding, end = hPadding, bottom = if (card) 8.dp else headerBottomPadding).fillMaxWidth()) {
++      Row(modifier = Modifier.padding(start = hPadding, end = hPadding, bottom = if (card) 8.dp else headerBottomPadding).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+         if (title != null) {
+           Text(title, color = MaterialTheme.colors.secondary, style = MaterialTheme.typography.body2, fontSize = if (card) 14.sp else 12.sp, fontWeight = if (card) FontWeight.Medium else FontWeight.Normal)
+         }
+@@ -147,7 +147,7 @@ fun SectionViewWithButton(title: String? = null, titleButton: (@Composable () ->
+         }
+       }
+     }
+-    CardColumn(contentPadding) { content() }
++    CardColumn(contentPadding, cardShape) { content() }
+   }
+ }
+ 
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt
+new file mode 100644
+index 000000000..a3937fc12
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt
+@@ -0,0 +1,64 @@
++package chat.simplex.app
++
++import chat.simplex.common.model.*
++import chat.simplex.common.views.chat.group.GroupMembersConnectionRate
++import chat.simplex.common.views.chat.group.groupMembersConnection
++import chat.simplex.common.views.chat.group.groupMembersConnectionRate
++import kotlin.test.Test
++import kotlin.test.assertEquals
++
++// use this command for testing:
++// ./gradlew desktopTest
++class GroupMembersConnectionRateTest {
++  private val readyMember = GroupMember.sampleData
++
++  private fun memberWithStatus(status: ConnStatus?): GroupMember =
++    readyMember.copy(activeConn = if (status == null) null else Connection.sampleData.copy(connStatus = status))
++
++  @Test
++  fun testAllMembersConnected() {
++    val members = listOf(memberWithStatus(ConnStatus.Ready), memberWithStatus(ConnStatus.Ready))
++    assertEquals(3 to 3, groupMembersConnection(members, memberWithStatus(ConnStatus.Ready)))
++  }
++
++  @Test
++  fun testNoMembersConnected() {
++    val members = listOf(memberWithStatus(null), memberWithStatus(ConnStatus.Prepared))
++    assertEquals(0 to 3, groupMembersConnection(members, memberWithStatus(null)))
++  }
++
++  @Test
++  fun testPartiallyConnected() {
++    val members = listOf(memberWithStatus(ConnStatus.Ready), memberWithStatus(null), memberWithStatus(ConnStatus.Failed("error")))
++    assertEquals(1 to 4, groupMembersConnection(members, memberWithStatus(null)))
++  }
++
++  @Test
++  fun testSendReadyIsNotCountedAsConnected() {
++    assertEquals(0 to 2, groupMembersConnection(listOf(memberWithStatus(ConnStatus.SndReady)), memberWithStatus(ConnStatus.SndReady)))
++  }
++
++  @Test
++  fun testEmptyGroupCountsOnlyCurrentMembership() {
++    assertEquals(1 to 1, groupMembersConnection(emptyList(), memberWithStatus(ConnStatus.Ready)))
++    assertEquals(0 to 1, groupMembersConnection(emptyList(), memberWithStatus(null)))
++  }
++
++  @Test
++  fun testRateAllConnected() {
++    assertEquals(GroupMembersConnectionRate.ALL_CONNECTED, groupMembersConnectionRate(13, 13))
++  }
++
++  @Test
++  fun testRatePartiallyConnected() {
++    assertEquals(GroupMembersConnectionRate.PARTIALLY_CONNECTED, groupMembersConnectionRate(6, 13))
++  }
++
++  @Test
++  fun testRateNoneConnected() {
++    assertEquals(GroupMembersConnectionRate.NONE_CONNECTED, groupMembersConnectionRate(0, 13))
++    assertEquals(GroupMembersConnectionRate.NONE_CONNECTED, groupMembersConnectionRate(0, 0))
++    // never over-reports a full connection
++    assertEquals(GroupMembersConnectionRate.ALL_CONNECTED, groupMembersConnectionRate(15, 13))
++  }
++}
+diff --git a/apps/multiplatform/product/README.md b/apps/multiplatform/product/README.md
+index 448b13a00..b4cbda831 100644
+--- a/apps/multiplatform/product/README.md
++++ b/apps/multiplatform/product/README.md
+@@ -103,6 +103,7 @@ Multi-party encrypted conversations with role-based management.
+ | Group preferences | Configure group-level feature settings | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupPreferences.kt` |
+ | Member direct contacts | Establish direct chats from group membership | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupMemberInfoView.kt` |
+ | Change all members' receiving address | Switch the receiving server for every member connection in one action | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt` |
++| Group members connection rate | Connected/total member count and percentage in the member list title | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt` |
+ | Group mentions | @-mention members in group messages | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupMentions.kt` |
+ | Welcome message | Custom welcome message for new group members | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/WelcomeMessageView.kt` |
+ | Group profile | Edit group name, image, description | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupProfileView.kt` |
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index 9abe71019..6ca925fb6 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -54,6 +54,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC33 | Receiving Address Switch | [views/group-info.md](views/group-info.md), [views/contact-info.md](views/contact-info.md) | [spec/api.md](../spec/api.md), [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../model/SimpleXAPI.kt` (`apiSwitchContact`, `apiSwitchGroupMember`, `apiAbortSwitchContact`, `apiAbortSwitchGroupMember`), `common/.../views/chat/ChatInfoView.kt` (`SwitchAddressButton`, `SwitchAllMembersAddressButton`, `showSwitchAddressAlert`, `showSwitchAllMembersAddressAlert`), `common/.../views/chat/group/GroupChatInfoView.kt` (group-wide switch row), `common/.../views/chat/group/GroupMemberInfoView.kt` | `Controller.hs` (`APISwitchContact`, `APISwitchGroupMember`, `APIAbortSwitchContact`, `APIAbortSwitchGroupMember`), `Commands.hs` |
+ | PC34 | Server Grouping and Notes | [views/settings.md](views/settings.md) | [spec/api.md](../spec/api.md), [spec/state.md](../spec/state.md) | `common/.../model/SimpleXAPI.kt` (`ServerMeta`, `AppPreferences.serverMetadata`, `SHARED_PREFS_SERVER_METADATA`), `common/.../views/usersettings/networkAndServers/ProtocolServersView.kt` (`ServersSection`, `serverGroup`, `updatedServerMetadata`, `saveServerMetadata`), `ProtocolServerView.kt` (`ServerGroupAndNoteSection`), `NewServerView.kt` | N/A (client-only) |
+ | PC35 | Profile Image Viewer | [views/contact-info.md](views/contact-info.md), [views/group-info.md](views/group-info.md) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../views/helpers/ChatInfoImage.kt` (`ProfileImage` `onClick`, `ProfileImageViewer`, `showProfileImageModal`), `common/.../platform/Images.kt` (`copyImageToClipboard`) and its desktop/Android actuals, `common/.../views/chat/ChatInfoView.kt` (`ChatInfoHeader`), `common/.../views/chat/group/GroupChatInfoView.kt` (`GroupChatInfoHeader`, member list row), `common/.../views/chat/group/GroupMemberInfoView.kt` (`MemberProfileImage`, `GroupMemberInfoHeader`) | N/A (client-only) |
++| PC36 | Group Members Connection Rate | [views/group-info.md](views/group-info.md) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../views/chat/group/GroupChatInfoView.kt` (`groupMembersConnection`, `groupMembersConnectionRate`, `GroupMembersConnectionStatus`), `common/.../views/helpers/Section.kt` (`SectionViewWithButton` title button + card shape), `common/.../model/ChatModel.kt` (`GroupMember.ready`) | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
+ - `common/.../` expands to `common/src/commonMain/kotlin/chat/simplex/common/`
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index e6d78c0ed..4197ab56b 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -14,6 +14,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
+ 6. [Call Integrity (RULE-18)](#6-call-integrity)
+ 7. [Network Configuration (RULE-19)](#7-network-configuration)
+ 8. [Profile Images (RULE-20)](#8-profile-images)
++9. [Connection Status Display (RULE-21)](#9-connection-status-display)
+ 
+ ---
+ 
+@@ -315,3 +316,27 @@ attached to it -- is display metadata owned by the client.
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt`,
+   `views/chat/group/GroupChatInfoView.kt`, `views/chat/group/GroupMemberInfoView.kt` (wired call sites)
+ - Test: `common/src/desktopTest/kotlin/chat/simplex/app/ImageClipboardTest.kt`
++
++---
++
++## 9. Connection Status Display
++
++### RULE-21: Ready-Only Group Connection Rate
++
++1. **Only ready connections count as connected.** The group member connection rate MUST count a
++   member as connected only when `GroupMember.ready` is true
++   (`activeConn?.connStatus == ConnStatus.Ready`). Connections that are merely prepared, sending-only
++   (`SndReady`) or failed MUST NOT be counted as connected.
++2. **The current user is part of the rate.** `groupMembersConnection` adds the current user's own
++   membership to both the connected and the total count, so the rate stays consistent with the
++   `N members` figure in the same section title, and a fully connected group reads `N/N (100%)`.
++3. **The rate is a display only.** It MUST NOT change any state, MUST NOT be persisted, and MUST NOT
++   be added to the cross-device backup format; the member search filter MUST NOT affect it (the rate
++   is computed from all members, not from the filtered list).
++
++**Enforcement:**
++- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`
++  (`groupMembersConnection`, `groupMembersConnectionRate`, `GroupMembersConnectionStatus`)
++- `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/Section.kt`
++  (`SectionViewWithButton` title button and card shape)
++- Test: `common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt`
+diff --git a/apps/multiplatform/product/views/group-info.md b/apps/multiplatform/product/views/group-info.md
+index 9dc87582a..1ff8fee42 100644
+--- a/apps/multiplatform/product/views/group-info.md
++++ b/apps/multiplatform/product/views/group-info.md
+@@ -72,6 +72,8 @@ Displays `activeSortedMembers` (excluding left/removed members, sorted by role d
+ 
+ | Element | Description |
+ |---|---|
++| Section title | "N members" (`group_info_section_title_num_members`) with the group connection rate at its right end (rendered by `SectionViewWithButton`) |
++| Connection rate | `connected/total (pct%)` of the members with a ready connection (`GroupMember.ready`), including the current user's own membership; next to the text is a status dot that is green when everyone is connected, yellow when some are connected and grey when nobody is |
+ | Member avatar | `MEMBER_ROW_AVATAR_SIZE` (42dp) profile image; tapping it opens the profile image viewer (full-size image + **Copy image**) |
+ | Member name | Display name with role badge |
+ | Member role | Owner, Admin, Moderator, Member, Observer |
+diff --git a/apps/multiplatform/spec/client/chat-view.md b/apps/multiplatform/spec/client/chat-view.md
+index a9626045f..f68256c71 100644
+--- a/apps/multiplatform/spec/client/chat-view.md
++++ b/apps/multiplatform/spec/client/chat-view.md
+@@ -257,6 +257,18 @@ Below the member list, non-relay groups also show a **group-wide receiving addre
+ connection are skipped because the core rejects them with `CEGroupMemberNotActive`. Per-member and
+ per-contact switching stays available in `GroupMemberInfoView` and `ChatInfoView`.
+ 
++The member list section title (non-relay groups only, and not while `nextConnectPrepared`) carries
++the group **connection rate**: `groupMembersConnection(members, currentMembership)` returns
++`(connected, total)` where a member counts as connected when `GroupMember.ready` is true
++(`activeConn?.connStatus == ConnStatus.Ready`) and the current user's own membership is part of both
++values, matching the `N members` count in the same title. `GroupMembersConnectionStatus` renders it
++as `connected/total (pct%)` with `floor`-rounded percentage (the same rounding the chat-list
++subscription indicator uses) followed by a status dot: green `ic_circle_filled` when everybody is
++connected, yellow `ic_pending_filled` when only some are (`GroupMembersConnectionRate`) and grey
++`ic_error_filled` when nobody is. The title is laid out with `SectionViewWithButton`, whose
++`titleButton` slot right-aligns the indicator and whose new `cardShape` parameter keeps the member
++card's top-rounded corners.
++
+ ---
+ 
+ ## 9. Profile Image Viewer
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index 748146de5..634ade093 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -161,7 +161,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ 
+ | Source File | Product Concepts Affected | Risk Level | Notes |
+ |-------------|--------------------------|------------|-------|
+-| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33, PC35 | High | Group management hub; includes the group-wide receiving-address switch row and the clickable group / member avatars |
++| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33, PC35, PC36 | High | Group management hub; includes the group-wide receiving-address switch row, the member-list connection rate and the clickable group / member avatars |
+ | `views/chat/group/AddGroupMembersView.kt` | PC14, PC16 | Medium | Member invitation flow |
+ | `views/chat/group/GroupMemberInfoView.kt` | PC3, PC14, PC16, PC30, PC31, PC33, PC35 | Medium | Member details and role management; relay-address + rejected-status info rows; per-member receiving-address switch; clickable avatar |
+ | `views/chat/group/ChannelRelaysView.kt` | PC31 | Medium | Channel relay list, add/remove entries |
+@@ -289,7 +289,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `views/helpers/AnimationUtils.kt` | PC24 | Low | Animation helpers |
+ | `views/helpers/DefaultDialog.kt` | — | Low | Dialog composable primitives |
+ | `views/helpers/DefaultDropdownMenu.kt` | — | Low | Dropdown menu composable |
+-| `views/helpers/Section.kt` | — | Low | Settings section composable |
++| `views/helpers/Section.kt` | PC36 | Low | Settings section composable (incl. the section header with a trailing title button) |
+ | `views/helpers/SimpleButton.kt` | — | Low | Button composable |
+ | `views/helpers/DefaultTopAppBar.kt` | — | Low | App bar composable |
+ | `views/helpers/DefaultBasicTextField.kt` | PC4 | Low | Text field composable |
+diff --git a/plans/2026-10-12-group-members-connection-rate.md b/plans/2026-10-12-group-members-connection-rate.md
+new file mode 100644
+index 000000000..8addb49ca
+--- /dev/null
++++ b/plans/2026-10-12-group-members-connection-rate.md
+@@ -0,0 +1,82 @@
++# Group members connection rate (TODO item 7)
++
++## Problem
++
++The group member list in the group info page (`GroupChatInfoView`) shows only the number of
++members in its section title:
++
++```
++SectionView(title = String.format(generalGetString(MR.strings.group_info_section_title_num_members), activeSortedMembers.count() + 1), ...)
++```
++
++(`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt:771`)
++
++The main chat list header, in contrast, shows how well the app is connected: the home title row
++renders `SubscriptionStatusIndicator` (`views/chatlist/ChatListView.kt:601`), which is a percentage
++text plus a colour-changing status icon (`views/chatlist/ServersSummaryView.kt:120`).
++
++The request (TODO.md item 7) is to show the members connection rate and percentage in the group
++member list title, in the same visual style as the home title.
++
++## Solution
++
++In the non-relay, non-"next connect prepared" group member section title, render a connection
++indicator next to the member count: the `connected/total (pct%)` text plus a status dot whose
++colour changes with the rate.
++
++- Connected members: `GroupMember.ready` (`activeConn?.connStatus == ConnStatus.Ready`,
++  `model/ChatModel.kt:2561`), counted over the displayed members plus the current user's own
++  membership (the title count is `activeSortedMembers.count() + 1` because the member list excludes
++  the current user).
++- Dot: reuse the same icon set as the "Network status" dot in the chat info page
++  (`views/chat/ChatInfoView.kt:1147` `ServerImage`): `ic_circle_filled` (all connected, green),
++  `ic_pending_filled` (partially connected, `WarningYellow`), `ic_error_filled` (none connected,
++  secondary colour).
++- The title row is rendered with the existing `SectionViewWithButton(title, titleButton)` helper,
++  which already right-aligns its `titleButton` slot with a weight spacer. It gains a
++  `cardShape: Shape = SectionCardShape` parameter so the member card keeps its top-rounded shape,
++  and its title row gets `verticalAlignment = Alignment.CenterVertically` so the dot lines up with
++  the title text. Both changes are default-preserving for the existing call sites.
++
++## Design decisions
++
++- The rate is computed from `GroupMember.ready`, not from `activeConn != null`: a member with a
++  prepared or stale connection is not actually reachable, and `ready` is the same predicate the
++  rest of the client uses to decide that messages can be received.
++- The current user is part of both the numerator and the denominator, matching the member count in
++  the same title, so a fully connected group shows `N/N (100%)`.
++- The count/percentage text is built inline (`"$connected/$total ($percentage%)"`), the same way the
++  home indicator builds its percentage (`views/chatlist/ServersSummaryView.kt:124`) - it contains no
++  translatable words.
++- No new preference and no `AppSettings` change: this is a passive display.
++- The predicate and the rate mapping are `internal` top-level functions so they can be unit tested
++  from the test source set without a `ChatController` (same approach as
++  `updatedServerMetadata` in `ProtocolServersView.kt`).
++
++## Steps
++
++1. `GroupChatInfoView.kt`: add `GroupMembersConnectionRate` enum,
++   `internal fun groupMembersConnectionRate(connected: Int, total: Int)` and a private
++   `@Composable GroupMembersConnectionStatus(connected, total)`; replace the `SectionView` title at
++   line 771 with `SectionViewWithButton` + `titleButton`.
++2. `views/helpers/Section.kt`: add `cardShape: Shape = SectionCardShape` to `SectionViewWithButton`
++   and centre its title row vertically.
++3. Test `common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt`.
++4. Docs: `product/views/group-info.md`, `product/README.md`, `spec/client/chat-view.md`,
++   `spec/impact.md`, `spec/state.md` if needed, `TODO.md`.
++5. `./gradlew :common:desktopTest`, then commit and export `diff/0006-group-members-connection-rate.patch`.
++
++## Adversarial review
++
++- _Relay groups / "next connect prepared" groups_: the whole member section is already guarded by
++  `if (!groupInfo.nextConnectPrepared && !groupInfo.useRelays)`, so the indicator is not shown where
++  the concept of per-member connections does not apply.
++- _Search filter_: the rate uses `activeSortedMembers` (the full list), not `filteredMembers`, so
++  typing in the member search box does not change the group's connection rate.
++- _Zero members_: `total` is `activeSortedMembers.size + 1`, so it can never be 0; the division guard
++  is still there and a zero count renders `0/1 (0%)` with the error dot.
++- _`SectionViewWithButton` change_: the new `cardShape` parameter has a default equal to what the
++  other four call sites already used, and only the member list passes a value, so no other screen
++  changes.
++- _Percentage rounding_: `floor`, same as the home indicator, so "100%" is only shown when all
++  members are really connected.
