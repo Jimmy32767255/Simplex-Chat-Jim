@@ -1,5 +1,8 @@
 package chat.simplex.common.platform
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.drawable.AnimatedImageDrawable
@@ -7,6 +10,7 @@ import android.os.Build
 import android.util.Base64
 import android.webkit.MimeTypeMap
 import androidx.compose.ui.graphics.*
+import androidx.core.content.FileProvider
 import androidx.core.graphics.applyCanvas
 import androidx.core.graphics.drawable.toBitmap
 import androidx.core.graphics.scale
@@ -15,9 +19,11 @@ import boofcv.struct.image.GrayU8
 import chat.simplex.common.R
 import chat.simplex.common.helpers.toUri
 import chat.simplex.common.views.helpers.decodeSampledBitmapFromByteArray
+import chat.simplex.common.helpers.APPLICATION_ID
 import chat.simplex.common.views.helpers.errorBitmap
 import chat.simplex.common.views.helpers.getFileName
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.InputStream
 import java.net.URI
 import kotlin.math.min
@@ -121,4 +127,19 @@ private fun imageFileDescriptor(uri: URI): Int? =
   } catch (e: Exception) {
     Log.e(TAG, "imageFileDescriptor error: ${e.stackTraceToString()}")
     null
+  }
+
+actual fun copyImageToClipboard(image: ImageBitmap): Boolean =
+  try {
+    // The file is overwritten on every copy, so the clipboard always points at an existing file
+    // without accumulating temp files that a cleanup pass could delete.
+    val file = File(getAppFilePath("clipboard_image.png"))
+    file.outputStream().use { image.asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it) }
+    val uri = FileProvider.getUriForFile(androidAppContext, "$APPLICATION_ID.provider", file)
+    val clipboard = androidAppContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newUri(androidAppContext.contentResolver, file.name, uri))
+    true
+  } catch (e: Exception) {
+    Log.e(TAG, "copyImageToClipboard error: $e")
+    false
   }

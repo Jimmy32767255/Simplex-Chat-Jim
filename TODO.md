@@ -38,7 +38,13 @@
   - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`（新增 `ServerMeta`、`SHARED_PREFS_SERVER_METADATA`、`serverMetadata`）、`.../views/usersettings/networkAndServers/ProtocolServersView.kt`（`ServersSection`、`serverGroup`、`updatedServerMetadata`、`saveServerMetadata`）、`.../networkAndServers/ProtocolServerView.kt`（`ServerGroupAndNoteSection`）、`.../networkAndServers/NewServerView.kt`、`apps/multiplatform/common/src/commonMain/resources/MR/{base,zh-rCN}/strings.xml`。
   - 与条目 1 一致，未加入 `AppSettings` 跨设备导入/导出结构，备份格式保持不变（代价是分组/备注不会随设备迁移一起带走，日后如需可再补上，新增可空字段是向后兼容的）。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ServerMetadataTest.kt`（8 个用例，覆盖新增/更新/清空删除/改地址迁移/保留其他条目/分组名归一化），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
-- [ ] 查看和复制头像（点击群和其他用户头像的时候）
+- [x] 查看和复制头像（点击群和其他用户头像的时候）
+  - 已实现（基于 7.0.4）：点击头像打开全屏查看弹窗（`ProfileImageViewer`，`ModalManager.fullscreen`），窗口内提供「复制图片」按钮；没有自定义头像（只有默认图标）时点击无任何反应。
+  - 可点击位置：联系人详情页头部头像、群详情页头部头像、群详情页成员列表中的头像、群成员详情页头部头像。聊天列表、选人列表、欢迎页等处的头像保持原样（那些行本身已有自己的点击行为）。
+  - 新增平台剪贴板接口 `expect fun copyImageToClipboard(image: ImageBitmap): Boolean`（`common/.../platform/Images.kt`）：桌面端用 AWT `Transferable`（只支持 `DataFlavor.imageFlavor`），Android 端把 PNG 写到应用文件目录的 `clipboard_image.png` 并通过 `FileProvider` 内容 URI 写入系统剪贴板（每次覆盖同一文件，剪贴板始终指向存在的文件）。
+  - 新增字符串 `copy_image`、`image_copied`、`image_copy_failed`（base + zh-rCN）。
+  - 与条目 1、5 一致，未改动 `AppSettings` 跨设备导入/导出结构，也未改核心（纯客户端功能）。
+  - 测试：新增 `apps/multiplatform/common/src/desktopTest/kotlin/chat/simplex/app/ImageClipboardTest.kt`（4 个用例，覆盖 imageFlavor 支持、其他 flavor 不支持、取回同一张图、不支持 flavor 抛 `UnsupportedFlavorException`；因单元测试 JVM 不加载 Skia 原生库，测试直接覆盖 `bufferedImageToTransferable` 而非 `ImageBitmap` 转换），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
 - [ ] 群成员连接率和百分比显示（在群成员列表标题处，就像主页上方标题一样）
 - [ ] 收起群成员列表（不然在大群里拉到最下面要很长时间）
 - [ ] 删除已保存的消息（长按一条消息点开信息的时候，允许在历史记录那里对任何历史记录进行仅客户端侧的删除）

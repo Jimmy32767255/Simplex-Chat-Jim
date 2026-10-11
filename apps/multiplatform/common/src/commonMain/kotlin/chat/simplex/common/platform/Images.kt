@@ -75,6 +75,9 @@ fun resizeImageToDataSize(image: ImageBitmap, usePng: Boolean, maxDataSize: Long
   return stream
 }
 
+/** Puts [image] on the system clipboard as an image. Returns false if the platform refused. */
+expect fun copyImageToClipboard(image: ImageBitmap): Boolean
+
 @Composable
 fun Base64AsyncImage(
   base64ImageString: String,

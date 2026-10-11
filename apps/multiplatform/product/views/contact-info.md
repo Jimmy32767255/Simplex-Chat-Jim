@@ -22,7 +22,7 @@ View contact details, manage per-contact preferences, verify security codes for 
 
 | Element | Description |
 |---|---|
-| Profile image | Large circular avatar (tappable) |
+| Profile image | Large circular avatar. Tapping it opens the profile image viewer (full-size image + **Copy image**); with no custom image set there is nothing to view |
 | Display name | Contact's display name |
 | Full name | Optional full name below display name |
 | Connection status | Shows if contact is ready, connecting, or has issues |
