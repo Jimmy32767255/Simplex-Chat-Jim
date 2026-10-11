@@ -41,6 +41,7 @@
 | PC29 | User Address |
 | PC30 | Member Support Chat |
 | PC31 | Channels (Relays) |
+| PC32 | Desktop Message Sending Keys |
 
 ---
 
@@ -55,7 +56,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `App.kt` | PC1 through PC31 | High | Root composable — navigation scaffold for all features |
 | `AppLock.kt` | PC22 | Medium | App lock state and authorization lifecycle |
 | `model/ChatModel.kt` | PC1 through PC31 | High | Central state object — every feature reads or writes here |
-| `model/SimpleXAPI.kt` | PC1 through PC31 | High | FFI bridge to Haskell core — all commands and responses |
+| `model/SimpleXAPI.kt` | PC1 through PC32 | High | FFI bridge to Haskell core — all commands and responses |
 | `model/CryptoFile.kt` | PC10, PC23 | Medium | Encrypted file read/write helpers |
 | `platform/Core.kt` | PC1 through PC31 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
 | `platform/AppCommon.kt` | PC1 through PC31 | Medium | Shared app initialization logic |
@@ -205,7 +206,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29 | Medium | Settings navigation hub |
+| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29, PC32 | Medium | Settings navigation hub |
 | `views/usersettings/Appearance.kt` | PC24 | Low | Theme and appearance customization |
 | `views/usersettings/PrivacySettings.kt` | PC20, PC22 | Medium | Privacy and lock settings |
 | `views/usersettings/UserProfileView.kt` | PC19 | Medium | Profile display name and image editing |
@@ -425,7 +426,7 @@ Path prefix: `common/src/desktopMain/kotlin/chat/simplex/common/`
 | `platform/Videos.desktop.kt` | PC10 | Low | Desktop video utilities |
 | `platform/Notifications.desktop.kt` | PC18 | Low | Desktop notification setup |
 | `platform/Images.desktop.kt` | PC10 | Low | Desktop image processing |
-| `platform/PlatformTextField.desktop.kt` | PC4 | Low | Desktop text field actual implementation |
+| `platform/PlatformTextField.desktop.kt` | PC4, PC32 | Low | Desktop text field actual implementation |
 | `platform/Share.desktop.kt` | PC10 | Low | Desktop clipboard/share |
 | `platform/Back.desktop.kt` | PC1 | Low | Desktop back navigation |
 | `platform/UI.desktop.kt` | PC24 | Low | Desktop density and locale |

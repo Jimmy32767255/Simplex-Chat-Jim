@@ -50,6 +50,7 @@ This document provides a structured mapping between product-level concepts, thei
 | PC29 | User Address | [README.md](README.md) (Contacts, User Management) | [spec/api.md](../spec/api.md) | `common/.../views/usersettings/UserAddressView.kt`, `UserAddressLearnMore.kt` | `Controller.hs` (`APICreateMyAddress`) |
 | PC30 | Member Support Chat | [README.md](README.md) (Groups) | [spec/api.md](../spec/api.md) | `common/.../views/chat/group/MemberSupportView.kt`, `MemberSupportChatView.kt`, `MemberAdmission.kt` | `Messages.hs` (`GroupChatScope`), `Controller.hs` |
 | PC31 | Channels (Relays) | [views/group-info.md](views/group-info.md) | [spec/client/chat-view.md](../spec/client/chat-view.md), [spec/state.md](../spec/state.md) | `common/.../model/ChatModel.kt` (`RelayStatus` incl. `RsRejected`, `GroupRelay`, `GroupMemberRole.Relay`, `GroupMemberStatus.MemRejected`), `common/.../views/chat/group/ChannelRelaysView.kt`, `GroupMemberInfoView.kt` (rejected-status row), `common/.../views/newchat/AddChannelView.kt` (`RelayStatusIndicator` rejected branch), `common/.../views/chat/group/AddGroupRelayView.kt` | `Controller.hs` (`APIAddGroupRelays`, `APIAllowRelayGroup`, `XGrpRelayReject` CONF handler) |
+| PC32 | Desktop Message Sending Keys | [views/settings.md](views/settings.md) | [spec/state.md](../spec/state.md), [spec/client/compose.md](../spec/client/compose.md) | `common/.../model/SimpleXAPI.kt` (`ChatEnterKeyCombination`, `messageSendKey`, `messageNewlineKey`), `common/.../views/usersettings/SettingsView.kt`, `common/.../platform/PlatformTextField.desktop.kt` | N/A (client-only) |
 
 **Legend for abbreviated paths:**
 - `common/.../` expands to `common/src/commonMain/kotlin/chat/simplex/common/`
@@ -105,6 +106,7 @@ Key files that exist only on one platform, grouped by concern.
 | `common/src/desktopMain/kotlin/chat/simplex/common/platform/Videos.desktop.kt` | VLC-based video detection |
 | `common/src/desktopMain/kotlin/chat/simplex/common/platform/VideoPlayer.desktop.kt` | VLC video player implementation |
 | `common/src/desktopMain/kotlin/chat/simplex/common/platform/Platform.desktop.kt` | Desktop platform detection (Linux/macOS/Windows) |
+| `common/src/desktopMain/kotlin/chat/simplex/common/platform/PlatformTextField.desktop.kt` | Desktop compose text field, including the configurable send / newline Enter keys (PC32) |
 | `common/src/desktopMain/kotlin/chat/simplex/common/platform/*.desktop.kt` | All `actual` implementations for Desktop |
 
 ---

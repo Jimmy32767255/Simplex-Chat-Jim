@@ -116,6 +116,21 @@ fun SettingsLayout(
       AppVersionItem(showVersion)
     }
 
+    if (appPlatform.isDesktop) {
+      SectionDividerSpaced()
+      SectionView(stringResource(MR.strings.settings_message_sending)) {
+        val sendKey = remember { appPrefs.messageSendKey.state }
+        val newlineKey = remember { appPrefs.messageNewlineKey.state }
+        val combinations = ChatEnterKeyCombination.entries.map { it to it.text }
+        ExposedDropDownSettingRow(stringResource(MR.strings.send_message_with), combinations, sendKey) {
+          setMessageEnterKey(send = true, selected = it)
+        }
+        ExposedDropDownSettingRow(stringResource(MR.strings.insert_newline_with), combinations, newlineKey) {
+          setMessageEnterKey(send = false, selected = it)
+        }
+      }
+    }
+
     if (crowdfundingAvailable()) {
       SectionDividerSpaced()
       SectionView(stringResource(MR.strings.v7_0_invest)) {
@@ -128,6 +143,16 @@ fun SettingsLayout(
     }
     SectionBottomSpacer()
   }
+}
+
+// Send and newline must stay distinct key combinations, so selecting the one already used swaps the two.
+private fun setMessageEnterKey(send: Boolean, selected: ChatEnterKeyCombination) {
+  val sendPref = appPrefs.messageSendKey
+  val newlinePref = appPrefs.messageNewlineKey
+  if (selected == (if (send) newlinePref.get() else sendPref.get())) {
+    if (send) newlinePref.set(sendPref.get()) else sendPref.set(newlinePref.get())
+  }
+  if (send) sendPref.set(selected) else newlinePref.set(selected)
 }
 
 @Composable

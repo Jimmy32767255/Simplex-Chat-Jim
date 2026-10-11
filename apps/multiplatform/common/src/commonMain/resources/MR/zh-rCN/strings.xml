@@ -2917,4 +2917,11 @@
     <string name="v7_0_simplex_names">SimpleX 公开名称 (测试)</string>
     <string name="info_row_file_servers">文件服务器</string>
     <string name="share_text_file_servers">文件服务器：%s</string>
+    <string name="settings_message_sending">消息发送</string>
+    <string name="send_message_with">发送消息的快捷键</string>
+    <string name="insert_newline_with">换行的快捷键</string>
+    <string name="enter_key_combination">Enter</string>
+    <string name="shift_enter_key_combination">Shift + Enter</string>
+    <string name="ctrl_enter_key_combination">Ctrl + Enter</string>
+    <string name="alt_enter_key_combination">Alt + Enter</string>
 </resources>

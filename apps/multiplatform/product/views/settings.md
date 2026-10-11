@@ -19,6 +19,7 @@ Configure all aspects of app behavior including notifications, network/servers, 
 |---|---|---|
 | App section | Device settings, app version | App updates (`AppUpdater`), device settings, app version |
 | Notifications | Full notification mode selection (instant/periodic/off) | Notification settings |
+| Message sending keys | Not available (IME decides) | "Message sending" section with send / newline Enter key dropdowns |
 | Use from desktop/mobile | "Use from desktop" option in UserPicker | "Link a mobile" / "Linked mobiles" option in UserPicker |
 | Database migration | "Migrate to another device" with auth | Same |
 
@@ -145,6 +146,17 @@ Platform-specific section (expect/actual composable):
 | Reset all hints | Reset dismissed hint/card preferences |
 | App version | Version string with build info; taps open `VersionInfoView` |
 
+### Message Sending Section (desktop only)
+
+Rendered only when `appPlatform.isDesktop`. Both rows offer the same four combinations: `Enter`, `Shift + Enter`, `Ctrl + Enter`, `Alt + Enter`.
+
+| Row | Preference Key | Default | Description |
+|---|---|---|---|
+| Send message with | `messageSendKey` | `Enter` | Enter combination that sends the composed message |
+| Insert newline with | `messageNewlineKey` | `Shift + Enter` | Enter combination that inserts a newline at the caret |
+
+The two combinations are always kept distinct: choosing the combination already used by the other row swaps the two values. Any other Enter combination, including `Cmd`/`Win` + `Enter`, does nothing; a plain `Enter` (no modifier) always inserts a newline when it is not the send key, so a newline is never unreachable.
+
 ## Source Files
 
 | File | Path |
@@ -157,3 +169,4 @@ Platform-specific section (expect/actual composable):
 | `OperatorView.kt` | `views/usersettings/networkAndServers/OperatorView.kt` |
 | `ProtocolServersView.kt` | `views/usersettings/networkAndServers/ProtocolServersView.kt` |
 | `NewServerView.kt` | `views/usersettings/networkAndServers/NewServerView.kt` |
+| `PlatformTextField.desktop.kt` | `platform/PlatformTextField.desktop.kt` (Enter key handling for send / newline) |

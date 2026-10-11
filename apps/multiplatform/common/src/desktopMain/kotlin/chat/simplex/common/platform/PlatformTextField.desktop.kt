@@ -20,6 +20,8 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.*
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import chat.simplex.common.model.ChatEnterKeyCombination
+import chat.simplex.common.model.ChatController.appPrefs
 import chat.simplex.common.views.chat.*
 import chat.simplex.common.views.helpers.*
 import chat.simplex.res.MR
@@ -92,6 +94,18 @@ actual fun PlatformTextField(
   var textFieldValueState by remember { mutableStateOf(TextFieldValue(text = cs.message.text, selection = cs.message.selection)) }
   val textFieldValue = textFieldValueState.copy(text = cs.message.text, selection = cs.message.selection)
   val clipboard = LocalClipboardManager.current
+  val sendKey = remember { appPrefs.messageSendKey.state }.value
+  val newlineKey = remember { appPrefs.messageNewlineKey.state }.value
+  fun insertNewline() {
+    val start = if (minOf(textFieldValue.selection.min) == 0) "" else textFieldValue.text.substring(0 until textFieldValue.selection.min)
+    val newText = start + "\n" +
+          textFieldValue.text.substring(textFieldValue.selection.max, textFieldValue.text.length)
+    textFieldValueState = textFieldValue.copy(
+      text = newText,
+      selection = TextRange(textFieldValue.selection.min + 1)
+    )
+    onMessageChange(ComposeMessage(newText, textFieldValueState.selection))
+  }
   BasicTextField(
     value = textFieldValue,
     onValueChange = onValueChange@ {
@@ -122,17 +136,15 @@ actual fun PlatformTextField(
       .focusRequester(focusReq)
       .onPreviewKeyEvent {
         if ((it.key == Key.Enter || it.key == Key.NumPadEnter) && it.type == KeyEventType.KeyDown) {
-          if (it.isShiftPressed) {
-            val start = if (minOf(textFieldValue.selection.min) == 0) "" else textFieldValue.text.substring(0 until textFieldValue.selection.min)
-            val newText = start + "\n" +
-                  textFieldValue.text.substring(textFieldValue.selection.max, textFieldValue.text.length)
-            textFieldValueState = textFieldValue.copy(
-              text = newText,
-              selection = TextRange(textFieldValue.selection.min + 1)
-            )
-            onMessageChange(ComposeMessage(newText, textFieldValueState.selection))
-          } else if (!sendMsgButtonDisabled) {
-            onDone()
+          val shift = it.isShiftPressed
+          val ctrl = it.isCtrlPressed
+          val alt = it.isAltPressed
+          val meta = it.isMetaPressed
+          when {
+            sendKey.matches(shift, ctrl, alt, meta) -> if (!sendMsgButtonDisabled) onDone()
+            newlineKey.matches(shift, ctrl, alt, meta) -> insertNewline()
+            // plain Enter always inserts a newline, so an unassigned combination never leaves the user without one
+            !shift && !ctrl && !alt && !meta -> insertNewline()
           }
           true
         } else if (it.key == Key.DirectionUp && it.type == KeyEventType.KeyDown && cs.message.text.isEmpty()) {

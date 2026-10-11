@@ -4,7 +4,13 @@
 
 对于 AI：假如遇到无法实现、实现困难、官方已实现、破坏现有逻辑和功能、或者改动不确定的地方，请询问我
 
-- [ ] 在桌面端选择换行键组合（比如用回车键发送，控制加回车换行，或者反过来，又或者把控制改成上挡之类的，总之是两个下拉菜单，分别控制发送以及换行，但是不知道放哪，可以在设置页面里开一个新的分类）
+- [x] 在桌面端选择换行键组合（比如用回车键发送，控制加回车换行，或者反过来，又或者把控制改成上挡之类的，总之是两个下拉菜单，分别控制发送以及换行，但是不知道放哪，可以在设置页面里开一个新的分类）
+  - **已实现（基于 7.0.4）**：设置页新增桌面端专属「消息发送」分类，内含「发送消息的快捷键」与「换行的快捷键」两个下拉菜单，均提供 `Enter`、`Shift + Enter`、`Ctrl + Enter`、`Alt + Enter` 四种组合。
+  - 新增枚举 `ChatEnterKeyCombination` 与偏好项 `messageSendKey`（默认 `Enter`）/ `messageNewlineKey`（默认 `Shift + Enter`），位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`。使用 `mkSafeEnumPreference` 存储，遇到不认识的旧值会安全回退到默认值，便于日后升级。
+  - 两个组合始终互不相同：选择对方已占用的组合时会自动交换；含 `Cmd`/`Win` 的组合一律不匹配；未分配的修饰键组合不发送消息，而单独按 `Enter` 仍会换行，保证换行始终可用。
+  - 输入框改动：`apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/PlatformTextField.desktop.kt`；设置界面改动：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt`。
+  - 未加入 `AppSettings` 跨设备导入/导出结构（该设置与设备、输入方式相关），因此备份格式保持不变。
+  - 测试：新增 `ChatEnterKeyCombinationTest`，`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
 - [ ] 一键更改群中所有人的接收地址（其实就是重建所有连接，基本上相当于重新进群）
 - [ ] 手动指定接收地址（更改接受地址的时候添加一个手动选择的按钮，然后列出当前所有服务器，全部变成复选框的形式，还要有全选和反选按钮）
 - [ ] 批量添加服务器（在 设置→高级设置→网络和服务器→你的服务器→添加服务器→手动输入服务器 里面允许一次添加多台服务器，使用换行分隔，这一次添加的所有服务器都统一使用下方的设置）

@@ -318,14 +318,15 @@ The `text` extension on the enum returns the localized status string (resource k
 
 <a id="AppPreferences"></a>
 <a id="appPrefs"></a>
+<a id="ChatEnterKeyCombination"></a>
 
 ## 5. AppPreferences
 
-Defined at [`SimpleXAPI.kt line 94`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L94) as `class AppPreferences`.
+Defined at [`SimpleXAPI.kt line 128`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L128) as `class AppPreferences`.
 
 Uses the `multiplatform-settings` library (`com.russhwolf.settings.Settings`) for cross-platform key-value storage (Android `SharedPreferences` / Desktop `java.util.prefs.Preferences`).
 
-The `AppPreferences` instance is created lazily in `ChatController` at [`SimpleXAPI.kt line 496`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L496):
+The `AppPreferences` instance is created lazily in `ChatController` at [`SimpleXAPI.kt line 555`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L555):
 ```kotlin
 val appPrefs: AppPreferences by lazy { AppPreferences() }
 ```
@@ -450,6 +451,15 @@ val appPrefs: AppPreferences by lazy { AppPreferences() }
 | `oneHandUI` | `Boolean` | `true` | One-hand mode |
 | `chatBottomBar` | `Boolean` | `true` | Bottom bar in chat |
 
+#### Desktop Chat Input (lines 136-137)
+
+Desktop-only Enter key bindings for the compose field. Values are `ChatEnterKeyCombination` members (`ENTER`, `SHIFT_ENTER`, `CTRL_ENTER`, `ALT_ENTER`), defined in the same file.
+
+| Key | Type | Default | Purpose |
+|---|---|---|---|
+| `messageSendKey` | `ChatEnterKeyCombination` | `ENTER` | Enter combination that sends the message |
+| `messageNewlineKey` | `ChatEnterKeyCombination` | `SHIFT_ENTER` | Enter combination that inserts a newline |
+
 #### Remote Access (lines 238-243)
 
 | Key | Type | Default | Purpose |
@@ -487,6 +497,8 @@ The `SharedPreference<T>` wrapper (defined in SimpleXAPI.kt) provides:
 
 Factory methods: `mkBoolPreference`, `mkIntPreference`, `mkLongPreference`, `mkFloatPreference`, `mkStrPreference`, `mkEnumPreference`, `mkSafeEnumPreference`, `mkDatePreference`, `mkMapPreference`, `mkTimeoutPreference`.
 
+`ChatEnterKeyCombination` (SimpleXAPI.kt line 101) models the desktop Enter key bindings: `ENTER`, `SHIFT_ENTER`, `CTRL_ENTER`, `ALT_ENTER`. Each exposes its `shift`/`ctrl`/`alt` flags, a localised `text`, and `matches(shift, ctrl, alt, meta)` — an exact comparison in which a pressed `meta` (Cmd/Win) never matches. `defaultSend` is `ENTER`, `defaultNewline` is `SHIFT_ENTER`.
+
 ---
 
 ## 6. Source Files
@@ -494,7 +506,7 @@ Factory methods: `mkBoolPreference`, `mkIntPreference`, `mkLongPreference`, `mkF
 | File | Path | Key Contents |
 |---|---|---|
 | ChatModel.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt) | `ChatModel` singleton (line 86), `ChatsContext` (line 339), `Chat` (line 1328), `ChatInfo` (line 1391), `ChatStats` (line 1370), helper methods |
-| SimpleXAPI.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt) | `AppPreferences` (line 94), `ChatController` (line 493), `startReceiver` (line 660), `sendCmd` (line 804), `recvMsg` (line 829), `processReceivedMsg` (line 2568) |
+| SimpleXAPI.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt) | `ChatEnterKeyCombination` (line 101), `AppPreferences` (line 128), `ChatController` (line 555), `startReceiver` (line 722), `sendCmd` (line 872), `recvMsg` (line 897), `processReceivedMsg` (line 2824) |
 | ChatItemsMerger.kt | [`common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatItemsMerger.kt`](../common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatItemsMerger.kt) | `ActiveChatState` (line 196), chat item merge/diff logic |
 | Core.kt | [`common/src/commonMain/kotlin/chat/simplex/common/platform/Core.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Core.kt) | `initChatController` (line 62), state initialization flow |
 | App.kt | [`common/src/commonMain/kotlin/chat/simplex/common/App.kt`](../common/src/commonMain/kotlin/chat/simplex/common/App.kt) | `AppScreen` (line 47), `MainScreen` (line 84), top-level UI state reads |

@@ -3210,4 +3210,11 @@
   <string name="badge_unverified_desc">This badge could not be verified and may not be genuine.</string>
   <string name="badge_unknown_key_title">Badge cannot be verified</string>
   <string name="badge_unknown_key_desc">The badge is signed with a key that this version of the app does not recognize. Update the app to verify this badge.</string>
+  <string name="settings_message_sending">Message sending</string>
+  <string name="send_message_with">Send message with</string>
+  <string name="insert_newline_with">Insert newline with</string>
+  <string name="enter_key_combination">Enter</string>
+  <string name="shift_enter_key_combination">Shift + Enter</string>
+  <string name="ctrl_enter_key_combination">Ctrl + Enter</string>
+  <string name="alt_enter_key_combination">Alt + Enter</string>
 </resources>

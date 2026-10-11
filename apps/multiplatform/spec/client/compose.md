@@ -376,6 +376,16 @@ When entering a chat (line ~132 in `ChatView.kt`):
 
 On desktop, a `DisposableEffect` (line ~1256) saves the draft on dispose when forwarding content, since the `KeyChangeEffect` mechanism is Android-specific.
 
+### Desktop Enter Key Handling
+
+The desktop `PlatformTextField` (`platform/PlatformTextField.desktop.kt`) handles `Key.Enter` / `Key.NumPadEnter` key-down events using two preferences, `appPrefs.messageSendKey` (default `Enter`) and `appPrefs.messageNewlineKey` (default `Shift + Enter`) — see [spec/state.md](../state.md#ChatEnterKeyCombination) and concept PC32. On an Enter key-down it reads `isShiftPressed` / `isCtrlPressed` / `isAltPressed` / `isMetaPressed` and:
+
+1. sends via `onDone()` when the send combination matches and sending is enabled;
+2. inserts a newline at the caret when the newline combination matches;
+3. otherwise inserts a newline when no modifier is pressed, so a plain `Enter` always remains usable.
+
+Any other combination (including `Cmd`/`Win` + `Enter`) does nothing. The two combinations are kept distinct by the settings UI, which swaps them when the user picks the one already assigned to the other action. Android and iOS compose fields are unaffected.
+
 ### Draft Display in Chat List
 
 When a draft exists for a chat, `ChatPreviewView` shows a pencil icon with the draft text instead of the last message preview.
@@ -397,3 +407,4 @@ When a draft exists for a chat, `ChatPreviewView` shows a pencil icon with the d
 | `ComposeContextPendingMemberActionsView.kt` | Pending member compose actions |
 | `ComposeContextProfilePickerView.kt` | Profile picker in compose context |
 | `SelectableChatItemToolbars.kt` | Multi-select mode toolbar (delete, forward, moderate) |
+| `platform/PlatformTextField.desktop.kt` | Desktop `PlatformTextField` actual, including configurable send / newline Enter key handling (PC32) |

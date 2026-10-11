@@ -96,6 +96,32 @@ enum class CloseBehavior {
   companion object { val default = Ask }
 }
 
+// Enter key combinations that can be assigned to sending a message or inserting a newline on desktop.
+// Spec: spec/state.md#ChatEnterKeyCombination
+enum class ChatEnterKeyCombination(val shift: Boolean, val ctrl: Boolean, val alt: Boolean) {
+  ENTER(false, false, false),
+  SHIFT_ENTER(true, false, false),
+  CTRL_ENTER(false, true, false),
+  ALT_ENTER(false, false, true);
+
+  val text: String
+    get() = when (this) {
+      ENTER -> generalGetString(MR.strings.enter_key_combination)
+      SHIFT_ENTER -> generalGetString(MR.strings.shift_enter_key_combination)
+      CTRL_ENTER -> generalGetString(MR.strings.ctrl_enter_key_combination)
+      ALT_ENTER -> generalGetString(MR.strings.alt_enter_key_combination)
+    }
+
+  // `meta` (Cmd/Win) is never part of a combination, so any combination with it pressed does not match.
+  fun matches(shift: Boolean, ctrl: Boolean, alt: Boolean, meta: Boolean): Boolean =
+    this.shift == shift && this.ctrl == ctrl && this.alt == alt && !meta
+
+  companion object {
+    val defaultSend = ENTER
+    val defaultNewline = SHIFT_ENTER
+  }
+}
+
 class HintPref(val reset: () -> Unit, val isUnchanged: () -> Boolean)
 
 // Spec: spec/state.md#AppPreferences
@@ -107,6 +133,8 @@ class AppPreferences {
     if (!runServiceInBackground.get()) NotificationsMode.OFF else NotificationsMode.default
   )  { NotificationsMode.values().firstOrNull { it.name == this } }
   val closeBehavior: SharedPreference<CloseBehavior> = mkSafeEnumPreference(SHARED_PREFS_DESKTOP_CLOSE_BEHAVIOR, CloseBehavior.default)
+  val messageSendKey: SharedPreference<ChatEnterKeyCombination> = mkSafeEnumPreference(SHARED_PREFS_DESKTOP_MESSAGE_SEND_KEY, ChatEnterKeyCombination.defaultSend)
+  val messageNewlineKey: SharedPreference<ChatEnterKeyCombination> = mkSafeEnumPreference(SHARED_PREFS_DESKTOP_MESSAGE_NEWLINE_KEY, ChatEnterKeyCombination.defaultNewline)
   val notificationPreviewMode = mkStrPreference(SHARED_PREFS_NOTIFICATION_PREVIEW_MODE, NotificationPreviewMode.default.name)
   val canAskToEnableNotifications = mkBoolPreference(SHARED_PREFS_CAN_ASK_TO_ENABLE_NOTIFICATIONS, true)
   val backgroundServiceNoticeShown = mkBoolPreference(SHARED_PREFS_SERVICE_NOTICE_SHOWN, false)
@@ -509,6 +537,8 @@ class AppPreferences {
     private const val SHARED_PREFS_OFFER_REMOTE_MULTICAST = "OfferRemoteMulticast"
     private const val SHARED_PREFS_DESKTOP_WINDOW_STATE = "DesktopWindowState"
     private const val SHARED_PREFS_DESKTOP_CLOSE_BEHAVIOR = "DesktopCloseBehavior"
+    private const val SHARED_PREFS_DESKTOP_MESSAGE_SEND_KEY = "DesktopMessageSendKey"
+    private const val SHARED_PREFS_DESKTOP_MESSAGE_NEWLINE_KEY = "DesktopMessageNewlineKey"
     private const val SHARED_PREFS_SHOW_DELETE_CONVERSATION_NOTICE = "showDeleteConversationNotice"
     private const val SHARED_PREFS_SHOW_DELETE_CONTACT_NOTICE = "showDeleteContactNotice"
     private const val SHARED_PREFS_SHOW_SENT_VIA_RPOXY = "showSentViaProxy"

@@ -1,0 +1,568 @@
+diff --git a/TODO.md b/TODO.md
+index 77c64fa5c..4ba4e241f 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -4,7 +4,13 @@
+ 
+ 对于 AI：假如遇到无法实现、实现困难、官方已实现、破坏现有逻辑和功能、或者改动不确定的地方，请询问我
+ 
+-- [ ] 在桌面端选择换行键组合（比如用回车键发送，控制加回车换行，或者反过来，又或者把控制改成上挡之类的，总之是两个下拉菜单，分别控制发送以及换行，但是不知道放哪，可以在设置页面里开一个新的分类）
++- [x] 在桌面端选择换行键组合（比如用回车键发送，控制加回车换行，或者反过来，又或者把控制改成上挡之类的，总之是两个下拉菜单，分别控制发送以及换行，但是不知道放哪，可以在设置页面里开一个新的分类）
++  - **已实现（基于 7.0.4）**：设置页新增桌面端专属「消息发送」分类，内含「发送消息的快捷键」与「换行的快捷键」两个下拉菜单，均提供 `Enter`、`Shift + Enter`、`Ctrl + Enter`、`Alt + Enter` 四种组合。
++  - 新增枚举 `ChatEnterKeyCombination` 与偏好项 `messageSendKey`（默认 `Enter`）/ `messageNewlineKey`（默认 `Shift + Enter`），位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`。使用 `mkSafeEnumPreference` 存储，遇到不认识的旧值会安全回退到默认值，便于日后升级。
++  - 两个组合始终互不相同：选择对方已占用的组合时会自动交换；含 `Cmd`/`Win` 的组合一律不匹配；未分配的修饰键组合不发送消息，而单独按 `Enter` 仍会换行，保证换行始终可用。
++  - 输入框改动：`apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/PlatformTextField.desktop.kt`；设置界面改动：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt`。
++  - 未加入 `AppSettings` 跨设备导入/导出结构（该设置与设备、输入方式相关），因此备份格式保持不变。
++  - 测试：新增 `ChatEnterKeyCombinationTest`，`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
+ - [ ] 一键更改群中所有人的接收地址（其实就是重建所有连接，基本上相当于重新进群）
+ - [ ] 手动指定接收地址（更改接受地址的时候添加一个手动选择的按钮，然后列出当前所有服务器，全部变成复选框的形式，还要有全选和反选按钮）
+ - [ ] 批量添加服务器（在 设置→高级设置→网络和服务器→你的服务器→添加服务器→手动输入服务器 里面允许一次添加多台服务器，使用换行分隔，这一次添加的所有服务器都统一使用下方的设置）
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
+index f9be4a8d0..b56122fa2 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
+@@ -96,6 +96,32 @@ enum class CloseBehavior {
+   companion object { val default = Ask }
+ }
+ 
++// Enter key combinations that can be assigned to sending a message or inserting a newline on desktop.
++// Spec: spec/state.md#ChatEnterKeyCombination
++enum class ChatEnterKeyCombination(val shift: Boolean, val ctrl: Boolean, val alt: Boolean) {
++  ENTER(false, false, false),
++  SHIFT_ENTER(true, false, false),
++  CTRL_ENTER(false, true, false),
++  ALT_ENTER(false, false, true);
++
++  val text: String
++    get() = when (this) {
++      ENTER -> generalGetString(MR.strings.enter_key_combination)
++      SHIFT_ENTER -> generalGetString(MR.strings.shift_enter_key_combination)
++      CTRL_ENTER -> generalGetString(MR.strings.ctrl_enter_key_combination)
++      ALT_ENTER -> generalGetString(MR.strings.alt_enter_key_combination)
++    }
++
++  // `meta` (Cmd/Win) is never part of a combination, so any combination with it pressed does not match.
++  fun matches(shift: Boolean, ctrl: Boolean, alt: Boolean, meta: Boolean): Boolean =
++    this.shift == shift && this.ctrl == ctrl && this.alt == alt && !meta
++
++  companion object {
++    val defaultSend = ENTER
++    val defaultNewline = SHIFT_ENTER
++  }
++}
++
+ class HintPref(val reset: () -> Unit, val isUnchanged: () -> Boolean)
+ 
+ // Spec: spec/state.md#AppPreferences
+@@ -107,6 +133,8 @@ class AppPreferences {
+     if (!runServiceInBackground.get()) NotificationsMode.OFF else NotificationsMode.default
+   )  { NotificationsMode.values().firstOrNull { it.name == this } }
+   val closeBehavior: SharedPreference<CloseBehavior> = mkSafeEnumPreference(SHARED_PREFS_DESKTOP_CLOSE_BEHAVIOR, CloseBehavior.default)
++  val messageSendKey: SharedPreference<ChatEnterKeyCombination> = mkSafeEnumPreference(SHARED_PREFS_DESKTOP_MESSAGE_SEND_KEY, ChatEnterKeyCombination.defaultSend)
++  val messageNewlineKey: SharedPreference<ChatEnterKeyCombination> = mkSafeEnumPreference(SHARED_PREFS_DESKTOP_MESSAGE_NEWLINE_KEY, ChatEnterKeyCombination.defaultNewline)
+   val notificationPreviewMode = mkStrPreference(SHARED_PREFS_NOTIFICATION_PREVIEW_MODE, NotificationPreviewMode.default.name)
+   val canAskToEnableNotifications = mkBoolPreference(SHARED_PREFS_CAN_ASK_TO_ENABLE_NOTIFICATIONS, true)
+   val backgroundServiceNoticeShown = mkBoolPreference(SHARED_PREFS_SERVICE_NOTICE_SHOWN, false)
+@@ -509,6 +537,8 @@ class AppPreferences {
+     private const val SHARED_PREFS_OFFER_REMOTE_MULTICAST = "OfferRemoteMulticast"
+     private const val SHARED_PREFS_DESKTOP_WINDOW_STATE = "DesktopWindowState"
+     private const val SHARED_PREFS_DESKTOP_CLOSE_BEHAVIOR = "DesktopCloseBehavior"
++    private const val SHARED_PREFS_DESKTOP_MESSAGE_SEND_KEY = "DesktopMessageSendKey"
++    private const val SHARED_PREFS_DESKTOP_MESSAGE_NEWLINE_KEY = "DesktopMessageNewlineKey"
+     private const val SHARED_PREFS_SHOW_DELETE_CONVERSATION_NOTICE = "showDeleteConversationNotice"
+     private const val SHARED_PREFS_SHOW_DELETE_CONTACT_NOTICE = "showDeleteContactNotice"
+     private const val SHARED_PREFS_SHOW_SENT_VIA_RPOXY = "showSentViaProxy"
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt
+index 493fd4d19..5fcdbdbad 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt
+@@ -116,6 +116,21 @@ fun SettingsLayout(
+       AppVersionItem(showVersion)
+     }
+ 
++    if (appPlatform.isDesktop) {
++      SectionDividerSpaced()
++      SectionView(stringResource(MR.strings.settings_message_sending)) {
++        val sendKey = remember { appPrefs.messageSendKey.state }
++        val newlineKey = remember { appPrefs.messageNewlineKey.state }
++        val combinations = ChatEnterKeyCombination.entries.map { it to it.text }
++        ExposedDropDownSettingRow(stringResource(MR.strings.send_message_with), combinations, sendKey) {
++          setMessageEnterKey(send = true, selected = it)
++        }
++        ExposedDropDownSettingRow(stringResource(MR.strings.insert_newline_with), combinations, newlineKey) {
++          setMessageEnterKey(send = false, selected = it)
++        }
++      }
++    }
++
+     if (crowdfundingAvailable()) {
+       SectionDividerSpaced()
+       SectionView(stringResource(MR.strings.v7_0_invest)) {
+@@ -130,6 +145,16 @@ fun SettingsLayout(
+   }
+ }
+ 
++// Send and newline must stay distinct key combinations, so selecting the one already used swaps the two.
++private fun setMessageEnterKey(send: Boolean, selected: ChatEnterKeyCombination) {
++  val sendPref = appPrefs.messageSendKey
++  val newlinePref = appPrefs.messageNewlineKey
++  if (selected == (if (send) newlinePref.get() else sendPref.get())) {
++    if (send) newlinePref.set(sendPref.get()) else sendPref.set(newlinePref.get())
++  }
++  if (send) sendPref.set(selected) else newlinePref.set(selected)
++}
++
+ @Composable
+ fun HelpAndSupportView(
+   chatModel: ChatModel,
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+index e13037243..46863e0bb 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+@@ -3210,4 +3210,11 @@
+   <string name="badge_unverified_desc">This badge could not be verified and may not be genuine.</string>
+   <string name="badge_unknown_key_title">Badge cannot be verified</string>
+   <string name="badge_unknown_key_desc">The badge is signed with a key that this version of the app does not recognize. Update the app to verify this badge.</string>
++  <string name="settings_message_sending">Message sending</string>
++  <string name="send_message_with">Send message with</string>
++  <string name="insert_newline_with">Insert newline with</string>
++  <string name="enter_key_combination">Enter</string>
++  <string name="shift_enter_key_combination">Shift + Enter</string>
++  <string name="ctrl_enter_key_combination">Ctrl + Enter</string>
++  <string name="alt_enter_key_combination">Alt + Enter</string>
+ </resources>
+\ No newline at end of file
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+index 9dea7a5a0..98bde1940 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+@@ -2917,4 +2917,11 @@
+     <string name="v7_0_simplex_names">SimpleX 公开名称 (测试)</string>
+     <string name="info_row_file_servers">文件服务器</string>
+     <string name="share_text_file_servers">文件服务器：%s</string>
++    <string name="settings_message_sending">消息发送</string>
++    <string name="send_message_with">发送消息的快捷键</string>
++    <string name="insert_newline_with">换行的快捷键</string>
++    <string name="enter_key_combination">Enter</string>
++    <string name="shift_enter_key_combination">Shift + Enter</string>
++    <string name="ctrl_enter_key_combination">Ctrl + Enter</string>
++    <string name="alt_enter_key_combination">Alt + Enter</string>
+ </resources>
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ChatEnterKeyCombinationTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ChatEnterKeyCombinationTest.kt
+new file mode 100644
+index 000000000..b11c05450
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ChatEnterKeyCombinationTest.kt
+@@ -0,0 +1,29 @@
++package chat.simplex.app
++
++import chat.simplex.common.model.ChatEnterKeyCombination
++import kotlin.test.Test
++import kotlin.test.assertFalse
++import kotlin.test.assertTrue
++
++// use this command for testing:
++// ./gradlew desktopTest
++class ChatEnterKeyCombinationTest {
++  @Test
++  fun testMatches() {
++    assertTrue(ChatEnterKeyCombination.ENTER.matches(shift = false, ctrl = false, alt = false, meta = false))
++    assertFalse(ChatEnterKeyCombination.ENTER.matches(shift = true, ctrl = false, alt = false, meta = false))
++    assertFalse(ChatEnterKeyCombination.ENTER.matches(shift = false, ctrl = false, alt = false, meta = true))
++    assertTrue(ChatEnterKeyCombination.SHIFT_ENTER.matches(shift = true, ctrl = false, alt = false, meta = false))
++    assertFalse(ChatEnterKeyCombination.SHIFT_ENTER.matches(shift = true, ctrl = true, alt = false, meta = false))
++    assertTrue(ChatEnterKeyCombination.CTRL_ENTER.matches(shift = false, ctrl = true, alt = false, meta = false))
++    assertTrue(ChatEnterKeyCombination.ALT_ENTER.matches(shift = false, ctrl = false, alt = true, meta = false))
++    assertFalse(ChatEnterKeyCombination.ALT_ENTER.matches(shift = false, ctrl = false, alt = true, meta = true))
++  }
++
++  @Test
++  fun testDefaultsAreDistinct() {
++    assertTrue(ChatEnterKeyCombination.defaultSend.matches(shift = false, ctrl = false, alt = false, meta = false))
++    assertTrue(ChatEnterKeyCombination.defaultNewline.matches(shift = true, ctrl = false, alt = false, meta = false))
++    assertFalse(ChatEnterKeyCombination.defaultSend == ChatEnterKeyCombination.defaultNewline)
++  }
++}
+diff --git a/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/PlatformTextField.desktop.kt b/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/PlatformTextField.desktop.kt
+index 557dabd2e..4778b9c2d 100644
+--- a/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/PlatformTextField.desktop.kt
++++ b/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/PlatformTextField.desktop.kt
+@@ -20,6 +20,8 @@ import androidx.compose.ui.text.font.FontStyle
+ import androidx.compose.ui.text.input.*
+ import androidx.compose.ui.unit.LayoutDirection
+ import androidx.compose.ui.unit.dp
++import chat.simplex.common.model.ChatEnterKeyCombination
++import chat.simplex.common.model.ChatController.appPrefs
+ import chat.simplex.common.views.chat.*
+ import chat.simplex.common.views.helpers.*
+ import chat.simplex.res.MR
+@@ -92,6 +94,18 @@ actual fun PlatformTextField(
+   var textFieldValueState by remember { mutableStateOf(TextFieldValue(text = cs.message.text, selection = cs.message.selection)) }
+   val textFieldValue = textFieldValueState.copy(text = cs.message.text, selection = cs.message.selection)
+   val clipboard = LocalClipboardManager.current
++  val sendKey = remember { appPrefs.messageSendKey.state }.value
++  val newlineKey = remember { appPrefs.messageNewlineKey.state }.value
++  fun insertNewline() {
++    val start = if (minOf(textFieldValue.selection.min) == 0) "" else textFieldValue.text.substring(0 until textFieldValue.selection.min)
++    val newText = start + "\n" +
++          textFieldValue.text.substring(textFieldValue.selection.max, textFieldValue.text.length)
++    textFieldValueState = textFieldValue.copy(
++      text = newText,
++      selection = TextRange(textFieldValue.selection.min + 1)
++    )
++    onMessageChange(ComposeMessage(newText, textFieldValueState.selection))
++  }
+   BasicTextField(
+     value = textFieldValue,
+     onValueChange = onValueChange@ {
+@@ -122,17 +136,15 @@ actual fun PlatformTextField(
+       .focusRequester(focusReq)
+       .onPreviewKeyEvent {
+         if ((it.key == Key.Enter || it.key == Key.NumPadEnter) && it.type == KeyEventType.KeyDown) {
+-          if (it.isShiftPressed) {
+-            val start = if (minOf(textFieldValue.selection.min) == 0) "" else textFieldValue.text.substring(0 until textFieldValue.selection.min)
+-            val newText = start + "\n" +
+-                  textFieldValue.text.substring(textFieldValue.selection.max, textFieldValue.text.length)
+-            textFieldValueState = textFieldValue.copy(
+-              text = newText,
+-              selection = TextRange(textFieldValue.selection.min + 1)
+-            )
+-            onMessageChange(ComposeMessage(newText, textFieldValueState.selection))
+-          } else if (!sendMsgButtonDisabled) {
+-            onDone()
++          val shift = it.isShiftPressed
++          val ctrl = it.isCtrlPressed
++          val alt = it.isAltPressed
++          val meta = it.isMetaPressed
++          when {
++            sendKey.matches(shift, ctrl, alt, meta) -> if (!sendMsgButtonDisabled) onDone()
++            newlineKey.matches(shift, ctrl, alt, meta) -> insertNewline()
++            // plain Enter always inserts a newline, so an unassigned combination never leaves the user without one
++            !shift && !ctrl && !alt && !meta -> insertNewline()
+           }
+           true
+         } else if (it.key == Key.DirectionUp && it.type == KeyEventType.KeyDown && cs.message.text.isEmpty()) {
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index d29ac5c2e..03fa00e7b 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -50,6 +50,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC29 | User Address | [README.md](README.md) (Contacts, User Management) | [spec/api.md](../spec/api.md) | `common/.../views/usersettings/UserAddressView.kt`, `UserAddressLearnMore.kt` | `Controller.hs` (`APICreateMyAddress`) |
+ | PC30 | Member Support Chat | [README.md](README.md) (Groups) | [spec/api.md](../spec/api.md) | `common/.../views/chat/group/MemberSupportView.kt`, `MemberSupportChatView.kt`, `MemberAdmission.kt` | `Messages.hs` (`GroupChatScope`), `Controller.hs` |
+ | PC31 | Channels (Relays) | [views/group-info.md](views/group-info.md) | [spec/client/chat-view.md](../spec/client/chat-view.md), [spec/state.md](../spec/state.md) | `common/.../model/ChatModel.kt` (`RelayStatus` incl. `RsRejected`, `GroupRelay`, `GroupMemberRole.Relay`, `GroupMemberStatus.MemRejected`), `common/.../views/chat/group/ChannelRelaysView.kt`, `GroupMemberInfoView.kt` (rejected-status row), `common/.../views/newchat/AddChannelView.kt` (`RelayStatusIndicator` rejected branch), `common/.../views/chat/group/AddGroupRelayView.kt` | `Controller.hs` (`APIAddGroupRelays`, `APIAllowRelayGroup`, `XGrpRelayReject` CONF handler) |
++| PC32 | Desktop Message Sending Keys | [views/settings.md](views/settings.md) | [spec/state.md](../spec/state.md), [spec/client/compose.md](../spec/client/compose.md) | `common/.../model/SimpleXAPI.kt` (`ChatEnterKeyCombination`, `messageSendKey`, `messageNewlineKey`), `common/.../views/usersettings/SettingsView.kt`, `common/.../platform/PlatformTextField.desktop.kt` | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
+ - `common/.../` expands to `common/src/commonMain/kotlin/chat/simplex/common/`
+@@ -105,6 +106,7 @@ Key files that exist only on one platform, grouped by concern.
+ | `common/src/desktopMain/kotlin/chat/simplex/common/platform/Videos.desktop.kt` | VLC-based video detection |
+ | `common/src/desktopMain/kotlin/chat/simplex/common/platform/VideoPlayer.desktop.kt` | VLC video player implementation |
+ | `common/src/desktopMain/kotlin/chat/simplex/common/platform/Platform.desktop.kt` | Desktop platform detection (Linux/macOS/Windows) |
++| `common/src/desktopMain/kotlin/chat/simplex/common/platform/PlatformTextField.desktop.kt` | Desktop compose text field, including the configurable send / newline Enter keys (PC32) |
+ | `common/src/desktopMain/kotlin/chat/simplex/common/platform/*.desktop.kt` | All `actual` implementations for Desktop |
+ 
+ ---
+diff --git a/apps/multiplatform/product/views/settings.md b/apps/multiplatform/product/views/settings.md
+index e668bf2d0..eaea0ac92 100644
+--- a/apps/multiplatform/product/views/settings.md
++++ b/apps/multiplatform/product/views/settings.md
+@@ -19,6 +19,7 @@ Configure all aspects of app behavior including notifications, network/servers,
+ |---|---|---|
+ | App section | Device settings, app version | App updates (`AppUpdater`), device settings, app version |
+ | Notifications | Full notification mode selection (instant/periodic/off) | Notification settings |
++| Message sending keys | Not available (IME decides) | "Message sending" section with send / newline Enter key dropdowns |
+ | Use from desktop/mobile | "Use from desktop" option in UserPicker | "Link a mobile" / "Linked mobiles" option in UserPicker |
+ | Database migration | "Migrate to another device" with auth | Same |
+ 
+@@ -145,6 +146,17 @@ Platform-specific section (expect/actual composable):
+ | Reset all hints | Reset dismissed hint/card preferences |
+ | App version | Version string with build info; taps open `VersionInfoView` |
+ 
++### Message Sending Section (desktop only)
++
++Rendered only when `appPlatform.isDesktop`. Both rows offer the same four combinations: `Enter`, `Shift + Enter`, `Ctrl + Enter`, `Alt + Enter`.
++
++| Row | Preference Key | Default | Description |
++|---|---|---|---|
++| Send message with | `messageSendKey` | `Enter` | Enter combination that sends the composed message |
++| Insert newline with | `messageNewlineKey` | `Shift + Enter` | Enter combination that inserts a newline at the caret |
++
++The two combinations are always kept distinct: choosing the combination already used by the other row swaps the two values. Any other Enter combination, including `Cmd`/`Win` + `Enter`, does nothing; a plain `Enter` (no modifier) always inserts a newline when it is not the send key, so a newline is never unreachable.
++
+ ## Source Files
+ 
+ | File | Path |
+@@ -157,3 +169,4 @@ Platform-specific section (expect/actual composable):
+ | `OperatorView.kt` | `views/usersettings/networkAndServers/OperatorView.kt` |
+ | `ProtocolServersView.kt` | `views/usersettings/networkAndServers/ProtocolServersView.kt` |
+ | `NewServerView.kt` | `views/usersettings/networkAndServers/NewServerView.kt` |
++| `PlatformTextField.desktop.kt` | `platform/PlatformTextField.desktop.kt` (Enter key handling for send / newline) |
+diff --git a/apps/multiplatform/spec/client/compose.md b/apps/multiplatform/spec/client/compose.md
+index 241dcf667..f260f86e5 100644
+--- a/apps/multiplatform/spec/client/compose.md
++++ b/apps/multiplatform/spec/client/compose.md
+@@ -376,6 +376,16 @@ When entering a chat (line ~132 in `ChatView.kt`):
+ 
+ On desktop, a `DisposableEffect` (line ~1256) saves the draft on dispose when forwarding content, since the `KeyChangeEffect` mechanism is Android-specific.
+ 
++### Desktop Enter Key Handling
++
++The desktop `PlatformTextField` (`platform/PlatformTextField.desktop.kt`) handles `Key.Enter` / `Key.NumPadEnter` key-down events using two preferences, `appPrefs.messageSendKey` (default `Enter`) and `appPrefs.messageNewlineKey` (default `Shift + Enter`) — see [spec/state.md](../state.md#ChatEnterKeyCombination) and concept PC32. On an Enter key-down it reads `isShiftPressed` / `isCtrlPressed` / `isAltPressed` / `isMetaPressed` and:
++
++1. sends via `onDone()` when the send combination matches and sending is enabled;
++2. inserts a newline at the caret when the newline combination matches;
++3. otherwise inserts a newline when no modifier is pressed, so a plain `Enter` always remains usable.
++
++Any other combination (including `Cmd`/`Win` + `Enter`) does nothing. The two combinations are kept distinct by the settings UI, which swaps them when the user picks the one already assigned to the other action. Android and iOS compose fields are unaffected.
++
+ ### Draft Display in Chat List
+ 
+ When a draft exists for a chat, `ChatPreviewView` shows a pencil icon with the draft text instead of the last message preview.
+@@ -397,3 +407,4 @@ When a draft exists for a chat, `ChatPreviewView` shows a pencil icon with the d
+ | `ComposeContextPendingMemberActionsView.kt` | Pending member compose actions |
+ | `ComposeContextProfilePickerView.kt` | Profile picker in compose context |
+ | `SelectableChatItemToolbars.kt` | Multi-select mode toolbar (delete, forward, moderate) |
++| `platform/PlatformTextField.desktop.kt` | Desktop `PlatformTextField` actual, including configurable send / newline Enter key handling (PC32) |
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index 2359dae40..057faa800 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -41,6 +41,7 @@
+ | PC29 | User Address |
+ | PC30 | Member Support Chat |
+ | PC31 | Channels (Relays) |
++| PC32 | Desktop Message Sending Keys |
+ 
+ ---
+ 
+@@ -55,7 +56,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `App.kt` | PC1 through PC31 | High | Root composable — navigation scaffold for all features |
+ | `AppLock.kt` | PC22 | Medium | App lock state and authorization lifecycle |
+ | `model/ChatModel.kt` | PC1 through PC31 | High | Central state object — every feature reads or writes here |
+-| `model/SimpleXAPI.kt` | PC1 through PC31 | High | FFI bridge to Haskell core — all commands and responses |
++| `model/SimpleXAPI.kt` | PC1 through PC32 | High | FFI bridge to Haskell core — all commands and responses |
+ | `model/CryptoFile.kt` | PC10, PC23 | Medium | Encrypted file read/write helpers |
+ | `platform/Core.kt` | PC1 through PC31 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
+ | `platform/AppCommon.kt` | PC1 through PC31 | Medium | Shared app initialization logic |
+@@ -205,7 +206,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ 
+ | Source File | Product Concepts Affected | Risk Level | Notes |
+ |-------------|--------------------------|------------|-------|
+-| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29 | Medium | Settings navigation hub |
++| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29, PC32 | Medium | Settings navigation hub |
+ | `views/usersettings/Appearance.kt` | PC24 | Low | Theme and appearance customization |
+ | `views/usersettings/PrivacySettings.kt` | PC20, PC22 | Medium | Privacy and lock settings |
+ | `views/usersettings/UserProfileView.kt` | PC19 | Medium | Profile display name and image editing |
+@@ -425,7 +426,7 @@ Path prefix: `common/src/desktopMain/kotlin/chat/simplex/common/`
+ | `platform/Videos.desktop.kt` | PC10 | Low | Desktop video utilities |
+ | `platform/Notifications.desktop.kt` | PC18 | Low | Desktop notification setup |
+ | `platform/Images.desktop.kt` | PC10 | Low | Desktop image processing |
+-| `platform/PlatformTextField.desktop.kt` | PC4 | Low | Desktop text field actual implementation |
++| `platform/PlatformTextField.desktop.kt` | PC4, PC32 | Low | Desktop text field actual implementation |
+ | `platform/Share.desktop.kt` | PC10 | Low | Desktop clipboard/share |
+ | `platform/Back.desktop.kt` | PC1 | Low | Desktop back navigation |
+ | `platform/UI.desktop.kt` | PC24 | Low | Desktop density and locale |
+diff --git a/apps/multiplatform/spec/state.md b/apps/multiplatform/spec/state.md
+index 229c30d18..dbce5cfd2 100644
+--- a/apps/multiplatform/spec/state.md
++++ b/apps/multiplatform/spec/state.md
+@@ -318,14 +318,15 @@ The `text` extension on the enum returns the localized status string (resource k
+ 
+ <a id="AppPreferences"></a>
+ <a id="appPrefs"></a>
++<a id="ChatEnterKeyCombination"></a>
+ 
+ ## 5. AppPreferences
+ 
+-Defined at [`SimpleXAPI.kt line 94`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L94) as `class AppPreferences`.
++Defined at [`SimpleXAPI.kt line 128`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L128) as `class AppPreferences`.
+ 
+ Uses the `multiplatform-settings` library (`com.russhwolf.settings.Settings`) for cross-platform key-value storage (Android `SharedPreferences` / Desktop `java.util.prefs.Preferences`).
+ 
+-The `AppPreferences` instance is created lazily in `ChatController` at [`SimpleXAPI.kt line 496`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L496):
++The `AppPreferences` instance is created lazily in `ChatController` at [`SimpleXAPI.kt line 555`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L555):
+ ```kotlin
+ val appPrefs: AppPreferences by lazy { AppPreferences() }
+ ```
+@@ -450,6 +451,15 @@ val appPrefs: AppPreferences by lazy { AppPreferences() }
+ | `oneHandUI` | `Boolean` | `true` | One-hand mode |
+ | `chatBottomBar` | `Boolean` | `true` | Bottom bar in chat |
+ 
++#### Desktop Chat Input (lines 136-137)
++
++Desktop-only Enter key bindings for the compose field. Values are `ChatEnterKeyCombination` members (`ENTER`, `SHIFT_ENTER`, `CTRL_ENTER`, `ALT_ENTER`), defined in the same file.
++
++| Key | Type | Default | Purpose |
++|---|---|---|---|
++| `messageSendKey` | `ChatEnterKeyCombination` | `ENTER` | Enter combination that sends the message |
++| `messageNewlineKey` | `ChatEnterKeyCombination` | `SHIFT_ENTER` | Enter combination that inserts a newline |
++
+ #### Remote Access (lines 238-243)
+ 
+ | Key | Type | Default | Purpose |
+@@ -487,6 +497,8 @@ The `SharedPreference<T>` wrapper (defined in SimpleXAPI.kt) provides:
+ 
+ Factory methods: `mkBoolPreference`, `mkIntPreference`, `mkLongPreference`, `mkFloatPreference`, `mkStrPreference`, `mkEnumPreference`, `mkSafeEnumPreference`, `mkDatePreference`, `mkMapPreference`, `mkTimeoutPreference`.
+ 
++`ChatEnterKeyCombination` (SimpleXAPI.kt line 101) models the desktop Enter key bindings: `ENTER`, `SHIFT_ENTER`, `CTRL_ENTER`, `ALT_ENTER`. Each exposes its `shift`/`ctrl`/`alt` flags, a localised `text`, and `matches(shift, ctrl, alt, meta)` — an exact comparison in which a pressed `meta` (Cmd/Win) never matches. `defaultSend` is `ENTER`, `defaultNewline` is `SHIFT_ENTER`.
++
+ ---
+ 
+ ## 6. Source Files
+@@ -494,7 +506,7 @@ Factory methods: `mkBoolPreference`, `mkIntPreference`, `mkLongPreference`, `mkF
+ | File | Path | Key Contents |
+ |---|---|---|
+ | ChatModel.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt) | `ChatModel` singleton (line 86), `ChatsContext` (line 339), `Chat` (line 1328), `ChatInfo` (line 1391), `ChatStats` (line 1370), helper methods |
+-| SimpleXAPI.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt) | `AppPreferences` (line 94), `ChatController` (line 493), `startReceiver` (line 660), `sendCmd` (line 804), `recvMsg` (line 829), `processReceivedMsg` (line 2568) |
++| SimpleXAPI.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt) | `ChatEnterKeyCombination` (line 101), `AppPreferences` (line 128), `ChatController` (line 555), `startReceiver` (line 722), `sendCmd` (line 872), `recvMsg` (line 897), `processReceivedMsg` (line 2824) |
+ | ChatItemsMerger.kt | [`common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatItemsMerger.kt`](../common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatItemsMerger.kt) | `ActiveChatState` (line 196), chat item merge/diff logic |
+ | Core.kt | [`common/src/commonMain/kotlin/chat/simplex/common/platform/Core.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Core.kt) | `initChatController` (line 62), state initialization flow |
+ | App.kt | [`common/src/commonMain/kotlin/chat/simplex/common/App.kt`](../common/src/commonMain/kotlin/chat/simplex/common/App.kt) | `AppScreen` (line 47), `MainScreen` (line 84), top-level UI state reads |
+diff --git a/plans/2026-10-12-desktop-message-enter-keys.md b/plans/2026-10-12-desktop-message-enter-keys.md
+new file mode 100644
+index 000000000..563d575ca
+--- /dev/null
++++ b/plans/2026-10-12-desktop-message-enter-keys.md
+@@ -0,0 +1,142 @@
++# Desktop: choose the Enter key combinations for sending and for a newline
++
++## Problem
++
++On desktop the compose field has a hardcoded keyboard behaviour: `Enter`
++sends the message and `Shift+Enter` inserts a newline. This is the
++behaviour of `PlatformTextField.desktop.kt`, where the only handling of
++`Key.Enter` / `Key.NumPadEnter` decides between sending and inserting by
++testing `isShiftPressed`.
++
++Users migrating from other messengers (where `Ctrl+Enter` or `Alt+Enter`
++sends, or where plain `Enter` must insert a newline) cannot change this,
++and it was requested in TODO.md item 1 as the first change on top of
++7.0.4.
++
++## Solution summary
++
++Add two user preferences, `messageSendKey` and `messageNewlineKey`, each
++holding a `ChatEnterKeyCombination`, and expose them in a new desktop-only
++"Message sending" section of the settings page as two dropdowns. The
++compose field reads both preferences and interprets every Enter press from
++them.
++
++The change stays inside existing layers:
++
++- `ChatEnterKeyCombination` lives in `SimpleXAPI.kt` next to the other
++  preference enums, and follows the existing `mkSafeEnumPreference` +
++  `val text` pattern so it survives reuse by future versions.
++- The settings UI is added to the common `SettingsLayout`, guarded by
++  `appPlatform.isDesktop`, so no new screen or navigation entry is
++  introduced and Android/iOS are untouched.
++- `PlatformTextField.desktop.kt` keeps its existing structure; only the
++  body of the Enter branch changes.
++
++The two combinations are always kept distinct: selecting the combination
++already used by the other row swaps the two.
++
++## Detailed technical design
++
++### Data model
++
++```kotlin
++enum class ChatEnterKeyCombination(val shift: Boolean, val ctrl: Boolean, val alt: Boolean) {
++  ENTER(false, false, false),
++  SHIFT_ENTER(true, false, false),
++  CTRL_ENTER(false, true, false),
++  ALT_ENTER(false, false, true);
++
++  val text: String get() = ...  // localised label, e.g. "Shift + Enter"
++
++  fun matches(shift: Boolean, ctrl: Boolean, alt: Boolean, meta: Boolean): Boolean =
++    this.shift == shift && this.ctrl == ctrl && this.alt == alt && !meta
++
++  companion object {
++    val defaultSend = ENTER
++    val defaultNewline = SHIFT_ENTER
++  }
++}
++```
++
++`meta` (Cmd on macOS, Win on Windows) is deliberately never part of a
++combination and always excludes a match. The defaults reproduce the 7.0.4
++behaviour exactly.
++
++Stored under new private keys `DesktopMessageSendKey` and
++`DesktopMessageNewlineKey` via `mkSafeEnumPreference`, which already
++degrades unknown stored values to the default — so a value written by a
++future version that added more combinations cannot crash an older build.
++
++These preferences are intentionally **not** added to `AppSettings`
++(the cross-device export/import struct). They are device- and
++input-method-specific, like `closeBehavior`: carrying "Shift+Enter" to a
++touch device would be meaningless, and adding them would change an
++already-shipped backup format for no benefit.
++
++### Key interpretation
++
++In the `onPreviewKeyEvent` Enter branch, compute the four modifier
++booleans once and resolve:
++
++1. `messageSendKey` matches -> `onDone()` when sending is enabled.
++2. `messageNewlineKey` matches -> insert a newline at the caret.
++3. otherwise, a plain `Enter` with no modifier -> insert a newline.
++
++Rule 3 is the safety net: an unassigned combination (for example
++`Ctrl+Enter` while the send key is `Enter`) does nothing rather than
++sending, but the user can never end up unable to insert a newline with
++the plain key. `Shift`/`Ctrl`/`Alt` key-down events themselves are not
++handled, so no other keyboard behaviour changes.
++
++### Settings UI
++
++A new `SectionView` titled `settings_message_sending`, rendered only when
++`appPlatform.isDesktop`, with two `ExposedDropDownSettingRow`s titled
++`send_message_with` and `insert_newline_with`. Each row lists all four
++combinations labelled by their localised `text`. The selection handler
++`setMessageEnterKey(send, selected)` swaps the other preference when the
++chosen combination is already taken, then writes the new value, which
++updates the `SharedPreference.state` both rows observe.
++
++### Affected documentation
++
++- `product/views/settings.md` — platform differences row and the new
++  section.
++- `product/concepts.md` — new concept row PC32.
++- `spec/state.md` — `AppPreferences` location and the new preference
++  category.
++- `spec/impact.md` — PC32 added to the affected files.
++- `TODO.md` — the implementation note for item 1.
++
++## Detailed implementation steps
++
++1. Add strings (`settings_message_sending`, `send_message_with`,
++   `insert_newline_with`, `enter|shift_enter|ctrl_enter|alt_enter_key_combination`)
++   to `MR/base/strings.xml` and `MR/zh-rCN/strings.xml`.
++2. Add `ChatEnterKeyCombination` and the two preferences (plus their keys)
++   to `common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`.
++3. Add the desktop-only section and `setMessageEnterKey` to
++   `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt`.
++4. Rework the Enter branch of `PlatformTextField.desktop.kt` to use the
++   preferences, extracting the newline insertion into a local function so
++   both paths share it.
++5. Add `common/src/commonTest/kotlin/chat/simplex/app/ChatEnterKeyCombinationTest.kt`
++   covering `matches` (exact modifier matching, `meta` rejection) and the
++   default pair being distinct.
++6. Run `./gradlew :common:desktopTest` and confirm a green run.
++7. Update the documents listed above, store the diff under `diff/`, and
++   commit.
++
++## Adversarial self-review
++
++- Could the two rows ever hold the same combination? No: the handler
++  swaps before writing, and the stored values are only written through
++  that handler. A hand-edited settings file with equal values degrades
++  safely — the send rule wins and the newline row simply never fires,
++  while plain `Enter` still inserts a newline.
++- Could an unassigned combination send by accident? No: sending requires
++  an exact match on the send combination, `meta` always disqualifies.
++- Does this affect Android or iOS? No: the section is desktop-guarded and
++  the only key handling that changed is the desktop `actual`.
++- Does it change the 7.0.4 default behaviour? No: `Enter` sends,
++  `Shift+Enter` inserts — exactly as before.
