@@ -333,10 +333,15 @@ attached to it -- is display metadata owned by the client.
 3. **The rate is a display only.** It MUST NOT change any state, MUST NOT be persisted, and MUST NOT
    be added to the cross-device backup format; the member search filter MUST NOT affect it (the rate
    is computed from all members, not from the filtered list).
+4. **Collapsing the member list is ephemeral.** The collapse toggle MUST be per group and session
+   local (`rememberSaveable(groupInfo.id)`), MUST NOT be persisted or added to `AppSettings`, MUST
+   NOT clear the search text or any member selection, and MUST NOT hide anything outside the member
+   list section, so that expanding it again restores exactly the previous state.
 
 **Enforcement:**
 - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`
-  (`groupMembersConnection`, `groupMembersConnectionRate`, `GroupMembersConnectionStatus`)
+  (`groupMembersConnection`, `groupMembersConnectionRate`, `GroupMembersConnectionStatus`,
+  `groupMembersSectionVisible`, `groupMembersRowsVisible`, `membersCollapsed`)
 - `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/Section.kt`
   (`SectionViewWithButton` title button and card shape)
 - Test: `common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt`
