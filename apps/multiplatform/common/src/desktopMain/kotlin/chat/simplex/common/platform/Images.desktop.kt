@@ -8,6 +8,10 @@ import boofcv.struct.image.GrayU8
 import chat.simplex.res.MR
 import org.jetbrains.skia.Image
 import java.awt.RenderingHints
+import java.awt.Toolkit
+import java.awt.datatransfer.DataFlavor
+import java.awt.datatransfer.Transferable
+import java.awt.datatransfer.UnsupportedFlavorException
 import java.awt.geom.AffineTransform
 import java.awt.image.AffineTransformOp
 import java.awt.image.BufferedImage
@@ -268,4 +272,31 @@ fun BufferedImage.hasAlpha(): Boolean {
     }
   }
   return false
+}
+
+actual fun copyImageToClipboard(image: ImageBitmap): Boolean =
+  try {
+    Toolkit.getDefaultToolkit().systemClipboard.setContents(imageToTransferable(image), null)
+    true
+  } catch (e: Exception) {
+    Log.e(TAG, "copyImageToClipboard error: $e")
+    false
+  }
+
+/** Kept separate from [copyImageToClipboard] so that the conversion can be tested without a display. */
+internal fun imageToTransferable(image: ImageBitmap): Transferable = bufferedImageToTransferable(image.toAwtImage())
+
+/**
+ * Exposed separately from [imageToTransferable] because converting an [ImageBitmap] loads the Skia
+ * natives, which are not available in the unit test JVM, while the AWT side can be tested headless.
+ */
+internal fun bufferedImageToTransferable(image: BufferedImage): Transferable = TransferableImage(image)
+
+private class TransferableImage(private val image: BufferedImage) : Transferable {
+  override fun getTransferDataFlavors(): Array<DataFlavor> = arrayOf(DataFlavor.imageFlavor)
+
+  override fun isDataFlavorSupported(flavor: DataFlavor): Boolean = flavor == DataFlavor.imageFlavor
+
+  override fun getTransferData(flavor: DataFlavor): Any =
+    if (flavor == DataFlavor.imageFlavor) image else throw UnsupportedFlavorException(flavor)
 }

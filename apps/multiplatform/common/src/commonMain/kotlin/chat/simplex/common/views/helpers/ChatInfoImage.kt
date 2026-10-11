@@ -4,6 +4,7 @@ import androidx.compose.desktop.ui.tooling.preview.Preview
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.shape.*
@@ -40,9 +41,10 @@ import chat.simplex.res.MR
 import dev.icerock.moko.resources.ImageResource
 import kotlin.math.max
 import kotlin.math.roundToInt
+import SectionBottomSpacer
 
 @Composable
-fun ChatInfoImage(chatInfo: ChatInfo, size: Dp, iconColor: Color = MaterialTheme.colors.secondaryVariant, shadow: Boolean = false) {
+fun ChatInfoImage(chatInfo: ChatInfo, size: Dp, iconColor: Color = MaterialTheme.colors.secondaryVariant, shadow: Boolean = false, onClick: (() -> Unit)? = null) {
   val icon =
     when (chatInfo) {
       is ChatInfo.Group -> chatInfo.groupInfo.chatIconName
@@ -50,7 +52,38 @@ fun ChatInfoImage(chatInfo: ChatInfo, size: Dp, iconColor: Color = MaterialTheme
       is ChatInfo.Direct -> chatInfo.contact.chatIconName
       else -> MR.images.ic_account_circle_filled
     }
-  ProfileImage(size, chatInfo.image, icon, if (chatInfo is ChatInfo.Local) NoteFolderIconColor else iconColor)
+  ProfileImage(size, chatInfo.image, icon, if (chatInfo is ChatInfo.Local) NoteFolderIconColor else iconColor, onClick = onClick)
+}
+
+/** Shows the profile image at full size with an option to copy it. */
+@Composable
+fun ProfileImageViewer(name: String, image: String) {
+  val bitmap = remember(image) { base64ToBitmap(image) }
+  ColumnWithScrollBar(horizontalAlignment = Alignment.CenterHorizontally) {
+    AppBarTitle(name)
+    Image(
+      bitmap,
+      contentDescription = stringResource(MR.strings.image_descr_profile_image),
+      contentScale = ContentScale.Fit,
+      modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp).padding(horizontal = DEFAULT_PADDING)
+    )
+    SectionBottomSpacer()
+    SimpleButton(generalGetString(MR.strings.copy_image), painterResource(MR.images.ic_content_copy), disabled = false) {
+      if (copyImageToClipboard(bitmap)) {
+        showToast(generalGetString(MR.strings.image_copied))
+      } else {
+        showToast(generalGetString(MR.strings.image_copy_failed))
+      }
+    }
+    SectionBottomSpacer()
+  }
+}
+
+/** Opens the profile image viewer. Does nothing when there is no image to show (icon-only avatar). */
+fun showProfileImageModal(image: String?, name: String) {
+  if (image == null) return
+  val title = name.trim().ifEmpty { generalGetString(MR.strings.image_descr_profile_image) }
+  ModalManager.fullscreen.showModal { ProfileImageViewer(title, image) }
 }
 
 @Composable
@@ -72,9 +105,13 @@ fun ProfileImage(
   color: Color = MaterialTheme.colors.secondaryVariant,
   backgroundColor: Color? = null,
   blurred: Boolean = false,
-  async: Boolean = false
+  async: Boolean = false,
+  onClick: (() -> Unit)? = null
 ) {
-  Box(Modifier.size(size)) {
+  val clickModifier = if (onClick != null) {
+    Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
+  } else Modifier
+  Box(Modifier.size(size).then(clickModifier)) {
     if (image == null) {
       val iconToReplace = when (icon) {
         MR.images.ic_account_circle_filled -> AccountCircleFilled

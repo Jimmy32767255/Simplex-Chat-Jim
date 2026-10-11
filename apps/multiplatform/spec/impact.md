@@ -68,7 +68,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `platform/VideoPlayer.kt` | PC10, PC17 | Low | Video playback abstractions |
 | `platform/Cryptor.kt` | PC23 | Medium | Keystore encryption expect declarations |
 | `platform/Share.kt` | PC10, PC12 | Low | Share sheet abstractions |
-| `platform/Images.kt` | PC10, PC19 | Low | Image processing utilities |
+| `platform/Images.kt` | PC10, PC19, PC35 | Low | Image processing utilities, incl. the `copyImageToClipboard` expect declaration |
 | `platform/Platform.kt` | PC1 through PC31 | Low | Platform detection and capability flags |
 | `platform/PlatformTextField.kt` | PC4 | Low | Native text input expect declarations |
 | `platform/Back.kt` | PC1 | Low | Back navigation handling |
@@ -117,7 +117,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `views/chat/ComposeImageView.kt` | PC10 | Low | Image attachment preview in compose area |
 | `views/chat/ContextItemView.kt` | PC6 | Low | Reply/edit quote preview |
 | `views/chat/SelectableChatItemToolbars.kt` | PC7, PC10 | Medium | Multi-select toolbar (delete, forward) |
-| `views/chat/ChatInfoView.kt` | PC2, PC13, PC20, PC33 | Medium | Contact details, verification, receiving-address switch, and the shared switch alerts |
+| `views/chat/ChatInfoView.kt` | PC2, PC13, PC20, PC33, PC35 | Medium | Contact details, verification, receiving-address switch, the shared switch alerts, and the clickable contact avatar |
 | `views/chat/ContactPreferences.kt` | PC2, PC8 | Medium | Per-contact feature preferences |
 | `views/chat/ChatItemInfoView.kt` | PC2, PC3 | Low | Message delivery detail |
 | `views/chat/ChatItemsLoader.kt` | PC2, PC3 | Medium | Pagination and message loading logic |
@@ -161,9 +161,9 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33 | High | Group management hub; includes the group-wide receiving-address switch row |
+| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33, PC35 | High | Group management hub; includes the group-wide receiving-address switch row and the clickable group / member avatars |
 | `views/chat/group/AddGroupMembersView.kt` | PC14, PC16 | Medium | Member invitation flow |
-| `views/chat/group/GroupMemberInfoView.kt` | PC3, PC14, PC16, PC30, PC31, PC33 | Medium | Member details and role management; relay-address + rejected-status info rows; per-member receiving-address switch |
+| `views/chat/group/GroupMemberInfoView.kt` | PC3, PC14, PC16, PC30, PC31, PC33, PC35 | Medium | Member details and role management; relay-address + rejected-status info rows; per-member receiving-address switch; clickable avatar |
 | `views/chat/group/ChannelRelaysView.kt` | PC31 | Medium | Channel relay list, add/remove entries |
 | `views/chat/group/AddGroupRelayView.kt` | PC31 | Low | Add relay sheet |
 | `views/chat/group/GroupProfileView.kt` | PC3, PC14 | Medium | Group profile editing |
@@ -277,7 +277,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `views/helpers/LinkPreviews.kt` | PC11 | Medium | Link preview fetching and rendering |
 | `views/helpers/LocalAuthentication.kt` | PC22 | Medium | Biometric/passcode authentication expect |
 | `views/helpers/ChatWallpaper.kt` | PC24 | Low | Chat wallpaper rendering |
-| `views/helpers/ChatInfoImage.kt` | PC19 | Low | Profile image composable |
+| `views/helpers/ChatInfoImage.kt` | PC19, PC35 | Low | Profile image composable, opt-in clickable avatars, and the profile image viewer modal |
 | `views/helpers/ThemeModeEditor.kt` | PC24 | Low | Theme mode toggle |
 | `views/helpers/ChooseAttachmentView.kt` | PC10 | Low | Attachment picker |
 | `views/helpers/GetImageView.kt` | PC10, PC19 | Low | Image capture and crop |
@@ -347,7 +347,7 @@ Path prefix: `common/src/androidMain/kotlin/chat/simplex/common/`
 | `platform/RecAndPlay.android.kt` | PC9 | Medium | Android MediaRecorder/MediaPlayer actual implementation |
 | `platform/VideoPlayer.android.kt` | PC10 | Low | Android ExoPlayer actual implementation |
 | `platform/Notifications.android.kt` | PC18 | Medium | Android notification channel creation |
-| `platform/Images.android.kt` | PC10, PC19 | Low | Android bitmap processing |
+| `platform/Images.android.kt` | PC10, PC19, PC35 | Low | Android bitmap processing, incl. the FileProvider-backed image clipboard |
 | `platform/PlatformTextField.android.kt` | PC4 | Low | Android native text field actual implementation |
 | `platform/Share.android.kt` | PC10 | Low | Android share intent actual implementation |
 | `platform/Back.android.kt` | PC1 | Low | Android back press handler |
@@ -425,7 +425,7 @@ Path prefix: `common/src/desktopMain/kotlin/chat/simplex/common/`
 | `platform/VideoPlayer.desktop.kt` | PC10 | Low | Desktop VLC-based video player |
 | `platform/Videos.desktop.kt` | PC10 | Low | Desktop video utilities |
 | `platform/Notifications.desktop.kt` | PC18 | Low | Desktop notification setup |
-| `platform/Images.desktop.kt` | PC10 | Low | Desktop image processing |
+| `platform/Images.desktop.kt` | PC10, PC35 | Low | Desktop image processing, incl. the AWT image clipboard |
 | `platform/PlatformTextField.desktop.kt` | PC4, PC32 | Low | Desktop text field actual implementation |
 | `platform/Share.desktop.kt` | PC10 | Low | Desktop clipboard/share |
 | `platform/Back.desktop.kt` | PC1 | Low | Desktop back navigation |

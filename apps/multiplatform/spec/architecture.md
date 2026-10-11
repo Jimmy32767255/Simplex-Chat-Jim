@@ -331,6 +331,7 @@ Examples from platform files:
 | `expect class RecorderNative` | [`RecAndPlay.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/RecAndPlay.kt#L17) | 17 |
 | `expect val cryptor: CryptorInterface` | [`Cryptor.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Cryptor.kt#L9) | 9 |
 | `expect fun base64ToBitmap(base64ImageString: String): ImageBitmap` | [`Images.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Images.kt#L17) | 17 |
+| `expect fun copyImageToClipboard(image: ImageBitmap): Boolean` | [`Images.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Images.kt#L36) | 36 |
 | `expect fun getWakeLock(timeout: Long): (() -> Unit)` | [`SimplexService.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/SimplexService.kt#L3) | 3 |
 | `expect class GlobalExceptionsHandler` | [`UI.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/UI.kt#L24) | 24 |
 | `expect fun UriHandler.sendEmail(subject: String, body: CharSequence)` | [`Share.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Share.kt#L7) | 7 |

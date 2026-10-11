@@ -1,0 +1,708 @@
+diff --git a/TODO.md b/TODO.md
+index 859c130a8..c15128844 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -38,7 +38,13 @@
+   - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`（新增 `ServerMeta`、`SHARED_PREFS_SERVER_METADATA`、`serverMetadata`）、`.../views/usersettings/networkAndServers/ProtocolServersView.kt`（`ServersSection`、`serverGroup`、`updatedServerMetadata`、`saveServerMetadata`）、`.../networkAndServers/ProtocolServerView.kt`（`ServerGroupAndNoteSection`）、`.../networkAndServers/NewServerView.kt`、`apps/multiplatform/common/src/commonMain/resources/MR/{base,zh-rCN}/strings.xml`。
+   - 与条目 1 一致，未加入 `AppSettings` 跨设备导入/导出结构，备份格式保持不变（代价是分组/备注不会随设备迁移一起带走，日后如需可再补上，新增可空字段是向后兼容的）。
+   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ServerMetadataTest.kt`（8 个用例，覆盖新增/更新/清空删除/改地址迁移/保留其他条目/分组名归一化），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
+-- [ ] 查看和复制头像（点击群和其他用户头像的时候）
++- [x] 查看和复制头像（点击群和其他用户头像的时候）
++  - 已实现（基于 7.0.4）：点击头像打开全屏查看弹窗（`ProfileImageViewer`，`ModalManager.fullscreen`），窗口内提供「复制图片」按钮；没有自定义头像（只有默认图标）时点击无任何反应。
++  - 可点击位置：联系人详情页头部头像、群详情页头部头像、群详情页成员列表中的头像、群成员详情页头部头像。聊天列表、选人列表、欢迎页等处的头像保持原样（那些行本身已有自己的点击行为）。
++  - 新增平台剪贴板接口 `expect fun copyImageToClipboard(image: ImageBitmap): Boolean`（`common/.../platform/Images.kt`）：桌面端用 AWT `Transferable`（只支持 `DataFlavor.imageFlavor`），Android 端把 PNG 写到应用文件目录的 `clipboard_image.png` 并通过 `FileProvider` 内容 URI 写入系统剪贴板（每次覆盖同一文件，剪贴板始终指向存在的文件）。
++  - 新增字符串 `copy_image`、`image_copied`、`image_copy_failed`（base + zh-rCN）。
++  - 与条目 1、5 一致，未改动 `AppSettings` 跨设备导入/导出结构，也未改核心（纯客户端功能）。
++  - 测试：新增 `apps/multiplatform/common/src/desktopTest/kotlin/chat/simplex/app/ImageClipboardTest.kt`（4 个用例，覆盖 imageFlavor 支持、其他 flavor 不支持、取回同一张图、不支持 flavor 抛 `UnsupportedFlavorException`；因单元测试 JVM 不加载 Skia 原生库，测试直接覆盖 `bufferedImageToTransferable` 而非 `ImageBitmap` 转换），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
+ - [ ] 群成员连接率和百分比显示（在群成员列表标题处，就像主页上方标题一样）
+ - [ ] 收起群成员列表（不然在大群里拉到最下面要很长时间）
+ - [ ] 删除已保存的消息（长按一条消息点开信息的时候，允许在历史记录那里对任何历史记录进行仅客户端侧的删除）
+diff --git a/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/platform/Images.android.kt b/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/platform/Images.android.kt
+index 1a3703822..4763ccfcf 100644
+--- a/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/platform/Images.android.kt
++++ b/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/platform/Images.android.kt
+@@ -1,5 +1,8 @@
+ package chat.simplex.common.platform
+ 
++import android.content.ClipData
++import android.content.ClipboardManager
++import android.content.Context
+ import android.graphics.Bitmap
+ import android.graphics.BitmapFactory
+ import android.graphics.drawable.AnimatedImageDrawable
+@@ -7,15 +10,18 @@ import android.os.Build
+ import android.util.Base64
+ import android.webkit.MimeTypeMap
+ import androidx.compose.ui.graphics.*
++import androidx.core.content.FileProvider
+ import androidx.core.graphics.applyCanvas
+ import androidx.core.graphics.drawable.toBitmap
+ import androidx.core.graphics.scale
+ import boofcv.android.ConvertBitmap
+ import boofcv.struct.image.GrayU8
+ import chat.simplex.common.R
++import chat.simplex.common.helpers.APPLICATION_ID
+ import chat.simplex.common.views.helpers.errorBitmap
+ import chat.simplex.common.views.helpers.getFileName
+ import java.io.ByteArrayOutputStream
++import java.io.File
+ import java.io.InputStream
+ import java.net.URI
+ import kotlin.math.min
+@@ -133,3 +139,18 @@ actual fun isAnimImage(uri: URI, drawable: Any?): Boolean {
+ 
+ actual fun loadImageBitmap(inputStream: InputStream): ImageBitmap =
+   BitmapFactory.decodeStream(inputStream).asImageBitmap()
++
++actual fun copyImageToClipboard(image: ImageBitmap): Boolean =
++  try {
++    // The file is overwritten on every copy, so the clipboard always points at an existing file
++    // without accumulating temp files that a cleanup pass could delete.
++    val file = File(getAppFilePath("clipboard_image.png"))
++    file.outputStream().use { image.asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it) }
++    val uri = FileProvider.getUriForFile(androidAppContext, "$APPLICATION_ID.provider", file)
++    val clipboard = androidAppContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
++    clipboard.setPrimaryClip(ClipData.newUri(androidAppContext.contentResolver, file.name, uri))
++    true
++  } catch (e: Exception) {
++    Log.e(TAG, "copyImageToClipboard error: $e")
++    false
++  }
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/platform/Images.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/platform/Images.kt
+index d7a241d5e..49528acd2 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/platform/Images.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/platform/Images.kt
+@@ -32,6 +32,9 @@ expect fun isAnimImage(uri: URI, drawable: Any?): Boolean
+ 
+ expect fun loadImageBitmap(inputStream: InputStream): ImageBitmap
+ 
++/** Puts [image] on the system clipboard as an image. Returns false if the platform refused. */
++expect fun copyImageToClipboard(image: ImageBitmap): Boolean
++
+ @Composable
+ fun Base64AsyncImage(
+   base64ImageString: String,
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt
+index 9064410d6..4e871afaa 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt
+@@ -713,7 +713,12 @@ fun ChatInfoHeader(cInfo: ChatInfo, contact: Contact) {
+     Modifier.padding(horizontal = DEFAULT_PADDING),
+     horizontalAlignment = Alignment.CenterHorizontally
+   ) {
+-    ChatInfoImage(cInfo, size = 192.dp, iconColor = if (isInDarkTheme()) GroupDark else SettingsSecondaryLight)
++    ChatInfoImage(
++      cInfo,
++      size = 192.dp,
++      iconColor = if (isInDarkTheme()) GroupDark else SettingsSecondaryLight,
++      onClick = { showProfileImageModal(cInfo.image, contact.profile.displayName) }
++    )
+     val displayName = contact.profile.displayName.trim()
+     val badge = cInfo.nameBadge
+     val text = buildAnnotatedString {
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
+index 1c9c0017d..637b12ea4 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
+@@ -990,7 +990,12 @@ private fun GroupChatInfoHeader(cInfo: ChatInfo, groupInfo: GroupInfo) {
+     Modifier.padding(horizontal = DEFAULT_PADDING),
+     horizontalAlignment = Alignment.CenterHorizontally
+   ) {
+-    ChatInfoImage(cInfo, size = 192.dp, iconColor = if (isInDarkTheme()) GroupDark else SettingsSecondaryLight)
++    ChatInfoImage(
++      cInfo,
++      size = 192.dp,
++      iconColor = if (isInDarkTheme()) GroupDark else SettingsSecondaryLight,
++      onClick = { showProfileImageModal(cInfo.image, groupInfo.groupProfile.displayName) }
++    )
+     val clipboard = LocalClipboardManager.current
+     val copyNameToClipboard = fun(name: String) {
+       clipboard.setText(AnnotatedString(name))
+@@ -1156,7 +1161,12 @@ fun MemberRow(member: GroupMember, user: Boolean = false, infoPage: Boolean = tr
+       verticalAlignment = Alignment.CenterVertically,
+       horizontalArrangement = Arrangement.spacedBy(4.dp)
+     ) {
+-      MemberProfileImage(size = MEMBER_ROW_AVATAR_SIZE, member, async = true)
++      MemberProfileImage(
++        size = MEMBER_ROW_AVATAR_SIZE,
++        member,
++        async = true,
++        onClick = { showProfileImageModal(member.image, member.displayName) }
++      )
+       Spacer(Modifier.width(DEFAULT_PADDING_HALF))
+       Column {
+         Row(verticalAlignment = Alignment.CenterVertically) {
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupMemberInfoView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupMemberInfoView.kt
+index 3e5f64659..39197e41e 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupMemberInfoView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupMemberInfoView.kt
+@@ -729,7 +729,12 @@ fun GroupMemberInfoHeader(member: GroupMember) {
+     Modifier.padding(horizontal = 16.dp),
+     horizontalAlignment = Alignment.CenterHorizontally
+   ) {
+-    MemberProfileImage(size = 192.dp, member, color = if (isInDarkTheme()) GroupDark else SettingsSecondaryLight)
++    MemberProfileImage(
++      size = 192.dp,
++      member,
++      color = if (isInDarkTheme()) GroupDark else SettingsSecondaryLight,
++      onClick = { showProfileImageModal(member.image, member.displayName) }
++    )
+     val displayName = member.displayName.trim() // alias if set
+     val badge = member.nameBadge
+     val text = buildAnnotatedString {
+@@ -910,7 +915,8 @@ fun MemberProfileImage(
+   mem: GroupMember,
+   color: Color = MaterialTheme.colors.secondaryVariant,
+   backgroundColor: Color? = null,
+-  async: Boolean = false
++  async: Boolean = false,
++  onClick: (() -> Unit)? = null
+ ) {
+   ProfileImage(
+     size = size,
+@@ -918,7 +924,8 @@ fun MemberProfileImage(
+     color = color,
+     backgroundColor = backgroundColor,
+     blurred = mem.blocked,
+-    async = async
++    async = async,
++    onClick = onClick
+   )
+ }
+ 
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/helpers/ChatInfoImage.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/helpers/ChatInfoImage.kt
+index d2ee1db09..ac21b16c2 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/helpers/ChatInfoImage.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/helpers/ChatInfoImage.kt
+@@ -4,6 +4,7 @@ import androidx.compose.desktop.ui.tooling.preview.Preview
+ import androidx.compose.foundation.Image
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.clickable
++import androidx.compose.foundation.interaction.MutableInteractionSource
+ import androidx.compose.foundation.layout.*
+ import androidx.compose.foundation.text.InlineTextContent
+ import androidx.compose.foundation.shape.*
+@@ -40,9 +41,10 @@ import chat.simplex.res.MR
+ import dev.icerock.moko.resources.ImageResource
+ import kotlin.math.max
+ import kotlin.math.roundToInt
++import SectionBottomSpacer
+ 
+ @Composable
+-fun ChatInfoImage(chatInfo: ChatInfo, size: Dp, iconColor: Color = MaterialTheme.colors.secondaryVariant, shadow: Boolean = false) {
++fun ChatInfoImage(chatInfo: ChatInfo, size: Dp, iconColor: Color = MaterialTheme.colors.secondaryVariant, shadow: Boolean = false, onClick: (() -> Unit)? = null) {
+   val icon =
+     when (chatInfo) {
+       is ChatInfo.Group -> chatInfo.groupInfo.chatIconName
+@@ -50,7 +52,38 @@ fun ChatInfoImage(chatInfo: ChatInfo, size: Dp, iconColor: Color = MaterialTheme
+       is ChatInfo.Direct -> chatInfo.contact.chatIconName
+       else -> MR.images.ic_account_circle_filled
+     }
+-  ProfileImage(size, chatInfo.image, icon, if (chatInfo is ChatInfo.Local) NoteFolderIconColor else iconColor)
++  ProfileImage(size, chatInfo.image, icon, if (chatInfo is ChatInfo.Local) NoteFolderIconColor else iconColor, onClick = onClick)
++}
++
++/** Shows the profile image at full size with an option to copy it. */
++@Composable
++fun ProfileImageViewer(name: String, image: String) {
++  val bitmap = remember(image) { base64ToBitmap(image) }
++  ColumnWithScrollBar(horizontalAlignment = Alignment.CenterHorizontally) {
++    AppBarTitle(name)
++    Image(
++      bitmap,
++      contentDescription = stringResource(MR.strings.image_descr_profile_image),
++      contentScale = ContentScale.Fit,
++      modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp).padding(horizontal = DEFAULT_PADDING)
++    )
++    SectionBottomSpacer()
++    SimpleButton(generalGetString(MR.strings.copy_image), painterResource(MR.images.ic_content_copy), disabled = false) {
++      if (copyImageToClipboard(bitmap)) {
++        showToast(generalGetString(MR.strings.image_copied))
++      } else {
++        showToast(generalGetString(MR.strings.image_copy_failed))
++      }
++    }
++    SectionBottomSpacer()
++  }
++}
++
++/** Opens the profile image viewer. Does nothing when there is no image to show (icon-only avatar). */
++fun showProfileImageModal(image: String?, name: String) {
++  if (image == null) return
++  val title = name.trim().ifEmpty { generalGetString(MR.strings.image_descr_profile_image) }
++  ModalManager.fullscreen.showModal { ProfileImageViewer(title, image) }
+ }
+ 
+ @Composable
+@@ -72,9 +105,13 @@ fun ProfileImage(
+   color: Color = MaterialTheme.colors.secondaryVariant,
+   backgroundColor: Color? = null,
+   blurred: Boolean = false,
+-  async: Boolean = false
++  async: Boolean = false,
++  onClick: (() -> Unit)? = null
+ ) {
+-  Box(Modifier.size(size)) {
++  val clickModifier = if (onClick != null) {
++    Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
++  } else Modifier
++  Box(Modifier.size(size).then(clickModifier)) {
+     if (image == null) {
+       val iconToReplace = when (icon) {
+         MR.images.ic_account_circle_filled -> AccountCircleFilled
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+index 5b2e282ca..c45e17320 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+@@ -792,6 +792,9 @@
+   <string name="no_details">no details</string>
+   <string name="add_contact">One-time invitation link</string>
+   <string name="copied">Copied to clipboard</string>
++  <string name="copy_image">Copy image</string>
++  <string name="image_copied">Image copied to clipboard</string>
++  <string name="image_copy_failed">Couldn\'t copy image</string>
+ 
+   <!-- NewChatSheet -->
+   <string name="add_contact_or_create_group">Start new chat</string>
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+index b438a5bcc..2608c4e4d 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+@@ -322,6 +322,9 @@
+     <string name="alert_title_contact_connection_pending">联系人尚未连接！</string>
+     <string name="icon_descr_context">上下文图标</string>
+     <string name="copied">已复制到剪贴板</string>
++    <string name="copy_image">复制图片</string>
++    <string name="image_copied">图片已复制到剪贴板</string>
++    <string name="image_copy_failed">无法复制图片</string>
+     <string name="contact_connection_pending">连接中……</string>
+     <string name="create_group_link">创建群链接</string>
+     <string name="create_group">创建私密群</string>
+diff --git a/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/Images.desktop.kt b/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/Images.desktop.kt
+index 0f830e7b6..728467a78 100644
+--- a/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/Images.desktop.kt
++++ b/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/Images.desktop.kt
+@@ -8,6 +8,10 @@ import boofcv.struct.image.GrayU8
+ import chat.simplex.res.MR
+ import org.jetbrains.skia.Image
+ import java.awt.RenderingHints
++import java.awt.Toolkit
++import java.awt.datatransfer.DataFlavor
++import java.awt.datatransfer.Transferable
++import java.awt.datatransfer.UnsupportedFlavorException
+ import java.awt.geom.AffineTransform
+ import java.awt.image.AffineTransformOp
+ import java.awt.image.BufferedImage
+@@ -269,3 +273,30 @@ fun BufferedImage.hasAlpha(): Boolean {
+   }
+   return false
+ }
++
++actual fun copyImageToClipboard(image: ImageBitmap): Boolean =
++  try {
++    Toolkit.getDefaultToolkit().systemClipboard.setContents(imageToTransferable(image), null)
++    true
++  } catch (e: Exception) {
++    Log.e(TAG, "copyImageToClipboard error: $e")
++    false
++  }
++
++/** Kept separate from [copyImageToClipboard] so that the conversion can be tested without a display. */
++internal fun imageToTransferable(image: ImageBitmap): Transferable = bufferedImageToTransferable(image.toAwtImage())
++
++/**
++ * Exposed separately from [imageToTransferable] because converting an [ImageBitmap] loads the Skia
++ * natives, which are not available in the unit test JVM, while the AWT side can be tested headless.
++ */
++internal fun bufferedImageToTransferable(image: BufferedImage): Transferable = TransferableImage(image)
++
++private class TransferableImage(private val image: BufferedImage) : Transferable {
++  override fun getTransferDataFlavors(): Array<DataFlavor> = arrayOf(DataFlavor.imageFlavor)
++
++  override fun isDataFlavorSupported(flavor: DataFlavor): Boolean = flavor == DataFlavor.imageFlavor
++
++  override fun getTransferData(flavor: DataFlavor): Any =
++    if (flavor == DataFlavor.imageFlavor) image else throw UnsupportedFlavorException(flavor)
++}
+diff --git a/apps/multiplatform/common/src/desktopTest/kotlin/chat/simplex/app/ImageClipboardTest.kt b/apps/multiplatform/common/src/desktopTest/kotlin/chat/simplex/app/ImageClipboardTest.kt
+new file mode 100644
+index 000000000..cf620c2bd
+--- /dev/null
++++ b/apps/multiplatform/common/src/desktopTest/kotlin/chat/simplex/app/ImageClipboardTest.kt
+@@ -0,0 +1,41 @@
++package chat.simplex.app
++
++import chat.simplex.common.platform.bufferedImageToTransferable
++import java.awt.datatransfer.DataFlavor
++import java.awt.datatransfer.Transferable
++import java.awt.datatransfer.UnsupportedFlavorException
++import java.awt.image.BufferedImage
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertFailsWith
++import kotlin.test.assertTrue
++
++class ImageClipboardTest {
++  // The ImageBitmap -> AWT conversion needs the Skia natives, which the unit test JVM does not load,
++  // so the AWT-side transferable is tested directly.
++  private fun testTransferable(): Transferable = bufferedImageToTransferable(BufferedImage(2, 2, BufferedImage.TYPE_INT_ARGB))
++
++  @Test
++  fun testImageFlavorIsSupported() {
++    assertTrue(testTransferable().isDataFlavorSupported(DataFlavor.imageFlavor))
++  }
++
++  @Test
++  fun testOtherFlavorsAreNotSupported() {
++    assertTrue(!testTransferable().isDataFlavorSupported(DataFlavor.stringFlavor))
++  }
++
++  @Test
++  fun testImageFlavorReturnsTheImage() {
++    val data = testTransferable().getTransferData(DataFlavor.imageFlavor) as BufferedImage
++    assertEquals(2, data.width)
++    assertEquals(2, data.height)
++  }
++
++  @Test
++  fun testUnsupportedFlavorThrows() {
++    assertFailsWith<UnsupportedFlavorException> {
++      testTransferable().getTransferData(DataFlavor.stringFlavor)
++    }
++  }
++}
+diff --git a/apps/multiplatform/product/README.md b/apps/multiplatform/product/README.md
+index 63c8954e8..448b13a00 100644
+--- a/apps/multiplatform/product/README.md
++++ b/apps/multiplatform/product/README.md
+@@ -69,6 +69,7 @@ Core message composition, delivery, and interaction features.
+ | Search | Full-text search within conversations | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt` |
+ | Message reports | Report messages to group moderators | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupReportsView.kt` |
+ | Send message bar | Composable message input with attachments, voice, send button | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt` |
++| Profile image viewer | Tap a contact / group / member avatar to view it full size and copy it to the clipboard | `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/ChatInfoImage.kt` |
+ 
+ ### 2. Contacts
+ 
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index 72d7ddb93..9abe71019 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -53,6 +53,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC32 | Desktop Message Sending Keys | [views/settings.md](views/settings.md) | [spec/state.md](../spec/state.md), [spec/client/compose.md](../spec/client/compose.md) | `common/.../model/SimpleXAPI.kt` (`ChatEnterKeyCombination`, `messageSendKey`, `messageNewlineKey`), `common/.../views/usersettings/SettingsView.kt`, `common/.../platform/PlatformTextField.desktop.kt` | N/A (client-only) |
+ | PC33 | Receiving Address Switch | [views/group-info.md](views/group-info.md), [views/contact-info.md](views/contact-info.md) | [spec/api.md](../spec/api.md), [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../model/SimpleXAPI.kt` (`apiSwitchContact`, `apiSwitchGroupMember`, `apiAbortSwitchContact`, `apiAbortSwitchGroupMember`), `common/.../views/chat/ChatInfoView.kt` (`SwitchAddressButton`, `SwitchAllMembersAddressButton`, `showSwitchAddressAlert`, `showSwitchAllMembersAddressAlert`), `common/.../views/chat/group/GroupChatInfoView.kt` (group-wide switch row), `common/.../views/chat/group/GroupMemberInfoView.kt` | `Controller.hs` (`APISwitchContact`, `APISwitchGroupMember`, `APIAbortSwitchContact`, `APIAbortSwitchGroupMember`), `Commands.hs` |
+ | PC34 | Server Grouping and Notes | [views/settings.md](views/settings.md) | [spec/api.md](../spec/api.md), [spec/state.md](../spec/state.md) | `common/.../model/SimpleXAPI.kt` (`ServerMeta`, `AppPreferences.serverMetadata`, `SHARED_PREFS_SERVER_METADATA`), `common/.../views/usersettings/networkAndServers/ProtocolServersView.kt` (`ServersSection`, `serverGroup`, `updatedServerMetadata`, `saveServerMetadata`), `ProtocolServerView.kt` (`ServerGroupAndNoteSection`), `NewServerView.kt` | N/A (client-only) |
++| PC35 | Profile Image Viewer | [views/contact-info.md](views/contact-info.md), [views/group-info.md](views/group-info.md) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../views/helpers/ChatInfoImage.kt` (`ProfileImage` `onClick`, `ProfileImageViewer`, `showProfileImageModal`), `common/.../platform/Images.kt` (`copyImageToClipboard`) and its desktop/Android actuals, `common/.../views/chat/ChatInfoView.kt` (`ChatInfoHeader`), `common/.../views/chat/group/GroupChatInfoView.kt` (`GroupChatInfoHeader`, member list row), `common/.../views/chat/group/GroupMemberInfoView.kt` (`MemberProfileImage`, `GroupMemberInfoHeader`) | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
+ - `common/.../` expands to `common/src/commonMain/kotlin/chat/simplex/common/`
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index 8921bfab0..e6d78c0ed 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -13,6 +13,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
+ 5. [Notification Delivery (RULE-16 through RULE-17)](#5-notification-delivery)
+ 6. [Call Integrity (RULE-18)](#6-call-integrity)
+ 7. [Network Configuration (RULE-19)](#7-network-configuration)
++8. [Profile Images (RULE-20)](#8-profile-images)
+ 
+ ---
+ 
+@@ -285,3 +286,32 @@ attached to it -- is display metadata owned by the client.
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt`
+   (batch add applies the same metadata to every added address)
+ - Test: `common/src/commonTest/kotlin/chat/simplex/app/ServerMetadataTest.kt`
++
++---
++
++## 8. Profile Images
++
++### RULE-20: Opt-In Avatar Interaction and Clipboard Images
++
++1. **Avatar clicks MUST be opt-in.** `ProfileImage` / `ChatInfoImage` / `MemberProfileImage` take an
++   `onClick` that defaults to `null`; with `null` the avatar renders exactly as before and consumes
++   no clicks. Only the four details/member-list avatars pass a callback, so rows that already have
++   their own click action (chat list, user picker, welcome, chat items) are unaffected, and a nested
++   avatar click wins over the row click where both exist.
++2. **The viewer MUST handle the icon-only case.** `showProfileImageModal` returns without opening
++   anything when the chat has no custom image, because there is nothing to view or copy.
++3. **Copying MUST degrade gracefully.** `copyImageToClipboard` is an `expect`/`actual` that returns
++   `false` instead of throwing when the platform refuses; the UI then reports
++   `MR.strings.image_copy_failed`.
++4. **Android MUST put a readable URI on the clipboard.** The image is written to
++   `clipboard_image.png` in the app files dir and exposed through the existing `FileProvider`
++   authority, so the clipboard never points at a deleted file.
++
++**Enforcement:**
++- `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/ChatInfoImage.kt`
++  (`ProfileImage`, `ChatInfoImage`, `ProfileImageViewer`, `showProfileImageModal`)
++- `common/src/commonMain/kotlin/chat/simplex/common/platform/Images.kt` (`expect copyImageToClipboard`)
++  and `common/src/desktopMain/.../platform/Images.desktop.kt` / `common/src/androidMain/.../platform/Images.android.kt`
++- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt`,
++  `views/chat/group/GroupChatInfoView.kt`, `views/chat/group/GroupMemberInfoView.kt` (wired call sites)
++- Test: `common/src/desktopTest/kotlin/chat/simplex/app/ImageClipboardTest.kt`
+diff --git a/apps/multiplatform/product/views/contact-info.md b/apps/multiplatform/product/views/contact-info.md
+index 32793a3b7..5001814bf 100644
+--- a/apps/multiplatform/product/views/contact-info.md
++++ b/apps/multiplatform/product/views/contact-info.md
+@@ -22,7 +22,7 @@ View contact details, manage per-contact preferences, verify security codes for
+ 
+ | Element | Description |
+ |---|---|
+-| Profile image | Large circular avatar (tappable) |
++| Profile image | Large circular avatar. Tapping it opens the profile image viewer (full-size image + **Copy image**); with no custom image set there is nothing to view |
+ | Display name | Contact's display name |
+ | Full name | Optional full name below display name |
+ | Connection status | Shows if contact is ready, connecting, or has issues |
+diff --git a/apps/multiplatform/product/views/group-info.md b/apps/multiplatform/product/views/group-info.md
+index 4a6d0b037..9dc87582a 100644
+--- a/apps/multiplatform/product/views/group-info.md
++++ b/apps/multiplatform/product/views/group-info.md
+@@ -26,7 +26,7 @@ View and manage group settings, member list, group preferences, group links, mem
+ 
+ | Element | Description |
+ |---|---|
+-| Group image | Large circular profile image |
++| Group image | Large circular profile image. Tapping it opens the profile image viewer (full-size image + **Copy image**); with no custom image set there is nothing to view |
+ | Group name | Display name (editable by owners via `GroupProfileView`) |
+ | Member count | "N members" label from `activeSortedMembers` |
+ | Full name | Optional secondary name |
+@@ -72,11 +72,11 @@ Displays `activeSortedMembers` (excluding left/removed members, sorted by role d
+ 
+ | Element | Description |
+ |---|---|
+-| Member avatar | `MEMBER_ROW_AVATAR_SIZE` (42dp) profile image |
++| Member avatar | `MEMBER_ROW_AVATAR_SIZE` (42dp) profile image; tapping it opens the profile image viewer (full-size image + **Copy image**) |
+ | Member name | Display name with role badge |
+ | Member role | Owner, Admin, Moderator, Member, Observer |
+ | Member status | Active, connecting, pending, left, removed |
+-| Tap action | Opens `GroupMemberInfoView` with connection stats and verification code |
++| Tap action | Opens `GroupMemberInfoView` with connection stats and verification code; tapping the avatar instead opens the image viewer |
+ 
+ ### Change All Members' Receiving Address
+ 
+@@ -116,7 +116,7 @@ Relay/channel groups (`groupInfo.useRelays`) keep using the per-relay controls i
+ 
+ | Element | Description |
+ |---|---|
+-| Member profile | Avatar, name, role |
++| Member profile | Avatar, name, role; tapping the avatar opens the profile image viewer |
+ | Connection stats | Server information, connection status |
+ | Security code | Verification code for the member connection |
+ | Role change | Change member role (admin+ only) |
+diff --git a/apps/multiplatform/spec/architecture.md b/apps/multiplatform/spec/architecture.md
+index 9911a2670..f97347259 100644
+--- a/apps/multiplatform/spec/architecture.md
++++ b/apps/multiplatform/spec/architecture.md
+@@ -331,6 +331,7 @@ Examples from platform files:
+ | `expect class RecorderNative` | [`RecAndPlay.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/RecAndPlay.kt#L17) | 17 |
+ | `expect val cryptor: CryptorInterface` | [`Cryptor.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Cryptor.kt#L9) | 9 |
+ | `expect fun base64ToBitmap(base64ImageString: String): ImageBitmap` | [`Images.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Images.kt#L17) | 17 |
++| `expect fun copyImageToClipboard(image: ImageBitmap): Boolean` | [`Images.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Images.kt#L36) | 36 |
+ | `expect fun getWakeLock(timeout: Long): (() -> Unit)` | [`SimplexService.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/SimplexService.kt#L3) | 3 |
+ | `expect class GlobalExceptionsHandler` | [`UI.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/UI.kt#L24) | 24 |
+ | `expect fun UriHandler.sendEmail(subject: String, body: CharSequence)` | [`Share.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Share.kt#L7) | 7 |
+diff --git a/apps/multiplatform/spec/client/chat-view.md b/apps/multiplatform/spec/client/chat-view.md
+index 9bcc5666a..a9626045f 100644
+--- a/apps/multiplatform/spec/client/chat-view.md
++++ b/apps/multiplatform/spec/client/chat-view.md
+@@ -14,7 +14,8 @@ Source: `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
+ 6. [Context Menu Actions](#6-context-menu-actions)
+ 7. [ChatInfoView](#7-chatinfoview)
+ 8. [GroupChatInfoView](#8-groupchatinfoview)
+-9. [Source Files](#9-source-files)
++9. [Profile Image Viewer](#9-profile-image-viewer)
++10. [Source Files](#10-source-files)
+ 
+ ---
+ 
+@@ -258,7 +259,19 @@ per-contact switching stays available in `GroupMemberInfoView` and `ChatInfoView
+ 
+ ---
+ 
+-## 9. Source Files
++## 9. Profile Image Viewer
++
++**Location:** [`views/helpers/ChatInfoImage.kt`](../../common/src/commonMain/kotlin/chat/simplex/common/views/helpers/ChatInfoImage.kt)
++
++`ProfileImage` takes an optional `onClick`; when it is null the avatar behaves exactly as before. When set, the whole avatar `Box` becomes clickable (no ripple, `indication = null`), and `ChatInfoImage` / `MemberProfileImage` simply forward the callback. The click opens `showProfileImageModal(image, name)`, which returns immediately for an icon-only avatar (`image == null`) and otherwise shows `ProfileImageViewer` in `ModalManager.fullscreen`: the full-size image (`ContentScale.Fit`, capped at 360.dp tall), the display name as the title, and a **Copy image** button.
++
++Copying calls the `expect fun copyImageToClipboard(image: ImageBitmap): Boolean` (`platform/Images.kt`) and shows `MR.strings.image_copied` on success or `MR.strings.image_copy_failed` when the platform refused. Desktop wraps the `toAwtImage()` result in an AWT `Transferable` that supports only `DataFlavor.imageFlavor`; Android writes the PNG to `clipboard_image.png` in the app files dir and puts a `FileProvider` content URI on the system clipboard, so the clipboard always points at an existing file.
++
++Wired sites: `ChatInfoView.kt` `ChatInfoHeader`, `group/GroupChatInfoView.kt` `GroupChatInfoHeader` and the member-list row, and `group/GroupMemberInfoView.kt` `GroupMemberInfoHeader`. Chat list, user picker, welcome and chat-item avatars deliberately stay non-clickable because those rows already have their own action.
++
++---
++
++## 10. Source Files
+ 
+ ### `views/chat/`
+ 
+@@ -332,6 +345,12 @@ per-contact switching stays available in `GroupMemberInfoView` and `ChatInfoView
+ | `ChannelRelaysView.kt` | Channel relay list. Owner-only Add relay entry opens `AddGroupRelayView` with `existingRelayIds = groupRelays.mapNotNull { it.userChatRelay.chatRelayId }.toSet()` — every relay currently in `groupRelays` is excluded regardless of `relayStatus`, mirroring the backend `APIAddGroupRelays` gate. Long-press menu offers Remove relay for relays that can be removed. |
+ | `AddGroupRelayView.kt` | Sheet to pick relays to add to a channel |
+ 
++### `views/helpers/`
++
++| File | Description |
++|---|---|
++| `ChatInfoImage.kt` | Profile image composables (`ProfileImage`, `ChatInfoImage`), the opt-in avatar `onClick`, `ProfileImageViewer` and `showProfileImageModal` (PC35) |
++
+ ### Relay Rejection Surface
+ 
+ When a relay operator runs `/leave #channel`, the relay sends `x.grp.relay.reject` over the owner-relay direct contact channel. Owner-side handling: the corresponding `GroupRelay.relayStatus` transitions `RSInvited → RSRejected`; the relay's `GroupMember.memberStatus` is set to `MemLeft` so the owner UI renders the rejected relay identically to one that explicitly ran `/leave` (`MemRejected` is reserved for the knocking-admission flow). In `GroupMemberInfoView`, an additional "Status: rejected by relay operator" `InfoRow` appears when `groupRelay?.relayStatus == RelayStatus.RsRejected`. The status is final on the owner side — clearable only by the relay operator running `/group allow #<channel>`, which has no owner-facing event.
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index cd5428d6a..748146de5 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -68,7 +68,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `platform/VideoPlayer.kt` | PC10, PC17 | Low | Video playback abstractions |
+ | `platform/Cryptor.kt` | PC23 | Medium | Keystore encryption expect declarations |
+ | `platform/Share.kt` | PC10, PC12 | Low | Share sheet abstractions |
+-| `platform/Images.kt` | PC10, PC19 | Low | Image processing utilities |
++| `platform/Images.kt` | PC10, PC19, PC35 | Low | Image processing utilities, incl. the `copyImageToClipboard` expect declaration |
+ | `platform/Platform.kt` | PC1 through PC31 | Low | Platform detection and capability flags |
+ | `platform/PlatformTextField.kt` | PC4 | Low | Native text input expect declarations |
+ | `platform/Back.kt` | PC1 | Low | Back navigation handling |
+@@ -117,7 +117,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `views/chat/ComposeImageView.kt` | PC10 | Low | Image attachment preview in compose area |
+ | `views/chat/ContextItemView.kt` | PC6 | Low | Reply/edit quote preview |
+ | `views/chat/SelectableChatItemToolbars.kt` | PC7, PC10 | Medium | Multi-select toolbar (delete, forward) |
+-| `views/chat/ChatInfoView.kt` | PC2, PC13, PC20, PC33 | Medium | Contact details, verification, receiving-address switch, and the shared switch alerts |
++| `views/chat/ChatInfoView.kt` | PC2, PC13, PC20, PC33, PC35 | Medium | Contact details, verification, receiving-address switch, the shared switch alerts, and the clickable contact avatar |
+ | `views/chat/ContactPreferences.kt` | PC2, PC8 | Medium | Per-contact feature preferences |
+ | `views/chat/ChatItemInfoView.kt` | PC2, PC3 | Low | Message delivery detail |
+ | `views/chat/ChatItemsLoader.kt` | PC2, PC3 | Medium | Pagination and message loading logic |
+@@ -161,9 +161,9 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ 
+ | Source File | Product Concepts Affected | Risk Level | Notes |
+ |-------------|--------------------------|------------|-------|
+-| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33 | High | Group management hub; includes the group-wide receiving-address switch row |
++| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33, PC35 | High | Group management hub; includes the group-wide receiving-address switch row and the clickable group / member avatars |
+ | `views/chat/group/AddGroupMembersView.kt` | PC14, PC16 | Medium | Member invitation flow |
+-| `views/chat/group/GroupMemberInfoView.kt` | PC3, PC14, PC16, PC30, PC31, PC33 | Medium | Member details and role management; relay-address + rejected-status info rows; per-member receiving-address switch |
++| `views/chat/group/GroupMemberInfoView.kt` | PC3, PC14, PC16, PC30, PC31, PC33, PC35 | Medium | Member details and role management; relay-address + rejected-status info rows; per-member receiving-address switch; clickable avatar |
+ | `views/chat/group/ChannelRelaysView.kt` | PC31 | Medium | Channel relay list, add/remove entries |
+ | `views/chat/group/AddGroupRelayView.kt` | PC31 | Low | Add relay sheet |
+ | `views/chat/group/GroupProfileView.kt` | PC3, PC14 | Medium | Group profile editing |
+@@ -277,7 +277,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `views/helpers/LinkPreviews.kt` | PC11 | Medium | Link preview fetching and rendering |
+ | `views/helpers/LocalAuthentication.kt` | PC22 | Medium | Biometric/passcode authentication expect |
+ | `views/helpers/ChatWallpaper.kt` | PC24 | Low | Chat wallpaper rendering |
+-| `views/helpers/ChatInfoImage.kt` | PC19 | Low | Profile image composable |
++| `views/helpers/ChatInfoImage.kt` | PC19, PC35 | Low | Profile image composable, opt-in clickable avatars, and the profile image viewer modal |
+ | `views/helpers/ThemeModeEditor.kt` | PC24 | Low | Theme mode toggle |
+ | `views/helpers/ChooseAttachmentView.kt` | PC10 | Low | Attachment picker |
+ | `views/helpers/GetImageView.kt` | PC10, PC19 | Low | Image capture and crop |
+@@ -347,7 +347,7 @@ Path prefix: `common/src/androidMain/kotlin/chat/simplex/common/`
+ | `platform/RecAndPlay.android.kt` | PC9 | Medium | Android MediaRecorder/MediaPlayer actual implementation |
+ | `platform/VideoPlayer.android.kt` | PC10 | Low | Android ExoPlayer actual implementation |
+ | `platform/Notifications.android.kt` | PC18 | Medium | Android notification channel creation |
+-| `platform/Images.android.kt` | PC10, PC19 | Low | Android bitmap processing |
++| `platform/Images.android.kt` | PC10, PC19, PC35 | Low | Android bitmap processing, incl. the FileProvider-backed image clipboard |
+ | `platform/PlatformTextField.android.kt` | PC4 | Low | Android native text field actual implementation |
+ | `platform/Share.android.kt` | PC10 | Low | Android share intent actual implementation |
+ | `platform/Back.android.kt` | PC1 | Low | Android back press handler |
+@@ -425,7 +425,7 @@ Path prefix: `common/src/desktopMain/kotlin/chat/simplex/common/`
+ | `platform/VideoPlayer.desktop.kt` | PC10 | Low | Desktop VLC-based video player |
+ | `platform/Videos.desktop.kt` | PC10 | Low | Desktop video utilities |
+ | `platform/Notifications.desktop.kt` | PC18 | Low | Desktop notification setup |
+-| `platform/Images.desktop.kt` | PC10 | Low | Desktop image processing |
++| `platform/Images.desktop.kt` | PC10, PC35 | Low | Desktop image processing, incl. the AWT image clipboard |
+ | `platform/PlatformTextField.desktop.kt` | PC4, PC32 | Low | Desktop text field actual implementation |
+ | `platform/Share.desktop.kt` | PC10 | Low | Desktop clipboard/share |
+ | `platform/Back.desktop.kt` | PC1 | Low | Desktop back navigation |
+diff --git a/plans/2026-10-12-view-and-copy-avatar.md b/plans/2026-10-12-view-and-copy-avatar.md
+new file mode 100644
+index 000000000..a899bebc6
+--- /dev/null
++++ b/plans/2026-10-12-view-and-copy-avatar.md
+@@ -0,0 +1,90 @@
++# View and copy profile images (TODO item 6)
++
++Base version: 7.0.4 (android 384, desktop 166, ios 361).
++
++## Problem
++
++TODO item 6: 查看和复制头像（点击群和其他用户头像的时候）.
++
++Profile images are rendered by `ProfileImage` (`views/helpers/ChatInfoImage.kt`) and its wrappers
++`ChatInfoImage` / `MemberProfileImage`. None of them is clickable, and there is no way to see the
++avatar at full size or to copy the image. Group and contact info pages show the avatar at 192.dp
++and the group member list shows it at `MEMBER_ROW_AVATAR_SIZE`, but the image can only be looked at.
++
++## Solution
++
++1. A reusable viewer modal that shows the avatar image and offers "Copy image".
++2. `ProfileImage`, `ChatInfoImage` and `MemberProfileImage` accept an optional `onClick`, so each
++   call site decides whether its avatar opens the viewer.
++3. Wire the avatar in the contact info header, the group info header, the member profile header and
++   the group member list rows.
++4. Copying the image is platform specific, so it is an `expect fun copyImageToClipboard(image:
++   ImageBitmap): Boolean`: desktop puts a `BufferedImage` on the AWT clipboard, Android puts a
++   `content://` URI to a PNG written into the app files dir on the clipboard (the existing
++   `FileProvider` with authority `"$APPLICATION_ID.provider"` is reused, `files-path` is already
++   declared in `android/src/main/res/xml/file_paths.xml`).
++
++## Design decisions
++
++- **One viewer, used by every avatar.** The image is shown with `ContentScale.Fit` in a
++  fixed-height box, the title is the chat/member display name. No zooming/panning is added:
++  avatars are small and the chat image gallery already covers full photo browsing.
++- **Copy is a clipboard image, not a file save.** The TODO says 复制 (copy). Desktop AWT image
++  flavor and Android `ClipData.newUri` are both "paste an image into another app" workflows, which
++  is what a user expects from copying an avatar. Both return `false` instead of throwing when the
++  platform refuses, and the UI then shows a failure toast.
++- **Android writes one reusable file.** `getAppFilePath("clipboard_image.png")` is overwritten on
++  every copy, so the clipboard does not accumulate temp files that a cleanup pass could delete
++  while the clipboard still points at them.
++- **No new preference, no `AppSettings` change, no core change.** The feature is read-only for the
++  model: it never modifies a profile or sends anything to the server.
++- **Clickable avatars are opt-in.** The default parameter keeps the existing behaviour for the
++  many other `ProfileImage`/`ChatInfoImage`/`MemberProfileImage` call sites (welcome screen, user
++  profile editing, chat list previews, call alerts, …), so no unrelated avatar suddenly becomes a
++  button.
++- **The chat list / chat item avatars are intentionally left alone** for now: those rows/items have
++  their own click action (open the chat, open the message menu), and hijacking the avatar tap there
++  would be surprising. The viewer is reachable from every dedicated profile page and from the group
++  member list.
++
++## Steps
++
++1. `platform/Images.kt`: `expect fun copyImageToClipboard(image: ImageBitmap): Boolean`.
++2. `platform/Images.desktop.kt`: `imageToTransferable` (internal, testable) + AWT clipboard write.
++3. `platform/Images.android.kt`: write the PNG into the app files dir, `FileProvider` URI,
++   `ClipboardManager.setPrimaryClip`.
++4. `views/helpers/ChatInfoImage.kt`: `onClick` on `ProfileImage` and `ChatInfoImage`;
++   `ProfileImageViewer` + `showProfileImageModal`.
++5. `views/chat/group/GroupMemberInfoView.kt`: `onClick` on `MemberProfileImage`, wired in
++   `GroupMemberInfoHeader`.
++6. `views/chat/ChatInfoView.kt`: wired in `ChatInfoHeader`.
++7. `views/chat/group/GroupChatInfoView.kt`: wired in `GroupChatInfoHeader` and in the member list row.
++8. Strings `copy_image`, `image_copied`, `image_copy_failed` in base + zh-rCN.
++9. Test `ImageClipboardTest.kt` (desktopTest): the transferable supports `DataFlavor.imageFlavor`,
++   returns a `BufferedImage` of the source size, and rejects other flavors. The AWT system clipboard
++   itself is not touched, so the test also runs headless. `bufferedImageToTransferable` is split out
++   from `imageToTransferable` because the `ImageBitmap` -> AWT conversion loads the Skia natives,
++   which the unit test JVM does not have (`LibraryLoadException: Cannot find libskiko-linux-x64.so.sha256`).
++10. Full desktop test run.
++
++## Adversarial review
++
++- _Does the modal leak or crash when the image is missing?_ `showProfileImageModal` returns early
++  when `image == null`, and `ProfileImage`/`ChatInfoImage` still render their icon when
++  `image == null` — no change for icon-only avatars.
++- _Does adding `clickable` break the avatar's shape?_ `ProfileIconModifier` clips the image but the
++  clickable modifier is applied to the surrounding `Box` in `ProfileImage`, whose bounds are the
++  requested square; the tap target therefore matches the avatar box, including the transparent
++  padding of the rounded shape. The ripple is suppressed (`indication = null`) so the avatar does
++  not flash.
++- _Are the member list row and the avatar fighting for the click?_ The avatar is a child of the
++  clickable row; Compose gives the child priority, so tapping the avatar opens the viewer and
++  tapping anywhere else in the row opens the member profile. Verified by reading the row layout.
++- _Is the copied Android URI still readable when the user pastes?_ The file lives in the app files
++  dir, not the cache, and is re-created (same path) on every copy, so the URI keeps pointing at a
++  readable file. `FileProvider` has `grantUriPermissions="true"`.
++- _Does the copy stay correct for a remote-host profile picture path?_ It never uses the file path:
++  the bytes are regenerated from the base64 profile image, so remote host configuration is
++  irrelevant.
++- _Do the new platform functions break any target?_ The multiplatform module builds only
++  `androidTarget()` and `jvm("desktop")`, and both actuals are provided.

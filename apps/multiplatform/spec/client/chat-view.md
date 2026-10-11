@@ -14,7 +14,8 @@ Source: `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
 6. [Context Menu Actions](#6-context-menu-actions)
 7. [ChatInfoView](#7-chatinfoview)
 8. [GroupChatInfoView](#8-groupchatinfoview)
-9. [Source Files](#9-source-files)
+9. [Profile Image Viewer](#9-profile-image-viewer)
+10. [Source Files](#10-source-files)
 
 ---
 
@@ -258,7 +259,19 @@ per-contact switching stays available in `GroupMemberInfoView` and `ChatInfoView
 
 ---
 
-## 9. Source Files
+## 9. Profile Image Viewer
+
+**Location:** [`views/helpers/ChatInfoImage.kt`](../../common/src/commonMain/kotlin/chat/simplex/common/views/helpers/ChatInfoImage.kt)
+
+`ProfileImage` takes an optional `onClick`; when it is null the avatar behaves exactly as before. When set, the whole avatar `Box` becomes clickable (no ripple, `indication = null`), and `ChatInfoImage` / `MemberProfileImage` simply forward the callback. The click opens `showProfileImageModal(image, name)`, which returns immediately for an icon-only avatar (`image == null`) and otherwise shows `ProfileImageViewer` in `ModalManager.fullscreen`: the full-size image (`ContentScale.Fit`, capped at 360.dp tall), the display name as the title, and a **Copy image** button.
+
+Copying calls the `expect fun copyImageToClipboard(image: ImageBitmap): Boolean` (`platform/Images.kt`) and shows `MR.strings.image_copied` on success or `MR.strings.image_copy_failed` when the platform refused. Desktop wraps the `toAwtImage()` result in an AWT `Transferable` that supports only `DataFlavor.imageFlavor`; Android writes the PNG to `clipboard_image.png` in the app files dir and puts a `FileProvider` content URI on the system clipboard, so the clipboard always points at an existing file.
+
+Wired sites: `ChatInfoView.kt` `ChatInfoHeader`, `group/GroupChatInfoView.kt` `GroupChatInfoHeader` and the member-list row, and `group/GroupMemberInfoView.kt` `GroupMemberInfoHeader`. Chat list, user picker, welcome and chat-item avatars deliberately stay non-clickable because those rows already have their own action.
+
+---
+
+## 10. Source Files
 
 ### `views/chat/`
 
@@ -331,6 +344,12 @@ per-contact switching stays available in `GroupMemberInfoView` and `ChatInfoView
 | `WelcomeMessageView.kt` | Group welcome message editor |
 | `ChannelRelaysView.kt` | Channel relay list. Owner-only Add relay entry opens `AddGroupRelayView` with `existingRelayIds = groupRelays.mapNotNull { it.userChatRelay.chatRelayId }.toSet()` — every relay currently in `groupRelays` is excluded regardless of `relayStatus`, mirroring the backend `APIAddGroupRelays` gate. Long-press menu offers Remove relay for relays that can be removed. |
 | `AddGroupRelayView.kt` | Sheet to pick relays to add to a channel |
+
+### `views/helpers/`
+
+| File | Description |
+|---|---|
+| `ChatInfoImage.kt` | Profile image composables (`ProfileImage`, `ChatInfoImage`), the opt-in avatar `onClick`, `ProfileImageViewer` and `showProfileImageModal` (PC35) |
 
 ### Relay Rejection Surface
 

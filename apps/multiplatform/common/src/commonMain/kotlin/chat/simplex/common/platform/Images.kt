@@ -32,6 +32,9 @@ expect fun isAnimImage(uri: URI, drawable: Any?): Boolean
 
 expect fun loadImageBitmap(inputStream: InputStream): ImageBitmap
 
+/** Puts [image] on the system clipboard as an image. Returns false if the platform refused. */
+expect fun copyImageToClipboard(image: ImageBitmap): Boolean
+
 @Composable
 fun Base64AsyncImage(
   base64ImageString: String,

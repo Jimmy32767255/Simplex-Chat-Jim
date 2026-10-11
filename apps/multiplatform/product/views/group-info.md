@@ -26,7 +26,7 @@ View and manage group settings, member list, group preferences, group links, mem
 
 | Element | Description |
 |---|---|
-| Group image | Large circular profile image |
+| Group image | Large circular profile image. Tapping it opens the profile image viewer (full-size image + **Copy image**); with no custom image set there is nothing to view |
 | Group name | Display name (editable by owners via `GroupProfileView`) |
 | Member count | "N members" label from `activeSortedMembers` |
 | Full name | Optional secondary name |
@@ -72,11 +72,11 @@ Displays `activeSortedMembers` (excluding left/removed members, sorted by role d
 
 | Element | Description |
 |---|---|
-| Member avatar | `MEMBER_ROW_AVATAR_SIZE` (42dp) profile image |
+| Member avatar | `MEMBER_ROW_AVATAR_SIZE` (42dp) profile image; tapping it opens the profile image viewer (full-size image + **Copy image**) |
 | Member name | Display name with role badge |
 | Member role | Owner, Admin, Moderator, Member, Observer |
 | Member status | Active, connecting, pending, left, removed |
-| Tap action | Opens `GroupMemberInfoView` with connection stats and verification code |
+| Tap action | Opens `GroupMemberInfoView` with connection stats and verification code; tapping the avatar instead opens the image viewer |
 
 ### Change All Members' Receiving Address
 
@@ -116,7 +116,7 @@ Relay/channel groups (`groupInfo.useRelays`) keep using the per-relay controls i
 
 | Element | Description |
 |---|---|
-| Member profile | Avatar, name, role |
+| Member profile | Avatar, name, role; tapping the avatar opens the profile image viewer |
 | Connection stats | Server information, connection status |
 | Security code | Verification code for the member connection |
 | Role change | Change member role (admin+ only) |

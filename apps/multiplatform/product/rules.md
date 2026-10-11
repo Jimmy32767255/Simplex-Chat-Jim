@@ -13,6 +13,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
 5. [Notification Delivery (RULE-16 through RULE-17)](#5-notification-delivery)
 6. [Call Integrity (RULE-18)](#6-call-integrity)
 7. [Network Configuration (RULE-19)](#7-network-configuration)
+8. [Profile Images (RULE-20)](#8-profile-images)
 
 ---
 
@@ -285,3 +286,32 @@ attached to it -- is display metadata owned by the client.
 - `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt`
   (batch add applies the same metadata to every added address)
 - Test: `common/src/commonTest/kotlin/chat/simplex/app/ServerMetadataTest.kt`
+
+---
+
+## 8. Profile Images
+
+### RULE-20: Opt-In Avatar Interaction and Clipboard Images
+
+1. **Avatar clicks MUST be opt-in.** `ProfileImage` / `ChatInfoImage` / `MemberProfileImage` take an
+   `onClick` that defaults to `null`; with `null` the avatar renders exactly as before and consumes
+   no clicks. Only the four details/member-list avatars pass a callback, so rows that already have
+   their own click action (chat list, user picker, welcome, chat items) are unaffected, and a nested
+   avatar click wins over the row click where both exist.
+2. **The viewer MUST handle the icon-only case.** `showProfileImageModal` returns without opening
+   anything when the chat has no custom image, because there is nothing to view or copy.
+3. **Copying MUST degrade gracefully.** `copyImageToClipboard` is an `expect`/`actual` that returns
+   `false` instead of throwing when the platform refuses; the UI then reports
+   `MR.strings.image_copy_failed`.
+4. **Android MUST put a readable URI on the clipboard.** The image is written to
+   `clipboard_image.png` in the app files dir and exposed through the existing `FileProvider`
+   authority, so the clipboard never points at a deleted file.
+
+**Enforcement:**
+- `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/ChatInfoImage.kt`
+  (`ProfileImage`, `ChatInfoImage`, `ProfileImageViewer`, `showProfileImageModal`)
+- `common/src/commonMain/kotlin/chat/simplex/common/platform/Images.kt` (`expect copyImageToClipboard`)
+  and `common/src/desktopMain/.../platform/Images.desktop.kt` / `common/src/androidMain/.../platform/Images.android.kt`
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt`,
+  `views/chat/group/GroupChatInfoView.kt`, `views/chat/group/GroupMemberInfoView.kt` (wired call sites)
+- Test: `common/src/desktopTest/kotlin/chat/simplex/app/ImageClipboardTest.kt`
