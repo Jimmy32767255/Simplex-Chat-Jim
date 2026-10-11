@@ -1,0 +1,707 @@
+diff --git a/TODO.md b/TODO.md
+index 36a752813..60e7e5b1a 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -65,5 +65,14 @@
+   - 理解一（删除「历史记录」标签页里列出的单个编辑版本）：核心（Haskell）的 `chat_item_versions` 表只有整条消息级的删除（`deleteChatItemVersions_`/`deleteMemberCIs` 按 `chat_item_id` 全删），`APIDeleteChatItem` 也只接受 `chatItemIds`，没有任何按单个版本删除的命令。要实现必须在核心新增命令，本机没有 cabal/stack/ghcup，核心无法编译与测试，因此和条目 3 一样只能暂缓。
+   - 理解二（在信息弹窗里删除整条消息、仅本机）：客户端已经具备该能力（长按菜单的「DeleteItemAction」→「仅为我删除」走 `CIDeleteMode.cidmInternal`，频道/群管理员走 `cidmHistory`），信息弹窗内没有必须补的缺口，单独加一个按钮收益有限。
+   - 日后如有核心构建环境且确认要做理解一，实现路径：核心新增「按 `chat_item_version_id` 删除单条版本」的命令（`Controller.hs` 的 API 命令 + `Store/Messages.hs` 删除函数 + `Library/Commands.hs` 处理）→ 客户端在 `ChatItemInfoView.ItemVersionView` 的下拉菜单里加「仅本机删除该版本」（必要时刷新 `apiGetChatItemInfo`）。
+-- [ ] 成员头像旁边的网络状态图标（其实就是把用户 页面→服务器→网络状态 右边的那个会变色的点，也复制到私聊标题、主页用户名左侧以及群用户列表的用户名左边）
++- [x] 成员头像旁边的网络状态图标（其实就是把用户 页面→服务器→网络状态 右边的那个会变色的点，也复制到私聊标题、主页用户名左侧以及群用户列表的用户名左边）
++  - 已实现（基于 7.0.4）：把联系人详情页「服务器」区里「网络状态」那一行的圆点抽成公共组件 `SubscriptionStatusDot`（`views/helpers/SubscriptionStatusDot.kt`），并在三处复用：私聊标题、主页（聊天列表）每行的联系人名字左侧、群成员列表每个成员的名字左侧。图标与颜色和信息页完全一致（`Active` 绿色 `ic_circle_filled`、`Pending` `ic_pending_filled`、`Removed`/`NoSub` `ic_error_filled`，后两者用主题 secondary 色）。
++  - 状态来源：7.0.4 客户端原本只跟踪「当前打开的聊天」的订阅状态（`chatSubStatus`/`chatAgentConnId`），核心在 `CEvtSubscriptionStatus` 里带出的其它连接状态（`connections` 是 agent 连接 id 列表）被丢弃；现在 `ChatModel.connectionSubStatuses`（agent 连接 id → `SubscriptionStatus`）记录每条连接的状态，取值优先级为「实时事件 → 该连接最近一次拉取的 `ConnectionStats.subStatus`」，由纯函数 `connectionSubStatus(conn, liveStatuses)` 封装。这样聊天列表和成员列表里的连接也有状态可显示（`connectionStats` 只在打开信息页/同步等操作时才拉取）。
++  - 私聊标题的兜底：只有当连接的 `agentConnId` 等于当前打开聊天的 `chatAgentConnId` 时才回退到 `chatSubStatus`（`chatSubStatus` 在关闭聊天时不会重置，否则会显示过期状态）。原来的 `SubStatusView`/`SubProgressView`（Active 不显示、Pending 显示转圈、失败显示错误图标）已删除，改由统一的圆点显示，因此连接正常时标题也会显示绿点。
++  - 「主页用户名左侧」按主页聊天列表里每行的联系人名字处理（主页顶部只有头像和「聊天」标题，没有用户名）；群/频道行不显示圆点（没有单一连接），群成员的圆点在成员列表里。
++  - 没有状态时圆点不渲染任何内容（`SubscriptionStatusDot(null)` 直接返回），不占位、不影响行高；成员行额外要求 `activeConn != null`，联系人要求 `ready && active`（与信息页一致）。
++  - 与条目 1、5、6、8 一致：未改动 `AppSettings` 跨设备导入/导出结构，未改核心（纯客户端显示），未新增字符串（复用已有的 `icon_descr_server_status_connected`/`icon_descr_server_status_disconnected`/`icon_descr_server_status_error`）。
++  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/helpers/SubscriptionStatusDot.kt`（新增）、`.../model/ChatModel.kt`（`connectionSubStatuses`、`connectionSubStatus`）、`.../model/SimpleXAPI.kt`（`CR.SubscriptionStatusEvt` 处理）、`.../views/chat/ChatView.kt`、`.../views/chatlist/ChatPreviewView.kt`、`.../views/chat/group/GroupChatInfoView.kt`、`.../views/chat/ChatInfoView.kt`（`SubStatusRow` 改用公共组件，删除私有 `ServerImage`）。
++  - 文档：`product/concepts.md`（PC37）、`product/rules.md`（RULE-22）、`product/README.md`、`product/views/{chat-list,chat,contact-info,group-info}.md`、`spec/impact.md`（新增 PC37 行与 `SubscriptionStatusDot.kt` 行，并补齐缺失的 PC33–PC36 图例）、`spec/state.md`、`spec/client/{chat-list,chat-view}.md`。
++  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ConnectionSubStatusTest.kt`（7 个用例，覆盖无连接、无状态、实时事件优先、回退到 `connectionStats`、忽略其它连接的状态、`Removed`、`NoSub`），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
+ - [ ] 反撤回（拒绝任何来自服务端的删除信息请求，比如管理员删除，也忽略限时消息超时自动删除，要能允许对每一个私聊/群设置）
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
+index c9c30950e..944ed5ae9 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
+@@ -120,7 +120,8 @@ object ChatModel {
+   val ctrlInitInProgress = mutableStateOf(false)
+   val dbMigrationInProgress = mutableStateOf(false)
+   val incompleteInitializedDbRemoved = mutableStateOf(false)
+-  // map of connections network statuses, key is agent connection id
++  // map of connection network statuses, key is the agent connection id
++  val connectionSubStatuses = mutableStateMapOf<String, SubscriptionStatus>()
+   val switchingUsersAndHosts = mutableStateOf(false)
+ 
+   // current chat
+@@ -1993,6 +1994,14 @@ class ContactRef(
+   val id: ChatId get() = "@$contactId"
+ }
+ 
++/**
++ * The last known network (subscription) status of a connection: the status received from the
++ * agent first (see `ChatModel.connectionSubStatuses`), then the status of the last fetched
++ * connection stats. Returns `null` when nothing is known about the connection yet.
++ */
++internal fun connectionSubStatus(conn: Connection?, liveStatuses: Map<String, SubscriptionStatus>): SubscriptionStatus? =
++  conn?.let { liveStatuses[it.agentConnId] ?: it.connectionStats?.subStatus }
++
+ @Serializable
+ data class Connection(
+   val connId: Long,
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
+index 5311adcd5..c7ea336d5 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
+@@ -2929,8 +2929,11 @@ object ChatController {
+       }
+       is CR.SubscriptionStatusEvt -> {
+         val chatAgentConnId = chatModel.chatAgentConnId.value
+-        if (chatAgentConnId != null && r.connections.contains(chatAgentConnId)) {
+-          withContext(Dispatchers.Main) {
++        withContext(Dispatchers.Main) {
++          for (conn in r.connections) {
++            chatModel.connectionSubStatuses[conn] = r.subscriptionStatus
++          }
++          if (chatAgentConnId != null && r.connections.contains(chatAgentConnId)) {
+             chatModel.chatSubStatus.value = r.subscriptionStatus
+           }
+         }
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt
+index 4e871afaa..100ef40f2 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt
+@@ -1138,21 +1138,7 @@ fun SubStatusRow(subStatus: SubscriptionStatus) {
+         subStatus.statusString,
+         color = MaterialTheme.colors.secondary
+       )
+-      ServerImage(subStatus)
+-    }
+-  }
+-}
+-
+-@Composable
+-private fun ServerImage(subStatus: SubscriptionStatus) {
+-  Box(Modifier.size(18.dp)) {
+-    when (subStatus) {
+-      is SubscriptionStatus.Active ->
+-        Icon(painterResource(MR.images.ic_circle_filled), stringResource(MR.strings.icon_descr_server_status_connected), tint = Color.Green)
+-      is SubscriptionStatus.Pending ->
+-        Icon(painterResource(MR.images.ic_pending_filled), stringResource(MR.strings.icon_descr_server_status_disconnected), tint = MaterialTheme.colors.secondary)
+-      is SubscriptionStatus.Removed, SubscriptionStatus.NoSub ->
+-        Icon(painterResource(MR.images.ic_error_filled), stringResource(MR.strings.icon_descr_server_status_error), tint = MaterialTheme.colors.secondary)
++      SubscriptionStatusDot(subStatus)
+     }
+   }
+ }
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
+index 0ff9c7744..07fb50eb7 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
+@@ -1558,6 +1558,13 @@ fun ownersContributorsCountStr(count: Int, withContributors: Boolean): String =
+ 
+ @Composable
+ fun ChatInfoToolbarTitle(cInfo: ChatInfo, imageSize: Dp = 40.dp, iconColor: Color = MaterialTheme.colors.secondaryVariant.mixWith(MaterialTheme.colors.onBackground, 0.97f)) {
++  // Network status of the direct chat connection, shown next to the contact name
++  val connectionStatus =
++    if (cInfo is ChatInfo.Direct && cInfo.contact.ready && cInfo.contact.active) {
++      val conn = cInfo.contact.activeConn
++      connectionSubStatus(conn, chatModel.connectionSubStatuses)
++        ?: chatModel.chatSubStatus.value.takeIf { conn != null && conn.agentConnId == chatModel.chatAgentConnId.value }
++    } else null
+   Row(
+     horizontalArrangement = Arrangement.Center,
+     verticalAlignment = Alignment.CenterVertically
+@@ -1571,6 +1578,10 @@ fun ChatInfoToolbarTitle(cInfo: ChatInfo, imageSize: Dp = 40.dp, iconColor: Colo
+       horizontalAlignment = Alignment.CenterHorizontally
+     ) {
+       Row(verticalAlignment = Alignment.CenterVertically) {
++        if (connectionStatus != null) {
++          SubscriptionStatusDot(connectionStatus)
++          Spacer(Modifier.width(4.dp))
++        }
+         if ((cInfo as? ChatInfo.Direct)?.contact?.verified == true) {
+           ContactVerifiedShield()
+         }
+@@ -1597,51 +1608,9 @@ fun ChatInfoToolbarTitle(cInfo: ChatInfo, imageSize: Dp = 40.dp, iconColor: Colo
+         )
+       }
+     }
+-    val chatSubStatus = chatModel.chatSubStatus.value
+-    if (
+-      cInfo is ChatInfo.Direct &&
+-      cInfo.contact.ready &&
+-      cInfo.contact.active &&
+-      chatSubStatus != null &&
+-      chatSubStatus != SubscriptionStatus.Active
+-      ) {
+-      Box(
+-        Modifier.padding(start = 10.dp)
+-      ) {
+-        SubStatusView(chatSubStatus)
+-      }
+-    }
+-  }
+-}
+-
+-@Composable
+-fun SubStatusView(status: SubscriptionStatus) {
+-  when (status) {
+-    SubscriptionStatus.Active ->
+-      Box {}
+-    SubscriptionStatus.Pending ->
+-      SubProgressView()
+-    is SubscriptionStatus.Removed, SubscriptionStatus.NoSub ->
+-      Icon(
+-        painterResource(MR.images.ic_error),
+-        contentDescription = null,
+-        tint = MaterialTheme.colors.secondary,
+-        modifier = Modifier
+-          .size(19.sp.toDp())
+-      )
+   }
+ }
+ 
+-@Composable
+-private fun SubProgressView() {
+-  CircularProgressIndicator(
+-    Modifier
+-      .size(15.sp.toDp()),
+-    color = MaterialTheme.colors.secondary,
+-    strokeWidth = 1.5.dp
+-  )
+-}
+-
+ @Composable
+ private fun SupportChatsCountToolbar(
+   chatInfo: ChatInfo,
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
+index fb3133d5f..fa248fb1b 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
+@@ -1252,6 +1252,12 @@ fun MemberRow(member: GroupMember, user: Boolean = false, infoPage: Boolean = tr
+       Spacer(Modifier.width(DEFAULT_PADDING_HALF))
+       Column {
+         Row(verticalAlignment = Alignment.CenterVertically) {
++          // Network status of the member connection, shown next to the member name
++          val connectionStatus = connectionSubStatus(member.activeConn, chatModel.connectionSubStatuses)
++          if (member.activeConn != null && connectionStatus != null) {
++            SubscriptionStatusDot(connectionStatus)
++            Spacer(Modifier.width(4.dp))
++          }
+           if (member.verified) {
+             MemberVerifiedShield()
+           }
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatPreviewView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatPreviewView.kt
+index 48253cb68..6853a6c69 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatPreviewView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatPreviewView.kt
+@@ -140,6 +140,12 @@ fun ChatPreviewView(
+     when (cInfo) {
+       is ChatInfo.Direct -> {
+         Row(verticalAlignment = Alignment.CenterVertically) {
++          // Network status of the direct chat connection, shown next to the contact name
++          val connectionStatus = connectionSubStatus(cInfo.contact.activeConn, chatModel.connectionSubStatuses)
++          if (cInfo.contact.ready && cInfo.contact.active && connectionStatus != null) {
++            SubscriptionStatusDot(connectionStatus)
++            Spacer(Modifier.width(4.dp))
++          }
+           if (cInfo.contact.verified) {
+             VerifiedIcon()
+           }
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/helpers/SubscriptionStatusDot.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/helpers/SubscriptionStatusDot.kt
+new file mode 100644
+index 000000000..cc86b70da
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/helpers/SubscriptionStatusDot.kt
+@@ -0,0 +1,38 @@
++package chat.simplex.common.views.helpers
++
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.size
++import androidx.compose.material.Icon
++import androidx.compose.material.MaterialTheme
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.unit.Dp
++import androidx.compose.ui.unit.dp
++import chat.simplex.common.model.SubscriptionStatus
++import chat.simplex.res.MR
++import dev.icerock.moko.resources.compose.painterResource
++import dev.icerock.moko.resources.compose.stringResource
++
++/**
++ * The coloured network status dot of a connection, as shown on the "Network status" row of the
++ * contact and group member info pages. It is reused next to the names in the chat list, in the
++ * direct chat title and in the group member list.
++ *
++ * Pass `null` when the status of the connection isn't known - nothing is rendered in that case.
++ * Use [chat.simplex.common.model.connectionSubStatus] to resolve the status of a connection.
++ */
++@Composable
++fun SubscriptionStatusDot(subStatus: SubscriptionStatus?, size: Dp = 18.dp) {
++  if (subStatus == null) return
++  Box(Modifier.size(size)) {
++    when (subStatus) {
++      is SubscriptionStatus.Active ->
++        Icon(painterResource(MR.images.ic_circle_filled), stringResource(MR.strings.icon_descr_server_status_connected), tint = Color.Green)
++      is SubscriptionStatus.Pending ->
++        Icon(painterResource(MR.images.ic_pending_filled), stringResource(MR.strings.icon_descr_server_status_disconnected), tint = MaterialTheme.colors.secondary)
++      is SubscriptionStatus.Removed, SubscriptionStatus.NoSub ->
++        Icon(painterResource(MR.images.ic_error_filled), stringResource(MR.strings.icon_descr_server_status_error), tint = MaterialTheme.colors.secondary)
++    }
++  }
++}
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ConnectionSubStatusTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ConnectionSubStatusTest.kt
+new file mode 100644
+index 000000000..8addec470
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ConnectionSubStatusTest.kt
+@@ -0,0 +1,62 @@
++package chat.simplex.app
++
++import chat.simplex.common.model.*
++import kotlin.test.*
++
++class ConnectionSubStatusTest {
++  private fun conn(agentConnId: String = "abc", subStatus: SubscriptionStatus? = null): Connection =
++    Connection.sampleData.copy(
++      agentConnId = agentConnId,
++      connectionStats = subStatus?.let {
++        ConnectionStats(
++          connAgentVersion = 1,
++          rcvQueuesInfo = emptyList(),
++          sndQueuesInfo = emptyList(),
++          ratchetSyncState = RatchetSyncState.Ok,
++          ratchetSyncSupported = true,
++          subStatus = it
++        )
++      }
++    )
++
++  @Test
++  fun testNoConnection() {
++    assertNull(connectionSubStatus(null, mapOf("abc" to SubscriptionStatus.Active)))
++  }
++
++  @Test
++  fun testNoStatusKnown() {
++    assertNull(connectionSubStatus(conn(), emptyMap()))
++  }
++
++  @Test
++  fun testLiveStatusIsUsed() {
++    val c = conn(agentConnId = "abc", subStatus = SubscriptionStatus.Pending)
++    assertEquals(SubscriptionStatus.Active, connectionSubStatus(c, mapOf("abc" to SubscriptionStatus.Active)))
++  }
++
++  @Test
++  fun testFallsBackToConnectionStats() {
++    val c = conn(agentConnId = "abc", subStatus = SubscriptionStatus.Pending)
++    assertEquals(SubscriptionStatus.Pending, connectionSubStatus(c, mapOf("other" to SubscriptionStatus.Active)))
++  }
++
++  @Test
++  fun testStatusOfAnotherConnectionIsIgnored() {
++    val c = conn(agentConnId = "abc")
++    assertNull(connectionSubStatus(c, mapOf("other" to SubscriptionStatus.Active)))
++  }
++
++  @Test
++  fun testRemovedStatus() {
++    val c = conn(agentConnId = "abc")
++    val removed = SubscriptionStatus.Removed("subscription error")
++    assertEquals(removed, connectionSubStatus(c, mapOf("abc" to removed)))
++  }
++
++  @Test
++  fun testNoSubStatus() {
++    val c = conn(agentConnId = "abc", subStatus = SubscriptionStatus.NoSub)
++    assertEquals(SubscriptionStatus.NoSub, connectionSubStatus(c, emptyMap()))
++  }
++}
+diff --git a/apps/multiplatform/product/README.md b/apps/multiplatform/product/README.md
+index 4531463ef..3d529fcf3 100644
+--- a/apps/multiplatform/product/README.md
++++ b/apps/multiplatform/product/README.md
+@@ -169,6 +169,7 @@ Server configuration, proxy support, and connectivity.
+ | Server operators | Configure and manage SMP/XFTP server operators | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/OperatorView.kt` |
+ | Server groups and notes | Organize manually added servers into named groups and attach a note to each, stored client-side only | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServersView.kt` |
+ | Server status | View aggregate server connectivity status | `common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ServersSummaryView.kt` |
++| Connection network status dot | Per-connection status dot (connected / connecting / subscription removed) shown next to the name in the direct chat title, the chat list rows and the group member list, and on the contact info page's **Network status** row | `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/SubscriptionStatusDot.kt` |
+ | Network & servers hub | Central network configuration entry point | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt` |
+ 
+ ### 8. Customization
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index 7a145d07b..3c9c8f200 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -55,6 +55,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC34 | Server Grouping and Notes | [views/settings.md](views/settings.md) | [spec/api.md](../spec/api.md), [spec/state.md](../spec/state.md) | `common/.../model/SimpleXAPI.kt` (`ServerMeta`, `AppPreferences.serverMetadata`, `SHARED_PREFS_SERVER_METADATA`), `common/.../views/usersettings/networkAndServers/ProtocolServersView.kt` (`ServersSection`, `serverGroup`, `updatedServerMetadata`, `saveServerMetadata`), `ProtocolServerView.kt` (`ServerGroupAndNoteSection`), `NewServerView.kt` | N/A (client-only) |
+ | PC35 | Profile Image Viewer | [views/contact-info.md](views/contact-info.md), [views/group-info.md](views/group-info.md) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../views/helpers/ChatInfoImage.kt` (`ProfileImage` `onClick`, `ProfileImageViewer`, `showProfileImageModal`), `common/.../platform/Images.kt` (`copyImageToClipboard`) and its desktop/Android actuals, `common/.../views/chat/ChatInfoView.kt` (`ChatInfoHeader`), `common/.../views/chat/group/GroupChatInfoView.kt` (`GroupChatInfoHeader`, member list row), `common/.../views/chat/group/GroupMemberInfoView.kt` (`MemberProfileImage`, `GroupMemberInfoHeader`) | N/A (client-only) |
+ | PC36 | Group Members Connection Rate | [views/group-info.md](views/group-info.md) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../views/chat/group/GroupChatInfoView.kt` (`groupMembersConnection`, `groupMembersConnectionRate`, `GroupMembersConnectionStatus`, `groupMembersSectionVisible`, `groupMembersRowsVisible`, member-list collapse toggle), `common/.../views/helpers/Section.kt` (`SectionViewWithButton` title button + card shape), `common/.../model/ChatModel.kt` (`GroupMember.ready`) | N/A (client-only) |
++| PC37 | Connection Network Status Dot | [views/chat-list.md](views/chat-list.md), [views/chat.md](views/chat.md), [views/contact-info.md](views/contact-info.md), [views/group-info.md](views/group-info.md) | [spec/client/chat-list.md](../spec/client/chat-list.md), [spec/client/chat-view.md](../spec/client/chat-view.md), [spec/state.md](../spec/state.md) | `common/.../views/helpers/SubscriptionStatusDot.kt` (`SubscriptionStatusDot`), `common/.../model/ChatModel.kt` (`connectionSubStatuses`, `connectionSubStatus`), `common/.../model/SimpleXAPI.kt` (`CR.SubscriptionStatusEvt` handler), `common/.../views/chat/ChatView.kt` (`ChatInfoToolbarTitle`), `common/.../views/chatlist/ChatPreviewView.kt` (`chatPreviewTitle`), `common/.../views/chat/group/GroupChatInfoView.kt` (`MemberRow`), `common/.../views/chat/ChatInfoView.kt` (`SubStatusRow`) | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
+ - `common/.../` expands to `common/src/commonMain/kotlin/chat/simplex/common/`
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index 0434caadc..bbc7b07eb 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -15,6 +15,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
+ 7. [Network Configuration (RULE-19)](#7-network-configuration)
+ 8. [Profile Images (RULE-20)](#8-profile-images)
+ 9. [Connection Status Display (RULE-21)](#9-connection-status-display)
++10. [Network Status Dot (RULE-22)](#10-network-status-dot)
+ 
+ ---
+ 
+@@ -345,3 +346,40 @@ attached to it -- is display metadata owned by the client.
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/Section.kt`
+   (`SectionViewWithButton` title button and card shape)
+ - Test: `common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt`
++
++---
++
++## 10. Network Status Dot
++
++### RULE-22: The Connection Status Dot Reports One Connection Only
++
++1. **One dot, one connection.** A dot MUST describe exactly the connection it is attached to,
++   resolved by agent connection id (`connectionSubStatus`), never by chat or contact identity. A
++   status that belongs to a different connection MUST NOT be displayed on it.
++2. **The dot is a display only.** It MUST NOT change any state, MUST NOT be persisted, and MUST NOT
++   be added to `AppSettings` or to the cross-device backup format; the per-connection status map
++   (`ChatModel.connectionSubStatuses`) is session-local client state.
++3. **No status, no dot.** When no status is known for the connection (`null`), the dot MUST render
++   nothing rather than assuming a connected or a failed state, and it MUST NOT change the row layout
++   height.
++4. **Direct chats and members only.** The dot MUST only be shown for direct chats/contacts and for
++   group members that have an active connection. Group and channel rows MUST NOT show it, because
++   they have no single connection to report.
++5. **The chat title only reports the open chat.** The direct chat title MUST NOT display a status of
++   any connection other than the chat's own active connection - in particular it MUST NOT fall back
++   to `chatSubStatus` unless that connection is the one currently opened
++   (`chatModel.chatAgentConnId`), because `chatSubStatus` is not cleared when a chat is closed.
++
++**Enforcement:**
++- `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/SubscriptionStatusDot.kt`
++  (`SubscriptionStatusDot`)
++- `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`
++  (`connectionSubStatuses`, `connectionSubStatus`)
++- `common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`
++  (`CR.SubscriptionStatusEvt` handler)
++- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt`
++  (`ChatInfoToolbarTitle`), `views/chatlist/ChatPreviewView.kt` (`chatPreviewTitle`),
++  `views/chat/group/GroupChatInfoView.kt` (`MemberRow`), `views/chat/ChatInfoView.kt`
++  (`SubStatusRow`, the info-page dot this component was extracted from)
++- Test: `common/src/commonTest/kotlin/chat/simplex/app/ConnectionSubStatusTest.kt`
++
+diff --git a/apps/multiplatform/product/views/chat-list.md b/apps/multiplatform/product/views/chat-list.md
+index a09994d1e..793fd8329 100644
+--- a/apps/multiplatform/product/views/chat-list.md
++++ b/apps/multiplatform/product/views/chat-list.md
+@@ -80,7 +80,7 @@ Each row rendered by `ChatPreviewView` inside `ChatListNavLinkView`:
+ | Element | Description |
+ |---|---|
+ | Avatar | `ProfileImage` with overlay icons (inactive contact, left/removed group member) |
+-| Chat name | Display name with verified icon for verified contacts; colored for pending/connecting states |
++| Chat name | Display name with verified icon for verified contacts; colored for pending/connecting states. Direct chats that are ready and active are preceded by the shared connection network status dot (`SubscriptionStatusDot`: filled green circle = connected, pending icon = connecting, error icon = subscription removed or missing) when a status is known for the contact's connection |
+ | Last message preview | Truncated text of most recent message; draft indicator with edit icon; attachment icons |
+ | Timestamp | Relative time of last activity |
+ | Unread badge | Numeric count badge; distinct styling for mentions |
+diff --git a/apps/multiplatform/product/views/chat.md b/apps/multiplatform/product/views/chat.md
+index 64abda7ee..917df9201 100644
+--- a/apps/multiplatform/product/views/chat.md
++++ b/apps/multiplatform/product/views/chat.md
+@@ -27,7 +27,7 @@ Custom toolbar with themed background:
+ |---|---|
+ | Back button | Returns to chat list; stops audio/video playback |
+ | Contact/Group avatar | Small profile image in toolbar |
+-| Chat name | Display name; tappable to open info view |
++| Chat name | Display name; tappable to open info view. In direct chats that are ready and active the name is preceded by the connection network status dot (`SubscriptionStatusDot`: filled green circle = connected, pending icon = connecting, error icon = subscription removed or missing), resolved per connection by `connectionSubStatus` and updated from `CR.SubscriptionStatusEvt` |
+ | Verified shield | Shows verified contact checkmark (direct chats with verified contacts only) |
+ | More menu button | Opens overflow menu containing search and audio/video call buttons (call buttons shown in direct chats only) |
+ | Info button | Opens `ChatInfoView` (direct) or `GroupChatInfoView` (group) |
+diff --git a/apps/multiplatform/product/views/contact-info.md b/apps/multiplatform/product/views/contact-info.md
+index 5001814bf..5de59e69f 100644
+--- a/apps/multiplatform/product/views/contact-info.md
++++ b/apps/multiplatform/product/views/contact-info.md
+@@ -66,6 +66,7 @@ Shown when `connectionStats` is available:
+ | Element | Description |
+ |---|---|
+ | Connection stats | Server information, agent connection ID |
++| Servers and network status | Shown while the contact is ready and active: the **Servers** section lists the connection's server and the **Network status** row shows its subscription state as the shared `SubscriptionStatusDot` (filled green circle = connected/active, pending icon = connecting, error icon = subscription removed or missing); tapping the row explains the state. This is the same dot used by the direct chat title, the chat list rows and the group member list, and it is extracted into `views/helpers/SubscriptionStatusDot.kt` |
+ | Switch address | Initiates SMP server address switch (`apiSwitchContact`) with confirmation alert |
+ | Abort switch | Cancels an in-progress address switch (`apiAbortSwitchContact`) |
+ | Sync connection | Fixes encryption ratchet synchronization (`apiSyncContactRatchet`) |
+diff --git a/apps/multiplatform/product/views/group-info.md b/apps/multiplatform/product/views/group-info.md
+index e1334377e..c28063cf3 100644
+--- a/apps/multiplatform/product/views/group-info.md
++++ b/apps/multiplatform/product/views/group-info.md
+@@ -76,7 +76,7 @@ Displays `activeSortedMembers` (excluding left/removed members, sorted by role d
+ | Connection rate | `connected/total (pct%)` of the members with a ready connection (`GroupMember.ready`), including the current user's own membership; next to the text is a status dot that is green when everyone is connected, yellow when some are connected and grey when nobody is |
+ | Collapse toggle | Chevron at the right end of the title row (`ic_chevron_up` while expanded, `ic_chevron_down` while collapsed). Collapsing hides the add-members button, the search row, the current user's own row and every member row, leaving only the title, so the rest of the page is reachable without scrolling through a large group. The state is per group and lives only while the modal is open (`rememberSaveable(groupInfo.id)`), it is not written to preferences or to the backup format |
+ | Member avatar | `MEMBER_ROW_AVATAR_SIZE` (42dp) profile image; tapping it opens the profile image viewer (full-size image + **Copy image**) |
+-| Member name | Display name with role badge |
++| Member name | Display name with role badge, preceded by the member's connection network status dot when the member has an active connection (`SubscriptionStatusDot`: filled green circle = connected, pending icon = connecting, error icon = removed / no subscription; tinted with the theme's secondary colour). The dot shows nothing while no status is known, so it never shifts the layout |
+ | Member role | Owner, Admin, Moderator, Member, Observer |
+ | Member status | Active, connecting, pending, left, removed |
+ | Tap action | Opens `GroupMemberInfoView` with connection stats and verification code; tapping the avatar instead opens the image viewer |
+diff --git a/apps/multiplatform/spec/client/chat-list.md b/apps/multiplatform/spec/client/chat-list.md
+index a5eeb268f..95e8cc264 100644
+--- a/apps/multiplatform/spec/client/chat-list.md
++++ b/apps/multiplatform/spec/client/chat-list.md
+@@ -183,10 +183,18 @@ Each chat preview row contains:
+ | Element | Position | Content |
+ |---|---|---|
+ | Profile image | Left | `ChatInfoImage` with overlay icons for inactive contacts/groups |
+-| Title row | Top-right of image | Chat name (bold), verified shield (direct), timestamp |
++| Title row | Top-right of image | Chat name (bold), verified shield (direct), timestamp. Direct chats that are ready and active are preceded by the connection network status dot |
+ | Preview row | Below title | Last message preview or draft indicator, unread badge |
+ | Unread badge | Right | Circular badge with count, or dot for muted chats |
+ 
++### Connection Status Dot
++
++`chatPreviewTitle()` renders `SubscriptionStatusDot(connectionSubStatus(cInfo.contact.activeConn, chatModel.connectionSubStatuses))`
++before the verified shield for `ChatInfo.Direct` rows whose contact is `ready && active` and whose
++status is known. The dot is the shared component from `views/helpers/SubscriptionStatusDot.kt`; the
++per-connection status map is filled from `CR.SubscriptionStatusEvt`, with
++`Connection.connectionStats.subStatus` as the fallback. Nothing is rendered when no status is known.
++
+ ### Draft Display
+ 
+ When `chatModelDraftChatId` matches the chat ID, the preview shows a draft indicator (pencil icon) with the draft message text instead of the last chat item.
+@@ -304,7 +312,7 @@ Uses `AnimatedViewState` (`GONE`, `VISIBLE`, `HIDING`) with a `MutableStateFlow`
+ |---|---|
+ | `ChatListView.kt` | Main chat list view, toolbar, search, tags, filtering |
+ | `ChatListNavLinkView.kt` | Per-chat row routing and context menus |
+-| `ChatPreviewView.kt` | Chat preview row layout (image, title, last message) |
++| `ChatPreviewView.kt` | Chat preview row layout (image, title, last message, per-connection network status dot for direct chats) |
+ | `ChatHelpView.kt` | Empty-state help content |
+ | `ContactConnectionView.kt` | Pending connection preview row |
+ | `ContactRequestView.kt` | Contact request preview row |
+diff --git a/apps/multiplatform/spec/client/chat-view.md b/apps/multiplatform/spec/client/chat-view.md
+index 9145f9060..f11cd90d3 100644
+--- a/apps/multiplatform/spec/client/chat-view.md
++++ b/apps/multiplatform/spec/client/chat-view.md
+@@ -238,6 +238,14 @@ Preloads `apiContactInfo` (connection stats, server profile) and `apiGetContactC
+ 
+ Key sections: contact profile, local alias, connection stats, shared media, disappearing messages preference, voice/call/file feature toggles, encryption verification, and contact deletion.
+ 
++While the contact is `ready && active`, the **Servers** section shows the connection's current server
++and a **Network status** row whose dot is the shared `SubscriptionStatusDot` (previously the private
++`ServerImage` inside `ChatInfoView.kt`). The same composable draws the dot in the toolbar title
++(`ChatInfoToolbarTitle`), which resolves the status with
++`connectionSubStatus(cInfo.contact.activeConn, chatModel.connectionSubStatuses)` and only falls back to
++`chatModel.chatSubStatus` when that connection is the currently open one; nothing is drawn when the
++status is unknown.
++
+ ---
+ 
+ ## 8. GroupChatInfoView
+@@ -280,6 +288,11 @@ case. Visibility of the section and of its rows is decided by the `internal` pre
+ `groupMembersSectionVisible(nextConnectPrepared, useRelays)` and
+ `groupMembersRowsVisible(nextConnectPrepared, useRelays, collapsed)`.
+ 
++Each member row also shows the member's own connection status: `MemberRow` looks the member's
++`activeConn` up in `chatModel.connectionSubStatuses` (falling back to `activeConn.connectionStats.subStatus`)
++and renders `SubscriptionStatusDot` before the verified shield when both the connection and the status
++exist.
++
+ ---
+ 
+ ## 9. Profile Image Viewer
+@@ -301,7 +314,7 @@ Wired sites: `ChatInfoView.kt` `ChatInfoHeader`, `group/GroupChatInfoView.kt` `G
+ | File | Description |
+ |---|---|
+ | `ChatView.kt` | Main chat view, ChatLayout, ChatItemsList, ChatInfoToolbar |
+-| `ChatInfoView.kt` | Contact info modal |
++| `ChatInfoView.kt` | Contact info modal; its Servers section renders the shared connection status dot (`SubStatusRow`) |
+ | `ChatItemInfoView.kt` | Individual message delivery/read info |
+ | `ChatItemsLoader.kt` | Pagination and message loading logic |
+ | `ChatItemsMerger.kt` | MergedItems grouping of consecutive events |
+@@ -373,6 +386,7 @@ Wired sites: `ChatInfoView.kt` `ChatInfoHeader`, `group/GroupChatInfoView.kt` `G
+ | File | Description |
+ |---|---|
+ | `ChatInfoImage.kt` | Profile image composables (`ProfileImage`, `ChatInfoImage`), the opt-in avatar `onClick`, `ProfileImageViewer` and `showProfileImageModal` (PC35) |
++| `SubscriptionStatusDot.kt` | Shared connection network status dot (active / pending / removed / no subscription) used by the chat title, the chat list rows, the group member rows and the contact info page (PC37) |
+ 
+ ### Relay Rejection Surface
+ 
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index 630fb280a..29a8273f1 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -42,6 +42,11 @@
+ | PC30 | Member Support Chat |
+ | PC31 | Channels (Relays) |
+ | PC32 | Desktop Message Sending Keys |
++| PC33 | Receiving Address Switch |
++| PC34 | Server Grouping and Notes |
++| PC35 | Profile Image Viewer |
++| PC36 | Group Members Connection Rate |
++| PC37 | Connection Network Status Dot |
+ 
+ ---
+ 
+@@ -55,8 +60,8 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ |-------------|--------------------------|------------|-------|
+ | `App.kt` | PC1 through PC31 | High | Root composable — navigation scaffold for all features |
+ | `AppLock.kt` | PC22 | Medium | App lock state and authorization lifecycle |
+-| `model/ChatModel.kt` | PC1 through PC31 | High | Central state object — every feature reads or writes here |
+-| `model/SimpleXAPI.kt` | PC1 through PC34 | High | FFI bridge to Haskell core — all commands and responses |
++| `model/ChatModel.kt` | PC1 through PC37 | High | Central state object — every feature reads or writes here; also holds the session-local per-connection status map (`connectionSubStatuses`) and its resolver (`connectionSubStatus`) |
++| `model/SimpleXAPI.kt` | PC1 through PC37 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` |
+ | `model/CryptoFile.kt` | PC10, PC23 | Medium | Encrypted file read/write helpers |
+ | `platform/Core.kt` | PC1 through PC31 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
+ | `platform/AppCommon.kt` | PC1 through PC31 | Medium | Shared app initialization logic |
+@@ -95,7 +100,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `views/chatlist/ChatListView.kt` | PC1, PC28 | High | Main screen — chat list rendering and search |
+ | `views/chatlist/GetStakeBanner.kt` | PC1 | Low | Crowdfunding banner and shared banner card chrome |
+ | `views/chatlist/ChatListNavLinkView.kt` | PC1, PC2, PC3 | Medium | Navigation from chat list item to chat |
+-| `views/chatlist/ChatPreviewView.kt` | PC1, PC2, PC3, PC11 | Medium | Chat row preview rendering |
++| `views/chatlist/ChatPreviewView.kt` | PC1, PC2, PC3, PC11, PC37 | Medium | Chat row preview rendering, incl. the contact connection status dot left of the name |
+ | `views/chatlist/TagListView.kt` | PC28 | Medium | Chat tag filter UI |
+ | `views/chatlist/UserPicker.kt` | PC19, PC21 | Medium | Multi-profile switcher overlay |
+ | `views/chatlist/ShareListView.kt` | PC10 | Low | Share target list |
+@@ -109,7 +114,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ 
+ | Source File | Product Concepts Affected | Risk Level | Notes |
+ |-------------|--------------------------|------------|-------|
+-| `views/chat/ChatView.kt` | PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC11 | High | Core conversation UI — most messaging features |
++| `views/chat/ChatView.kt` | PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC11, PC37 | High | Core conversation UI — most messaging features; the chat title shows the dot of the open chat's connection |
+ | `views/chat/ComposeView.kt` | PC4, PC6, PC9, PC10, PC11 | High | Message composition — send path for all messages |
+ | `views/chat/SendMsgView.kt` | PC4, PC9 | Medium | Send button and voice record toggle |
+ | `views/chat/ComposeVoiceView.kt` | PC9 | Medium | Voice message recording UI |
+@@ -117,7 +122,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `views/chat/ComposeImageView.kt` | PC10 | Low | Image attachment preview in compose area |
+ | `views/chat/ContextItemView.kt` | PC6 | Low | Reply/edit quote preview |
+ | `views/chat/SelectableChatItemToolbars.kt` | PC7, PC10 | Medium | Multi-select toolbar (delete, forward) |
+-| `views/chat/ChatInfoView.kt` | PC2, PC13, PC20, PC33, PC35 | Medium | Contact details, verification, receiving-address switch, the shared switch alerts, and the clickable contact avatar |
++| `views/chat/ChatInfoView.kt` | PC2, PC13, PC20, PC33, PC35, PC37 | Medium | Contact details, verification, receiving-address switch, the shared switch alerts, the clickable contact avatar, and the servers-section status dot (shared `SubscriptionStatusDot`) |
+ | `views/chat/ContactPreferences.kt` | PC2, PC8 | Medium | Per-contact feature preferences |
+ | `views/chat/ChatItemInfoView.kt` | PC2, PC3 | Low | Message delivery detail |
+ | `views/chat/ChatItemsLoader.kt` | PC2, PC3 | Medium | Pagination and message loading logic |
+@@ -161,7 +166,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ 
+ | Source File | Product Concepts Affected | Risk Level | Notes |
+ |-------------|--------------------------|------------|-------|
+-| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33, PC35, PC36 | High | Group management hub; includes the group-wide receiving-address switch row, the member-list connection rate and collapse toggle, and the clickable group / member avatars |
++| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33, PC35, PC36, PC37 | High | Group management hub; includes the group-wide receiving-address switch row, the member-list connection rate and collapse toggle, the per-member connection status dot, and the clickable group / member avatars |
+ | `views/chat/group/AddGroupMembersView.kt` | PC14, PC16 | Medium | Member invitation flow |
+ | `views/chat/group/GroupMemberInfoView.kt` | PC3, PC14, PC16, PC30, PC31, PC33, PC35 | Medium | Member details and role management; relay-address + rejected-status info rows; per-member receiving-address switch; clickable avatar |
+ | `views/chat/group/ChannelRelaysView.kt` | PC31 | Medium | Channel relay list, add/remove entries |
+@@ -290,6 +295,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `views/helpers/DefaultDialog.kt` | — | Low | Dialog composable primitives |
+ | `views/helpers/DefaultDropdownMenu.kt` | — | Low | Dropdown menu composable |
+ | `views/helpers/Section.kt` | PC36 | Low | Settings section composable (incl. the section header with a trailing title button) |
++| `views/helpers/SubscriptionStatusDot.kt` | PC37 | Low | Shared connection network status dot (connected / connecting / error), extracted from the contact info page |
+ | `views/helpers/SimpleButton.kt` | — | Low | Button composable |
+ | `views/helpers/DefaultTopAppBar.kt` | — | Low | App bar composable |
+ | `views/helpers/DefaultBasicTextField.kt` | PC4 | Low | Text field composable |
+diff --git a/apps/multiplatform/spec/state.md b/apps/multiplatform/spec/state.md
+index 0af122ec8..49fe038e9 100644
+--- a/apps/multiplatform/spec/state.md
++++ b/apps/multiplatform/spec/state.md
+@@ -80,6 +80,7 @@ Defined at [`ChatModel.kt line 86`](../common/src/commonMain/kotlin/chat/simplex
+ | [`chatId`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt#L103) | `MutableState<String?>` | 103 | ID of the currently open chat (null = chat list shown) |
+ | [`chatAgentConnId`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt#L104) | `MutableState<String?>` | 104 | Agent connection ID for current chat |
+ | [`chatSubStatus`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt#L105) | `MutableState<SubscriptionStatus?>` | 105 | Subscription status for current chat |
++| [`connectionSubStatuses`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt#L124) | `SnapshotStateMap<String, SubscriptionStatus>` | 124 | Session-local network status of every connection, keyed by agent connection id; updated from `CR.SubscriptionStatusEvt` and read through `connectionSubStatus(conn, liveStatuses)` (live event first, then `ConnectionStats.subStatus`). Never persisted, never cleared |
+ | [`openAroundItemId`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt#L106) | `MutableState<Long?>` | 106 | Item ID to scroll to when opening chat |
+ | [`chatsContext`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt#L107) | `ChatsContext` | 107 | Primary chat context (see [ChatsContext](#3-chatscontext)) |
+ | [`secondaryChatsContext`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt#L108) | `MutableState<ChatsContext?>` | 108 | Optional secondary context for dual-pane views |
+diff --git a/plans/2026-10-12-network-status-dot.md b/plans/2026-10-12-network-status-dot.md
+new file mode 100644
+index 000000000..6832596f0
+--- /dev/null
++++ b/plans/2026-10-12-network-status-dot.md
+@@ -0,0 +1,88 @@
++# Network status dot in the chat list, chat title and group member list
++
++TODO item 10: 成员头像旁边的网络状态图标（其实就是把用户页面→服务器→网络状态 右边的那个会变色的点，也复制到私聊标题、主页用户名左侧以及群用户列表的用户名左边）。
++
++## Problem
++
++The network (subscription) status of a connection is only visible on the contact / group member info
++pages ("Servers" section, "Network status" row, the coloured dot drawn by the private `ServerImage`
++composable in `ChatInfoView.kt`). While chatting or browsing the chat list there is no way to see at a
++glance whether a connection is currently connected, connecting or failed.
++
++The direct chat title had a partial indicator (`SubStatusView`), but it deliberately rendered nothing
++for `SubscriptionStatus.Active`, showed a spinner for `Pending` and an error icon otherwise, and it
++only ever reflected the currently open chat.
++
++## Solution
++
++1. Extract the dot into a reusable composable `SubscriptionStatusDot(subStatus: SubscriptionStatus?, size: Dp = 18.dp)`
++   in `views/helpers/SubscriptionStatusDot.kt`. `null` renders nothing. The icons, colours and content
++   descriptions are exactly those of the info page dot, so nothing new is introduced visually.
++   `SubStatusRow` on the contact info page now uses it and the private duplicate was removed.
++2. Make the status of *every* connection available on the client: `ChatModel.connectionSubStatuses`
++   (a `mutableStateMapOf<String, SubscriptionStatus>`, key = agent connection id) is updated from
++   `CR.SubscriptionStatusEvt` for every connection in the event (before 7.0.4 only the open chat's
++   status was kept, in `ChatModel.chatSubStatus`).
++3. Resolve a connection's status with the pure helper
++   `connectionSubStatus(conn, liveStatuses) = liveStatuses[conn.agentConnId] ?: conn.connectionStats?.subStatus`
++   (live agent event first, then the last fetched connection stats).
++4. Show the dot in three places, left of the name:
++   - direct chat title (`ChatInfoToolbarTitle`),
++   - home page / chat list row (`ChatPreviewView.chatPreviewTitle()`),
++   - group member list row (`MemberRow` in `GroupChatInfoView.kt`).
++
++## Design decisions
++
++- **Reuse instead of a second implementation.** The info page dot is the source of truth quoted by the
++  TODO, so its implementation moved to `views/helpers/` and the info page delegates to it. The old
++  `SubStatusView` / `SubProgressView` (spinner for `Pending`, error icon otherwise, nothing for
++  `Active`) became redundant and were removed: the title now shows the same dot as the other places,
++  including green when the connection is active.
++- **Per-connection status map instead of reading `ConnectionStats`.** `connectionStats` is only
++  populated on demand (contact / member info page, ratchet sync, decryption-error views), so a dot
++  based on it alone would usually be missing in the chat list and member list. The agent already
++  emits the status of every connection (`CEvtSubscriptionStatus` with the affected agent connection
++  ids, `src/Simplex/Chat/Controller.hs:976`), the client just threw it away for all connections but
++  the open chat.
++- **`connectionStats.subStatus` stays as a fallback** so a dot can also be shown before any status
++  event arrived, e.g. right after opening a chat whose stats were fetched earlier.
++- **The direct chat title only falls back to `chatSubStatus` when the connection is the open chat's**
++  (`conn.agentConnId == chatModel.chatAgentConnId`), because `chatSubStatus` is not reset when a chat
++  is closed - without that check a previously opened chat could display a stale green dot.
++- **Placement of "主页用户名左侧".** The home page header itself shows no user name (only the profile
++  avatar, "Chats" and the server status indicator), so this is the chat rows of the home page: the dot
++  goes left of the contact name, i.e. next to the avatar.
++- **Direct chats only.** A group/channel row has no single connection to report; group members are
++  covered by the member list dot instead. Relay (channel) member lists keep `ChannelRelaysView`.
++- No new preference, no new strings (the existing `icon_descr_server_status_*` descriptions are
++  reused), no `AppSettings` change and no core change.
++
++## Steps
++
++1. New `views/helpers/SubscriptionStatusDot.kt`; `ChatInfoView.SubStatusRow` uses it; remove the
++   private `ServerImage` duplicate.
++2. `ChatModel`: add `connectionSubStatuses` plus the pure `connectionSubStatus` resolver.
++3. `SimpleXAPI.kt`: update `connectionSubStatuses` for all connections of `CR.SubscriptionStatusEvt`.
++4. `ChatView.ChatInfoToolbarTitle`: dot left of the name for ready and active direct chats; remove
++   `SubStatusView` / `SubProgressView`.
++5. `ChatPreviewView.chatPreviewTitle()`: dot left of the contact name.
++6. `GroupChatInfoView.MemberRow`: dot left of the member name when the member has a connection.
++7. Unit tests for the only new pure logic, `connectionSubStatus`
++   (`commonTest/.../ConnectionSubStatusTest.kt`).
++
++## Adversarial review
++
++- The dot is only rendered when a status is actually known (`SubscriptionStatusDot(null)` draws
++  nothing), so no empty space is left in the rows.
++- Contact guards mirror the info page (`contact.ready && contact.active`), so a deleted or not yet
++  connected contact never shows a stale dot; member rows additionally require `activeConn != null`.
++- `connectionSubStatuses` is not pruned when a connection disappears. Entries are a string and a small
++  object, bounded by the number of connections of the current profile, and a stale entry can only be
++  read through the same agent connection id, which the core does not reuse. Accepted tradeoff,
++  documented here instead of adding a cleanup path that would have to guess when a connection is gone.
++- The map lives in `ChatModel` (client-only state), not in the core's `Connection`, so the
++  `/_servers` / API serialisation and the cross-device backup format are untouched.
++- `SubscriptionStatusDot` is a single icon box with the same size, tint and content descriptions as
++  before on the info pages, so no existing screen changes appearance.
++- The removed `SubStatusView` was only referenced by `ChatInfoToolbarTitle` (verified by grep); with
++  `Pending` the title now shows the pending dot instead of a `CircularProgressIndicator`.

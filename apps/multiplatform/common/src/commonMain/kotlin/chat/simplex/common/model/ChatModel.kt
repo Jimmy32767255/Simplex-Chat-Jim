@@ -120,7 +120,8 @@ object ChatModel {
   val ctrlInitInProgress = mutableStateOf(false)
   val dbMigrationInProgress = mutableStateOf(false)
   val incompleteInitializedDbRemoved = mutableStateOf(false)
-  // map of connections network statuses, key is agent connection id
+  // map of connection network statuses, key is the agent connection id
+  val connectionSubStatuses = mutableStateMapOf<String, SubscriptionStatus>()
   val switchingUsersAndHosts = mutableStateOf(false)
 
   // current chat
@@ -1992,6 +1993,14 @@ class ContactRef(
 ) {
   val id: ChatId get() = "@$contactId"
 }
+
+/**
+ * The last known network (subscription) status of a connection: the status received from the
+ * agent first (see `ChatModel.connectionSubStatuses`), then the status of the last fetched
+ * connection stats. Returns `null` when nothing is known about the connection yet.
+ */
+internal fun connectionSubStatus(conn: Connection?, liveStatuses: Map<String, SubscriptionStatus>): SubscriptionStatus? =
+  conn?.let { liveStatuses[it.agentConnId] ?: it.connectionStats?.subStatus }
 
 @Serializable
 data class Connection(

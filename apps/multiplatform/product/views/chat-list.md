@@ -80,7 +80,7 @@ Each row rendered by `ChatPreviewView` inside `ChatListNavLinkView`:
 | Element | Description |
 |---|---|
 | Avatar | `ProfileImage` with overlay icons (inactive contact, left/removed group member) |
-| Chat name | Display name with verified icon for verified contacts; colored for pending/connecting states |
+| Chat name | Display name with verified icon for verified contacts; colored for pending/connecting states. Direct chats that are ready and active are preceded by the shared connection network status dot (`SubscriptionStatusDot`: filled green circle = connected, pending icon = connecting, error icon = subscription removed or missing) when a status is known for the contact's connection |
 | Last message preview | Truncated text of most recent message; draft indicator with edit icon; attachment icons |
 | Timestamp | Relative time of last activity |
 | Unread badge | Numeric count badge; distinct styling for mentions |

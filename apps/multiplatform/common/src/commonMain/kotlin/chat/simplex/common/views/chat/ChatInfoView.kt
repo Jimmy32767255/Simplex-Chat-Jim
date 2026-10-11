@@ -1138,21 +1138,7 @@ fun SubStatusRow(subStatus: SubscriptionStatus) {
         subStatus.statusString,
         color = MaterialTheme.colors.secondary
       )
-      ServerImage(subStatus)
-    }
-  }
-}
-
-@Composable
-private fun ServerImage(subStatus: SubscriptionStatus) {
-  Box(Modifier.size(18.dp)) {
-    when (subStatus) {
-      is SubscriptionStatus.Active ->
-        Icon(painterResource(MR.images.ic_circle_filled), stringResource(MR.strings.icon_descr_server_status_connected), tint = Color.Green)
-      is SubscriptionStatus.Pending ->
-        Icon(painterResource(MR.images.ic_pending_filled), stringResource(MR.strings.icon_descr_server_status_disconnected), tint = MaterialTheme.colors.secondary)
-      is SubscriptionStatus.Removed, SubscriptionStatus.NoSub ->
-        Icon(painterResource(MR.images.ic_error_filled), stringResource(MR.strings.icon_descr_server_status_error), tint = MaterialTheme.colors.secondary)
+      SubscriptionStatusDot(subStatus)
     }
   }
 }

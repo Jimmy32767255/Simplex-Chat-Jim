@@ -183,9 +183,17 @@ Each chat preview row contains:
 | Element | Position | Content |
 |---|---|---|
 | Profile image | Left | `ChatInfoImage` with overlay icons for inactive contacts/groups |
-| Title row | Top-right of image | Chat name (bold), verified shield (direct), timestamp |
+| Title row | Top-right of image | Chat name (bold), verified shield (direct), timestamp. Direct chats that are ready and active are preceded by the connection network status dot |
 | Preview row | Below title | Last message preview or draft indicator, unread badge |
 | Unread badge | Right | Circular badge with count, or dot for muted chats |
+
+### Connection Status Dot
+
+`chatPreviewTitle()` renders `SubscriptionStatusDot(connectionSubStatus(cInfo.contact.activeConn, chatModel.connectionSubStatuses))`
+before the verified shield for `ChatInfo.Direct` rows whose contact is `ready && active` and whose
+status is known. The dot is the shared component from `views/helpers/SubscriptionStatusDot.kt`; the
+per-connection status map is filled from `CR.SubscriptionStatusEvt`, with
+`Connection.connectionStats.subStatus` as the fallback. Nothing is rendered when no status is known.
 
 ### Draft Display
 
@@ -304,7 +312,7 @@ Uses `AnimatedViewState` (`GONE`, `VISIBLE`, `HIDING`) with a `MutableStateFlow`
 |---|---|
 | `ChatListView.kt` | Main chat list view, toolbar, search, tags, filtering |
 | `ChatListNavLinkView.kt` | Per-chat row routing and context menus |
-| `ChatPreviewView.kt` | Chat preview row layout (image, title, last message) |
+| `ChatPreviewView.kt` | Chat preview row layout (image, title, last message, per-connection network status dot for direct chats) |
 | `ChatHelpView.kt` | Empty-state help content |
 | `ContactConnectionView.kt` | Pending connection preview row |
 | `ContactRequestView.kt` | Contact request preview row |

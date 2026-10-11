@@ -238,6 +238,14 @@ Preloads `apiContactInfo` (connection stats, server profile) and `apiGetContactC
 
 Key sections: contact profile, local alias, connection stats, shared media, disappearing messages preference, voice/call/file feature toggles, encryption verification, and contact deletion.
 
+While the contact is `ready && active`, the **Servers** section shows the connection's current server
+and a **Network status** row whose dot is the shared `SubscriptionStatusDot` (previously the private
+`ServerImage` inside `ChatInfoView.kt`). The same composable draws the dot in the toolbar title
+(`ChatInfoToolbarTitle`), which resolves the status with
+`connectionSubStatus(cInfo.contact.activeConn, chatModel.connectionSubStatuses)` and only falls back to
+`chatModel.chatSubStatus` when that connection is the currently open one; nothing is drawn when the
+status is unknown.
+
 ---
 
 ## 8. GroupChatInfoView
@@ -280,6 +288,11 @@ case. Visibility of the section and of its rows is decided by the `internal` pre
 `groupMembersSectionVisible(nextConnectPrepared, useRelays)` and
 `groupMembersRowsVisible(nextConnectPrepared, useRelays, collapsed)`.
 
+Each member row also shows the member's own connection status: `MemberRow` looks the member's
+`activeConn` up in `chatModel.connectionSubStatuses` (falling back to `activeConn.connectionStats.subStatus`)
+and renders `SubscriptionStatusDot` before the verified shield when both the connection and the status
+exist.
+
 ---
 
 ## 9. Profile Image Viewer
@@ -301,7 +314,7 @@ Wired sites: `ChatInfoView.kt` `ChatInfoHeader`, `group/GroupChatInfoView.kt` `G
 | File | Description |
 |---|---|
 | `ChatView.kt` | Main chat view, ChatLayout, ChatItemsList, ChatInfoToolbar |
-| `ChatInfoView.kt` | Contact info modal |
+| `ChatInfoView.kt` | Contact info modal; its Servers section renders the shared connection status dot (`SubStatusRow`) |
 | `ChatItemInfoView.kt` | Individual message delivery/read info |
 | `ChatItemsLoader.kt` | Pagination and message loading logic |
 | `ChatItemsMerger.kt` | MergedItems grouping of consecutive events |
@@ -373,6 +386,7 @@ Wired sites: `ChatInfoView.kt` `ChatInfoHeader`, `group/GroupChatInfoView.kt` `G
 | File | Description |
 |---|---|
 | `ChatInfoImage.kt` | Profile image composables (`ProfileImage`, `ChatInfoImage`), the opt-in avatar `onClick`, `ProfileImageViewer` and `showProfileImageModal` (PC35) |
+| `SubscriptionStatusDot.kt` | Shared connection network status dot (active / pending / removed / no subscription) used by the chat title, the chat list rows, the group member rows and the contact info page (PC37) |
 
 ### Relay Rejection Surface
 

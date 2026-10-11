@@ -42,6 +42,11 @@
 | PC30 | Member Support Chat |
 | PC31 | Channels (Relays) |
 | PC32 | Desktop Message Sending Keys |
+| PC33 | Receiving Address Switch |
+| PC34 | Server Grouping and Notes |
+| PC35 | Profile Image Viewer |
+| PC36 | Group Members Connection Rate |
+| PC37 | Connection Network Status Dot |
 
 ---
 
@@ -55,8 +60,8 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 |-------------|--------------------------|------------|-------|
 | `App.kt` | PC1 through PC31 | High | Root composable — navigation scaffold for all features |
 | `AppLock.kt` | PC22 | Medium | App lock state and authorization lifecycle |
-| `model/ChatModel.kt` | PC1 through PC31 | High | Central state object — every feature reads or writes here |
-| `model/SimpleXAPI.kt` | PC1 through PC34 | High | FFI bridge to Haskell core — all commands and responses |
+| `model/ChatModel.kt` | PC1 through PC37 | High | Central state object — every feature reads or writes here; also holds the session-local per-connection status map (`connectionSubStatuses`) and its resolver (`connectionSubStatus`) |
+| `model/SimpleXAPI.kt` | PC1 through PC37 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` |
 | `model/CryptoFile.kt` | PC10, PC23 | Medium | Encrypted file read/write helpers |
 | `platform/Core.kt` | PC1 through PC31 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
 | `platform/AppCommon.kt` | PC1 through PC31 | Medium | Shared app initialization logic |
@@ -95,7 +100,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `views/chatlist/ChatListView.kt` | PC1, PC28 | High | Main screen — chat list rendering and search |
 | `views/chatlist/GetStakeBanner.kt` | PC1 | Low | Crowdfunding banner and shared banner card chrome |
 | `views/chatlist/ChatListNavLinkView.kt` | PC1, PC2, PC3 | Medium | Navigation from chat list item to chat |
-| `views/chatlist/ChatPreviewView.kt` | PC1, PC2, PC3, PC11 | Medium | Chat row preview rendering |
+| `views/chatlist/ChatPreviewView.kt` | PC1, PC2, PC3, PC11, PC37 | Medium | Chat row preview rendering, incl. the contact connection status dot left of the name |
 | `views/chatlist/TagListView.kt` | PC28 | Medium | Chat tag filter UI |
 | `views/chatlist/UserPicker.kt` | PC19, PC21 | Medium | Multi-profile switcher overlay |
 | `views/chatlist/ShareListView.kt` | PC10 | Low | Share target list |
@@ -109,7 +114,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/chat/ChatView.kt` | PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC11 | High | Core conversation UI — most messaging features |
+| `views/chat/ChatView.kt` | PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC11, PC37 | High | Core conversation UI — most messaging features; the chat title shows the dot of the open chat's connection |
 | `views/chat/ComposeView.kt` | PC4, PC6, PC9, PC10, PC11 | High | Message composition — send path for all messages |
 | `views/chat/SendMsgView.kt` | PC4, PC9 | Medium | Send button and voice record toggle |
 | `views/chat/ComposeVoiceView.kt` | PC9 | Medium | Voice message recording UI |
@@ -117,7 +122,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `views/chat/ComposeImageView.kt` | PC10 | Low | Image attachment preview in compose area |
 | `views/chat/ContextItemView.kt` | PC6 | Low | Reply/edit quote preview |
 | `views/chat/SelectableChatItemToolbars.kt` | PC7, PC10 | Medium | Multi-select toolbar (delete, forward) |
-| `views/chat/ChatInfoView.kt` | PC2, PC13, PC20, PC33, PC35 | Medium | Contact details, verification, receiving-address switch, the shared switch alerts, and the clickable contact avatar |
+| `views/chat/ChatInfoView.kt` | PC2, PC13, PC20, PC33, PC35, PC37 | Medium | Contact details, verification, receiving-address switch, the shared switch alerts, the clickable contact avatar, and the servers-section status dot (shared `SubscriptionStatusDot`) |
 | `views/chat/ContactPreferences.kt` | PC2, PC8 | Medium | Per-contact feature preferences |
 | `views/chat/ChatItemInfoView.kt` | PC2, PC3 | Low | Message delivery detail |
 | `views/chat/ChatItemsLoader.kt` | PC2, PC3 | Medium | Pagination and message loading logic |
@@ -161,7 +166,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33, PC35, PC36 | High | Group management hub; includes the group-wide receiving-address switch row, the member-list connection rate and collapse toggle, and the clickable group / member avatars |
+| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33, PC35, PC36, PC37 | High | Group management hub; includes the group-wide receiving-address switch row, the member-list connection rate and collapse toggle, the per-member connection status dot, and the clickable group / member avatars |
 | `views/chat/group/AddGroupMembersView.kt` | PC14, PC16 | Medium | Member invitation flow |
 | `views/chat/group/GroupMemberInfoView.kt` | PC3, PC14, PC16, PC30, PC31, PC33, PC35 | Medium | Member details and role management; relay-address + rejected-status info rows; per-member receiving-address switch; clickable avatar |
 | `views/chat/group/ChannelRelaysView.kt` | PC31 | Medium | Channel relay list, add/remove entries |
@@ -290,6 +295,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `views/helpers/DefaultDialog.kt` | — | Low | Dialog composable primitives |
 | `views/helpers/DefaultDropdownMenu.kt` | — | Low | Dropdown menu composable |
 | `views/helpers/Section.kt` | PC36 | Low | Settings section composable (incl. the section header with a trailing title button) |
+| `views/helpers/SubscriptionStatusDot.kt` | PC37 | Low | Shared connection network status dot (connected / connecting / error), extracted from the contact info page |
 | `views/helpers/SimpleButton.kt` | — | Low | Button composable |
 | `views/helpers/DefaultTopAppBar.kt` | — | Low | App bar composable |
 | `views/helpers/DefaultBasicTextField.kt` | PC4 | Low | Text field composable |

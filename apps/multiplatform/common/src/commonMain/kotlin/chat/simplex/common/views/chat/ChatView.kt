@@ -1558,6 +1558,13 @@ fun ownersContributorsCountStr(count: Int, withContributors: Boolean): String =
 
 @Composable
 fun ChatInfoToolbarTitle(cInfo: ChatInfo, imageSize: Dp = 40.dp, iconColor: Color = MaterialTheme.colors.secondaryVariant.mixWith(MaterialTheme.colors.onBackground, 0.97f)) {
+  // Network status of the direct chat connection, shown next to the contact name
+  val connectionStatus =
+    if (cInfo is ChatInfo.Direct && cInfo.contact.ready && cInfo.contact.active) {
+      val conn = cInfo.contact.activeConn
+      connectionSubStatus(conn, chatModel.connectionSubStatuses)
+        ?: chatModel.chatSubStatus.value.takeIf { conn != null && conn.agentConnId == chatModel.chatAgentConnId.value }
+    } else null
   Row(
     horizontalArrangement = Arrangement.Center,
     verticalAlignment = Alignment.CenterVertically
@@ -1571,6 +1578,10 @@ fun ChatInfoToolbarTitle(cInfo: ChatInfo, imageSize: Dp = 40.dp, iconColor: Colo
       horizontalAlignment = Alignment.CenterHorizontally
     ) {
       Row(verticalAlignment = Alignment.CenterVertically) {
+        if (connectionStatus != null) {
+          SubscriptionStatusDot(connectionStatus)
+          Spacer(Modifier.width(4.dp))
+        }
         if ((cInfo as? ChatInfo.Direct)?.contact?.verified == true) {
           ContactVerifiedShield()
         }
@@ -1597,49 +1608,7 @@ fun ChatInfoToolbarTitle(cInfo: ChatInfo, imageSize: Dp = 40.dp, iconColor: Colo
         )
       }
     }
-    val chatSubStatus = chatModel.chatSubStatus.value
-    if (
-      cInfo is ChatInfo.Direct &&
-      cInfo.contact.ready &&
-      cInfo.contact.active &&
-      chatSubStatus != null &&
-      chatSubStatus != SubscriptionStatus.Active
-      ) {
-      Box(
-        Modifier.padding(start = 10.dp)
-      ) {
-        SubStatusView(chatSubStatus)
-      }
-    }
   }
-}
-
-@Composable
-fun SubStatusView(status: SubscriptionStatus) {
-  when (status) {
-    SubscriptionStatus.Active ->
-      Box {}
-    SubscriptionStatus.Pending ->
-      SubProgressView()
-    is SubscriptionStatus.Removed, SubscriptionStatus.NoSub ->
-      Icon(
-        painterResource(MR.images.ic_error),
-        contentDescription = null,
-        tint = MaterialTheme.colors.secondary,
-        modifier = Modifier
-          .size(19.sp.toDp())
-      )
-  }
-}
-
-@Composable
-private fun SubProgressView() {
-  CircularProgressIndicator(
-    Modifier
-      .size(15.sp.toDp()),
-    color = MaterialTheme.colors.secondary,
-    strokeWidth = 1.5.dp
-  )
 }
 
 @Composable

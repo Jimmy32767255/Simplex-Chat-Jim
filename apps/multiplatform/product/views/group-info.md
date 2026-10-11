@@ -76,7 +76,7 @@ Displays `activeSortedMembers` (excluding left/removed members, sorted by role d
 | Connection rate | `connected/total (pct%)` of the members with a ready connection (`GroupMember.ready`), including the current user's own membership; next to the text is a status dot that is green when everyone is connected, yellow when some are connected and grey when nobody is |
 | Collapse toggle | Chevron at the right end of the title row (`ic_chevron_up` while expanded, `ic_chevron_down` while collapsed). Collapsing hides the add-members button, the search row, the current user's own row and every member row, leaving only the title, so the rest of the page is reachable without scrolling through a large group. The state is per group and lives only while the modal is open (`rememberSaveable(groupInfo.id)`), it is not written to preferences or to the backup format |
 | Member avatar | `MEMBER_ROW_AVATAR_SIZE` (42dp) profile image; tapping it opens the profile image viewer (full-size image + **Copy image**) |
-| Member name | Display name with role badge |
+| Member name | Display name with role badge, preceded by the member's connection network status dot when the member has an active connection (`SubscriptionStatusDot`: filled green circle = connected, pending icon = connecting, error icon = removed / no subscription; tinted with the theme's secondary colour). The dot shows nothing while no status is known, so it never shifts the layout |
 | Member role | Owner, Admin, Moderator, Member, Observer |
 | Member status | Active, connecting, pending, left, removed |
 | Tap action | Opens `GroupMemberInfoView` with connection stats and verification code; tapping the avatar instead opens the image viewer |

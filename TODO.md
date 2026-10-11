@@ -65,5 +65,14 @@
   - 理解一（删除「历史记录」标签页里列出的单个编辑版本）：核心（Haskell）的 `chat_item_versions` 表只有整条消息级的删除（`deleteChatItemVersions_`/`deleteMemberCIs` 按 `chat_item_id` 全删），`APIDeleteChatItem` 也只接受 `chatItemIds`，没有任何按单个版本删除的命令。要实现必须在核心新增命令，本机没有 cabal/stack/ghcup，核心无法编译与测试，因此和条目 3 一样只能暂缓。
   - 理解二（在信息弹窗里删除整条消息、仅本机）：客户端已经具备该能力（长按菜单的「DeleteItemAction」→「仅为我删除」走 `CIDeleteMode.cidmInternal`，频道/群管理员走 `cidmHistory`），信息弹窗内没有必须补的缺口，单独加一个按钮收益有限。
   - 日后如有核心构建环境且确认要做理解一，实现路径：核心新增「按 `chat_item_version_id` 删除单条版本」的命令（`Controller.hs` 的 API 命令 + `Store/Messages.hs` 删除函数 + `Library/Commands.hs` 处理）→ 客户端在 `ChatItemInfoView.ItemVersionView` 的下拉菜单里加「仅本机删除该版本」（必要时刷新 `apiGetChatItemInfo`）。
-- [ ] 成员头像旁边的网络状态图标（其实就是把用户 页面→服务器→网络状态 右边的那个会变色的点，也复制到私聊标题、主页用户名左侧以及群用户列表的用户名左边）
+- [x] 成员头像旁边的网络状态图标（其实就是把用户 页面→服务器→网络状态 右边的那个会变色的点，也复制到私聊标题、主页用户名左侧以及群用户列表的用户名左边）
+  - 已实现（基于 7.0.4）：把联系人详情页「服务器」区里「网络状态」那一行的圆点抽成公共组件 `SubscriptionStatusDot`（`views/helpers/SubscriptionStatusDot.kt`），并在三处复用：私聊标题、主页（聊天列表）每行的联系人名字左侧、群成员列表每个成员的名字左侧。图标与颜色和信息页完全一致（`Active` 绿色 `ic_circle_filled`、`Pending` `ic_pending_filled`、`Removed`/`NoSub` `ic_error_filled`，后两者用主题 secondary 色）。
+  - 状态来源：7.0.4 客户端原本只跟踪「当前打开的聊天」的订阅状态（`chatSubStatus`/`chatAgentConnId`），核心在 `CEvtSubscriptionStatus` 里带出的其它连接状态（`connections` 是 agent 连接 id 列表）被丢弃；现在 `ChatModel.connectionSubStatuses`（agent 连接 id → `SubscriptionStatus`）记录每条连接的状态，取值优先级为「实时事件 → 该连接最近一次拉取的 `ConnectionStats.subStatus`」，由纯函数 `connectionSubStatus(conn, liveStatuses)` 封装。这样聊天列表和成员列表里的连接也有状态可显示（`connectionStats` 只在打开信息页/同步等操作时才拉取）。
+  - 私聊标题的兜底：只有当连接的 `agentConnId` 等于当前打开聊天的 `chatAgentConnId` 时才回退到 `chatSubStatus`（`chatSubStatus` 在关闭聊天时不会重置，否则会显示过期状态）。原来的 `SubStatusView`/`SubProgressView`（Active 不显示、Pending 显示转圈、失败显示错误图标）已删除，改由统一的圆点显示，因此连接正常时标题也会显示绿点。
+  - 「主页用户名左侧」按主页聊天列表里每行的联系人名字处理（主页顶部只有头像和「聊天」标题，没有用户名）；群/频道行不显示圆点（没有单一连接），群成员的圆点在成员列表里。
+  - 没有状态时圆点不渲染任何内容（`SubscriptionStatusDot(null)` 直接返回），不占位、不影响行高；成员行额外要求 `activeConn != null`，联系人要求 `ready && active`（与信息页一致）。
+  - 与条目 1、5、6、8 一致：未改动 `AppSettings` 跨设备导入/导出结构，未改核心（纯客户端显示），未新增字符串（复用已有的 `icon_descr_server_status_connected`/`icon_descr_server_status_disconnected`/`icon_descr_server_status_error`）。
+  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/helpers/SubscriptionStatusDot.kt`（新增）、`.../model/ChatModel.kt`（`connectionSubStatuses`、`connectionSubStatus`）、`.../model/SimpleXAPI.kt`（`CR.SubscriptionStatusEvt` 处理）、`.../views/chat/ChatView.kt`、`.../views/chatlist/ChatPreviewView.kt`、`.../views/chat/group/GroupChatInfoView.kt`、`.../views/chat/ChatInfoView.kt`（`SubStatusRow` 改用公共组件，删除私有 `ServerImage`）。
+  - 文档：`product/concepts.md`（PC37）、`product/rules.md`（RULE-22）、`product/README.md`、`product/views/{chat-list,chat,contact-info,group-info}.md`、`spec/impact.md`（新增 PC37 行与 `SubscriptionStatusDot.kt` 行，并补齐缺失的 PC33–PC36 图例）、`spec/state.md`、`spec/client/{chat-list,chat-view}.md`。
+  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ConnectionSubStatusTest.kt`（7 个用例，覆盖无连接、无状态、实时事件优先、回退到 `connectionStats`、忽略其它连接的状态、`Removed`、`NoSub`），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
 - [ ] 反撤回（拒绝任何来自服务端的删除信息请求，比如管理员删除，也忽略限时消息超时自动删除，要能允许对每一个私聊/群设置）

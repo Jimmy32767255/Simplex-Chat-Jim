@@ -1252,6 +1252,12 @@ fun MemberRow(member: GroupMember, user: Boolean = false, infoPage: Boolean = tr
       Spacer(Modifier.width(DEFAULT_PADDING_HALF))
       Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
+          // Network status of the member connection, shown next to the member name
+          val connectionStatus = connectionSubStatus(member.activeConn, chatModel.connectionSubStatuses)
+          if (member.activeConn != null && connectionStatus != null) {
+            SubscriptionStatusDot(connectionStatus)
+            Spacer(Modifier.width(4.dp))
+          }
           if (member.verified) {
             MemberVerifiedShield()
           }
