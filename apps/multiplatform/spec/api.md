@@ -270,6 +270,31 @@ All functions below are `suspend fun` members of `ChatController` ([SimpleXAPI.k
 | `setConditionsNotified` | `rh: Long?, conditionsId: Long` | Mark conditions as shown to user | [L1268](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1268) |
 | `acceptConditions` | `rh: Long?, conditionsId: Long, operatorIds: List<Long>` | Accept usage conditions for operators | [L1275](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L1275) |
 
+The user's server list is edited entirely client-side and is only sent to the core on save: the
+settings view keeps a `List<UserOperatorServers>` state
+([`NetworkAndServers.kt#L56`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt#L56)),
+validates it reactively with `validateServers_` and persists it with `setUserServers` from
+`saveServers`
+([`NetworkAndServers.kt#L996`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt#L996)).
+Each entry of `smpServers`/`xftpServers` is a `UserServer`
+([`SimpleXAPI.kt#L4845`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L4845)).
+
+Adding a server by hand (`NewServerView.kt`) accepts several addresses at once. The address field
+is split by `serverAddresses`
+([`NewServerView.kt#L87`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L87))
+into distinct, trimmed, non-blank lines, and `addServer`
+([`NewServerView.kt#L111`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L111))
+creates one `UserServer` per address from the same template (so every server of the batch shares the
+entered settings), filing each one under the operator matched by `serverProtocolAndOperator`
+([`NewServerView.kt#L90`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt#L90)).
+`CustomServer`
+([`ProtocolServerView.kt#L166`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServerView.kt#L166))
+validates every line in that mode (`allowMultipleAddresses = true`), hides the single-address QR
+code and disables the one-shot test row when more than one address is entered. Invalid lines don't
+block the valid ones — the valid addresses are added and the invalid ones are listed in the
+`smp_servers_invalid_address` alert. Server editing keeps the single-address behaviour because
+`allowMultipleAddresses` defaults to `false`.
+
 ### 2.11 Archive
 
 | Command | Parameters | Description | Line |

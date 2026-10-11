@@ -22,7 +22,14 @@
   - **需核心改动，暂缓（基于 7.0.4）**：已核实无法只改客户端。simplexmq（`cabal.project` 中固定版本 `efaad8e7`）的 `switchConnectionAsync :: AgentClient -> ACorrId -> ConnId -> AE ConnectionStats` 第二个参数只是命令关联 ID，不是服务器地址；目标服务器由 `switchDuplexConnection` 内部调用 `getNextSMPServer c userId (当前连接用到的服务器)` 自动挑选，没有外部指定入口。chat 层的 `APISwitchContact`/`APISwitchGroupMember`（含官方 stable 最新版）也都不带服务器参数，说明官方尚未实现该功能。
   - 要让「复选框选择服务器」真正生效，必须同时修改 simplexmq 与 simplex-chat 两个 Haskell 包；而 simplexmq 是外部 pin 住的 `source-repository-package`，本机也没有 cabal/stack/ghcup（只有 `/usr/bin/ghc`），核心无法编译与测试，故本轮暂缓，先做其余条目。
   - 日后有核心构建环境时的实现路径：simplexmq 支持指定目标服务器（扩展 `switchConnectionAsync`/`switchDuplexConnection`）→ chat 层扩展或新增切换命令并在 `Commands.hs` 解析新 JSON 参数 → 客户端在「更改接收地址」流程中加入复选框服务器列表（含全选/反选）。
-- [ ] 批量添加服务器（在 设置→高级设置→网络和服务器→你的服务器→添加服务器→手动输入服务器 里面允许一次添加多台服务器，使用换行分隔，这一次添加的所有服务器都统一使用下方的设置）
+- [x] 批量添加服务器（在 设置→高级设置→网络和服务器→你的服务器→添加服务器→手动输入服务器 里面允许一次添加多台服务器，使用换行分隔，这一次添加的所有服务器都统一使用下方的设置）
+  - **已实现（基于 7.0.4）**：「添加服务器 → 手动输入服务器」的地址输入框现在支持多行：每行一个地址，一次即可添加多台服务器；空行会被忽略，重复地址只添加一次，每行首尾空白会去掉。
+  - 本次添加的所有服务器共用同一份设置（「用于新连接」开关、角色等），逐行解析出各自所属的服务器运营商后再分别写入服务器列表，因此同一批可以混入不同运营商的地址。
+  - 校验按行独立进行：只要有一行非法就会显示警告图标，但不会阻止其余合法地址被添加；非法地址会在提示框里逐条列出。多行输入时「测试服务器」不可用（结果有歧义），二维码也只在恰好一个合法地址时显示。
+  - 编辑已有服务器时行为不变（`allowMultipleAddresses` 默认 `false`），避免影响既有流程。
+  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt`（新增 `serverAddresses`，重写 `addServer` 支持批量）、`.../networkAndServers/ProtocolServerView.kt`（`CustomServer` 新增 `allowMultipleAddresses` 参数）、`apps/multiplatform/common/src/commonMain/resources/MR/{base,zh-rCN}/strings.xml`（新增提示文案 `smp_servers_new_server_multiple_hint`）。
+  - 不修改核心（Haskell）与网络协议，仅把多行地址在客户端展开成多条既有的 `UserServer` 记录，便于日后跟随官方版本升级。
+  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/BatchServersTest.kt`（6 个用例，覆盖单地址、多地址、`\r\n`/`\r` 换行、空行与空白、去重顺序、空输入），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
 - [ ] 服务器分组和备注（对手动添加的服务器允许手动分组和添加备注，不然现在全是地址根本不可读）
 - [ ] 查看和复制头像（点击群和其他用户头像的时候）
 - [ ] 群成员连接率和百分比显示（在群成员列表标题处，就像主页上方标题一样）
