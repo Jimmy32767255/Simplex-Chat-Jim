@@ -14,6 +14,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
 6. [Call Integrity (RULE-18)](#6-call-integrity)
 7. [Network Configuration (RULE-19)](#7-network-configuration)
 8. [Profile Images (RULE-20)](#8-profile-images)
+9. [Connection Status Display (RULE-21)](#9-connection-status-display)
 
 ---
 
@@ -315,3 +316,27 @@ attached to it -- is display metadata owned by the client.
 - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatInfoView.kt`,
   `views/chat/group/GroupChatInfoView.kt`, `views/chat/group/GroupMemberInfoView.kt` (wired call sites)
 - Test: `common/src/desktopTest/kotlin/chat/simplex/app/ImageClipboardTest.kt`
+
+---
+
+## 9. Connection Status Display
+
+### RULE-21: Ready-Only Group Connection Rate
+
+1. **Only ready connections count as connected.** The group member connection rate MUST count a
+   member as connected only when `GroupMember.ready` is true
+   (`activeConn?.connStatus == ConnStatus.Ready`). Connections that are merely prepared, sending-only
+   (`SndReady`) or failed MUST NOT be counted as connected.
+2. **The current user is part of the rate.** `groupMembersConnection` adds the current user's own
+   membership to both the connected and the total count, so the rate stays consistent with the
+   `N members` figure in the same section title, and a fully connected group reads `N/N (100%)`.
+3. **The rate is a display only.** It MUST NOT change any state, MUST NOT be persisted, and MUST NOT
+   be added to the cross-device backup format; the member search filter MUST NOT affect it (the rate
+   is computed from all members, not from the filtered list).
+
+**Enforcement:**
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`
+  (`groupMembersConnection`, `groupMembersConnectionRate`, `GroupMembersConnectionStatus`)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/Section.kt`
+  (`SectionViewWithButton` title button and card shape)
+- Test: `common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt`
