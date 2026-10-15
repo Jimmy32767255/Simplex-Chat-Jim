@@ -270,6 +270,9 @@ fun ModalData.NetworkAndServersView(closeNetworkAndServers: () -> Unit) {
     }
 
     SectionDividerSpaced()
+    ServersImportExportSection(currUserServers, userServers, currentRemoteHost?.remoteHostId)
+
+    SectionDividerSpaced()
     SectionView {
       val saveDisabled = !serversCanBeSaved(currUserServers.value, userServers.value, serverErrors.value)
       SectionItemView(
@@ -314,6 +317,110 @@ fun ModalData.NetworkAndServersView(closeNetworkAndServers: () -> Unit) {
     }
     SectionBottomSpacer()
   }
+}
+
+@Composable
+private fun ServersImportExportSection(
+  currUserServers: MutableState<List<UserOperatorServers>>,
+  userServers: MutableState<List<UserOperatorServers>>,
+  rhId: Long?
+) {
+  val scope = rememberCoroutineScope()
+  val metadataPrefs = appPrefs.serverMetadata
+
+  val exportLauncher = rememberFileChooserLauncher(getContent = false) { to ->
+    if (to != null) {
+      val backup = serversBackupOf(userServers.value, metadataPrefs.get())
+      val json = exportServersBackup(backup)
+      copyBytesToFile(json.byteInputStream(), to) {}
+    }
+  }
+  val importLauncher = rememberFileChooserLauncher(getContent = true) { to ->
+    if (to != null) {
+      val json = runCatching { to.inputStream()?.use { it.readBytes().decodeToString() } }.getOrNull()
+      val backup = json?.let { parseServersBackup(it) }
+      if (backup == null) {
+        AlertManager.shared.showAlertMsg(
+          title = generalGetString(MR.strings.smp_servers_import_error),
+          text = generalGetString(MR.strings.smp_servers_import_error_desc)
+        )
+      } else {
+        val result = mergeServersBackup(userServers.value, backup)
+        if (result.added.isEmpty()) {
+          AlertManager.shared.showAlertMsg(
+            title = generalGetString(MR.strings.smp_servers_import),
+            text = serversImportSummary(result, withWarning = false)
+          )
+        } else {
+          AlertManager.shared.showAlertDialog(
+            title = generalGetString(MR.strings.smp_servers_import),
+            text = serversImportSummary(result, withWarning = true),
+            confirmText = generalGetString(MR.strings.smp_servers_import),
+            onConfirm = {
+              scope.launch {
+                metadataPrefs.set(importedServerMetadata(metadataPrefs.get(), result.added))
+                userServers.value = result.servers
+                saveServers(rhId, currUserServers, userServers)
+              }
+            }
+          )
+        }
+      }
+    }
+  }
+
+  SectionView(generalGetString(MR.strings.smp_servers_import_export)) {
+    SettingsActionItem(
+      painterResource(MR.images.ic_download),
+      stringResource(MR.strings.smp_servers_export),
+      click = {
+        AlertManager.shared.showAlertDialog(
+          title = generalGetString(MR.strings.smp_servers_export),
+          text = generalGetString(MR.strings.smp_servers_export_warning),
+          confirmText = generalGetString(MR.strings.smp_servers_export),
+          onConfirm = { withLongRunningApi { exportLauncher.launch("simplex-servers.json") } }
+        )
+      },
+      textColor = MaterialTheme.colors.primary,
+      iconColor = MaterialTheme.colors.primary
+    )
+    SettingsActionItem(
+      painterResource(MR.images.ic_upload_file),
+      stringResource(MR.strings.smp_servers_import),
+      click = {
+        AlertManager.shared.showAlertDialog(
+          title = generalGetString(MR.strings.smp_servers_import),
+          text = generalGetString(MR.strings.smp_servers_import_warning),
+          confirmText = generalGetString(MR.strings.smp_servers_import_select_file),
+          onConfirm = { withLongRunningApi { importLauncher.launch("*/*") } }
+        )
+      },
+      textColor = MaterialTheme.colors.primary,
+      iconColor = MaterialTheme.colors.primary
+    )
+  }
+  SectionTextFooter(generalGetString(MR.strings.smp_servers_import_export_footer))
+}
+
+private fun serversImportSummary(result: ServersImportResult, withWarning: Boolean): String {
+  val lines = mutableListOf<String>()
+  if (withWarning) {
+    lines.add(generalGetString(MR.strings.smp_servers_import_warning))
+    lines.add("")
+  }
+  if (result.added.isNotEmpty()) {
+    lines.add(String.format(generalGetString(MR.strings.smp_servers_import_summary), result.added.size))
+  }
+  if (result.duplicates.isNotEmpty()) {
+    lines.add(String.format(generalGetString(MR.strings.smp_servers_import_skipped_duplicates), result.duplicates.size))
+  }
+  if (result.invalid.isNotEmpty()) {
+    lines.add(String.format(generalGetString(MR.strings.smp_servers_import_skipped_invalid), result.invalid.size))
+  }
+  if (result.added.isEmpty() && result.duplicates.isEmpty() && result.invalid.isEmpty()) {
+    lines.add(generalGetString(MR.strings.smp_servers_import_nothing))
+  }
+  return lines.joinToString("\n")
 }
 
 @Composable fun OnionRelatedLayout(
