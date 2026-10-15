@@ -1,0 +1,953 @@
+diff --git a/TODO.md b/TODO.md
+index b20be619b..08f31c629 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -84,3 +84,12 @@
+   - 因此忠实实现需要在核心新增一个**独立的**每私聊/群偏好（当前两种删除都复用互相协商的 `SCFFullDelete`/`SGFFullDelete` 与 `SCFTimedMessages`/`SGFTimedMessages`，把它们当反撤回开关会同时改变对端看到的能力），并让 `messageDelete`/`groupMessageDelete`/`deleteTimedItem` 在该偏好下跳过删除或改为标记。本机没有 cabal/stack/ghcup，核心无法编译与测试，只能提交未经编译验证的补丁，日后适配官方新版也更麻烦，所以按 TODO 头部的约定询问后跳过。
+   - 纯客户端的近似做法及其代价（未采用）：借用既有开关——关掉该聊天的「完整删除」使对端撤回只标记、关掉「限时消息」使收到的消息不再安排删除定时器，再让客户端显示标记删除项保留的原文。代价是本端也失去「对所有人删除」的能力，且对端会看到本端不支持这两个功能，与需求语义不完全一致。
+   - 日后如有核心构建环境且确认要做，实现路径：`Types/Preferences.hs` 新增 `SCFKeepDeleted`/`SGFKeepDeleted`（补进 `allChatFeatures`/`allGroupFeatures`、`chatPrefSel`/`groupPrefSel`、`allChatPrefs`/`allGroupPrefs` 的映射与序列化）→ `Store/SQLite/Migrations` 加迁移、`Store/Shared.hs` 读写偏好列 → `Subscriber.hs` 的 `messageDelete`/`groupMessageDelete`/管理员删除分支与 `Internal.hs:1647 deleteTimedItem` 在该偏好下跳过删除或改为标记 → 复用既有 `APIUpdateChatItem`/群偏好命令下发 → 客户端在 `ContactPreferences.kt`/`GroupPreferences.kt` 加开关，并让 `MarkedDeletedItemView` 显示保留的原文。
++- [x] 导入和导出自定义服务器（导出为 JSON 文件；导出时提示小心服务器验证密钥和地址泄漏；导入时提示仅应导入受信任的服务器）
++  - 入口：在「你的服务器」页面（`NetworkAndServersLayout`，SOCKS 代理脚注与「保存服务器」之间）新增「导入和导出服务器」区块 `ServersImportExportSection`，导出、导入各一行；导出前弹确认框提示「文件包含你自定义服务器的地址和验证密钥，请妥善保管」（地址串里带 key hash 与 basic-auth 密码），导入前弹确认框提示「请仅导入你信任的服务器」（导入的服务器可以看到连接元数据）。
++  - 导出：只导出非预设（`preset = false`）、未删除、地址非空的服务器，SMP 与 XFTP 分开；每条保留 `enabled`/`tested`/角色覆盖（`ServerRolesOverride`）/所属 `OperatorTag`，以及客户端侧 `serverMetadata` 里的分组与备注。文件为 `kotlinx.serialization` 生成的 JSON（`version = 1`，prettyPrint、写出默认值、忽略未知字段），保存对话框默认文件名 `simplex-servers.json`。
++  - 导入：文件解析失败弹「导入服务器出错」；成功则按协议分别校验每个地址（用核心的 `parseServerAddress`），与所在列表协议不一致、无法解析或无效的计入 `invalid`，已存在于同协议的计入 `duplicates`，**从不替换现有列表**。有效的服务器追加到 `OperatorTag` 相同的分组；文件里没带标签或找不到该分组时落到「无 operator」分组，必要时新建。确认框会先列出「将添加 N 个 / 已存在跳过 N 个 / 无效跳过 N 个」，确认后写回 `serverMetadata` 并复用既有 `saveServers`（`setUserServers` + 刷新 `currUserServers`/`userServers`），与手动添加服务器走同一条保存与校验路径。
++  - 结构与可测性：纯逻辑单独放在 `ServersBackup.kt`；因为 `chatParseServer` 是 JNI 调用、桌面单测无法加载，地址解析器以参数注入（默认 `ServerAddress.parseServerAddress`），导出过滤、JSON 编解码、合并去重与元数据合并都可单测。UI 必须放在 `NetworkAndServers.kt` 内，因为 `saveServers` 是文件私有。
++  - 不改动 `AppSettings`/核心：没有新增或改动 `/_servers`（`UserServer` 仍会被核心原样回读），备份 JSON 只是客户端本地文件；与条目 1、4、5、6、8、10 的约定一致。导入的服务器一律 `preset = false`、`deleted = false`、无 `remoteHostId`/`serverId`。
++  - 改动位置：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ServersBackup.kt`（`ServersBackup`、`ServersBackupItem`、`serversBackupOf`、`exportServersBackup`、`parseServersBackup`、`mergeServersBackup`、`importedServerMetadata`）；`.../networkAndServers/NetworkAndServers.kt`（`ServersImportExportSection`、`serversImportSummary` 及调用点）；`common/src/commonMain/resources/MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（各 13 条新字符串）。
++  - 文档：`product/concepts.md`（PC38）、`product/rules.md`（RULE-23）、`product/README.md`、`product/views/settings.md`（新增「Import and Export」小节）、`spec/impact.md`、`spec/api.md`（§2.11 服务器备份 JSON 格式）、`spec/state.md`。
++  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ServersBackupTest.kt`（17 个用例：导出过滤预设/已删除/空地址、保留设置与分组备注、XFTP 导出、JSON 往返与非法输入、合并到同名 operator 分组、无标签回退、新建无 operator 分组、去重、已删除地址视为不存在、无效与协议不匹配、保留导入设置、同组追加 SMP+XFTP、元数据写回与清理陈旧项），`./gradlew :common:desktopTest` 全部通过（17/17）。差异补丁见 `diff/`。
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt
+index 8241422d0..ce8036b6d 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt
+@@ -269,6 +269,9 @@ fun ModalData.NetworkAndServersView(closeNetworkAndServers: () -> Unit) {
+       SectionTextFooter(annotatedStringResource(MR.strings.socks_proxy_setting_limitations))
+     }
+ 
++    SectionDividerSpaced()
++    ServersImportExportSection(currUserServers, userServers, currentRemoteHost?.remoteHostId)
++
+     SectionDividerSpaced()
+     SectionView {
+       val saveDisabled = !serversCanBeSaved(currUserServers.value, userServers.value, serverErrors.value)
+@@ -316,6 +319,110 @@ fun ModalData.NetworkAndServersView(closeNetworkAndServers: () -> Unit) {
+   }
+ }
+ 
++@Composable
++private fun ServersImportExportSection(
++  currUserServers: MutableState<List<UserOperatorServers>>,
++  userServers: MutableState<List<UserOperatorServers>>,
++  rhId: Long?
++) {
++  val scope = rememberCoroutineScope()
++  val metadataPrefs = appPrefs.serverMetadata
++
++  val exportLauncher = rememberFileChooserLauncher(getContent = false) { to ->
++    if (to != null) {
++      val backup = serversBackupOf(userServers.value, metadataPrefs.get())
++      val json = exportServersBackup(backup)
++      copyBytesToFile(json.byteInputStream(), to) {}
++    }
++  }
++  val importLauncher = rememberFileChooserLauncher(getContent = true) { to ->
++    if (to != null) {
++      val json = runCatching { to.inputStream()?.use { it.readBytes().decodeToString() } }.getOrNull()
++      val backup = json?.let { parseServersBackup(it) }
++      if (backup == null) {
++        AlertManager.shared.showAlertMsg(
++          title = generalGetString(MR.strings.smp_servers_import_error),
++          text = generalGetString(MR.strings.smp_servers_import_error_desc)
++        )
++      } else {
++        val result = mergeServersBackup(userServers.value, backup)
++        if (result.added.isEmpty()) {
++          AlertManager.shared.showAlertMsg(
++            title = generalGetString(MR.strings.smp_servers_import),
++            text = serversImportSummary(result, withWarning = false)
++          )
++        } else {
++          AlertManager.shared.showAlertDialog(
++            title = generalGetString(MR.strings.smp_servers_import),
++            text = serversImportSummary(result, withWarning = true),
++            confirmText = generalGetString(MR.strings.smp_servers_import),
++            onConfirm = {
++              scope.launch {
++                metadataPrefs.set(importedServerMetadata(metadataPrefs.get(), result.added))
++                userServers.value = result.servers
++                saveServers(rhId, currUserServers, userServers)
++              }
++            }
++          )
++        }
++      }
++    }
++  }
++
++  SectionView(generalGetString(MR.strings.smp_servers_import_export)) {
++    SettingsActionItem(
++      painterResource(MR.images.ic_download),
++      stringResource(MR.strings.smp_servers_export),
++      click = {
++        AlertManager.shared.showAlertDialog(
++          title = generalGetString(MR.strings.smp_servers_export),
++          text = generalGetString(MR.strings.smp_servers_export_warning),
++          confirmText = generalGetString(MR.strings.smp_servers_export),
++          onConfirm = { withLongRunningApi { exportLauncher.launch("simplex-servers.json") } }
++        )
++      },
++      textColor = MaterialTheme.colors.primary,
++      iconColor = MaterialTheme.colors.primary
++    )
++    SettingsActionItem(
++      painterResource(MR.images.ic_upload_file),
++      stringResource(MR.strings.smp_servers_import),
++      click = {
++        AlertManager.shared.showAlertDialog(
++          title = generalGetString(MR.strings.smp_servers_import),
++          text = generalGetString(MR.strings.smp_servers_import_warning),
++          confirmText = generalGetString(MR.strings.smp_servers_import_select_file),
++          onConfirm = { withLongRunningApi { importLauncher.launch("*/*") } }
++        )
++      },
++      textColor = MaterialTheme.colors.primary,
++      iconColor = MaterialTheme.colors.primary
++    )
++  }
++  SectionTextFooter(generalGetString(MR.strings.smp_servers_import_export_footer))
++}
++
++private fun serversImportSummary(result: ServersImportResult, withWarning: Boolean): String {
++  val lines = mutableListOf<String>()
++  if (withWarning) {
++    lines.add(generalGetString(MR.strings.smp_servers_import_warning))
++    lines.add("")
++  }
++  if (result.added.isNotEmpty()) {
++    lines.add(String.format(generalGetString(MR.strings.smp_servers_import_summary), result.added.size))
++  }
++  if (result.duplicates.isNotEmpty()) {
++    lines.add(String.format(generalGetString(MR.strings.smp_servers_import_skipped_duplicates), result.duplicates.size))
++  }
++  if (result.invalid.isNotEmpty()) {
++    lines.add(String.format(generalGetString(MR.strings.smp_servers_import_skipped_invalid), result.invalid.size))
++  }
++  if (result.added.isEmpty() && result.duplicates.isEmpty() && result.invalid.isEmpty()) {
++    lines.add(generalGetString(MR.strings.smp_servers_import_nothing))
++  }
++  return lines.joinToString("\n")
++}
++
+ @Composable fun OnionRelatedLayout(
+   developerTools: Boolean,
+   networkUseSocksProxy: MutableState<Boolean>,
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ServersBackup.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ServersBackup.kt
+new file mode 100644
+index 000000000..073e91300
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ServersBackup.kt
+@@ -0,0 +1,170 @@
++package chat.simplex.common.views.usersettings.networkAndServers
++
++import chat.simplex.common.model.*
++import chat.simplex.common.model.ServerAddress.Companion.parseServerAddress
++import kotlinx.serialization.Serializable
++import kotlinx.serialization.json.Json
++
++/**
++ * A portable JSON backup of the user's custom (non-preset) servers.
++ *
++ * Every server carries its own address, settings and the operator it was added to, so that the
++ * file can be imported into another profile or device that has the same server list structure
++ * returned by the core's `/_servers` command.
++ */
++@Serializable
++data class ServersBackup(
++  val version: Int = 1,
++  val smpServers: List<ServersBackupItem> = emptyList(),
++  val xftpServers: List<ServersBackupItem> = emptyList(),
++)
++
++@Serializable
++data class ServersBackupItem(
++  val server: String,
++  val enabled: Boolean = true,
++  val tested: Boolean? = null,
++  val roles: ServerRolesOverride = ServerRolesOverride(),
++  val operator: OperatorTag? = null,
++  val group: String? = null,
++  val note: String? = null,
++)
++
++private val serversBackupJson = Json {
++  prettyPrint = true
++  encodeDefaults = true
++  explicitNulls = false
++  ignoreUnknownKeys = true
++}
++
++/**
++ * The custom servers of the current profile, in the order they appear in [userServers].
++ *
++ * Preset servers are skipped: they come from the client and operator configuration and would only
++ * duplicate the ones already present after an import. Deleted servers are skipped as well, and the
++ * client-side group/note of every server is copied from [metadata] when it is not blank.
++ */
++fun serversBackupOf(
++  userServers: List<UserOperatorServers>,
++  metadata: Map<String, ServerMeta> = emptyMap()
++): ServersBackup {
++  fun items(servers: List<UserServer>, operator: OperatorTag?): List<ServersBackupItem> =
++    servers.filter { !it.preset && !it.deleted && it.server.isNotBlank() }
++      .map { s ->
++        ServersBackupItem(
++          server = s.server,
++          enabled = s.enabled,
++          tested = s.tested,
++          roles = s.roles,
++          operator = operator,
++          group = metadata[s.server]?.group?.takeIf { it.isNotBlank() },
++          note = metadata[s.server]?.note?.takeIf { it.isNotBlank() },
++        )
++      }
++  return ServersBackup(
++    smpServers = userServers.flatMap { items(it.smpServers, it.operator?.operatorTag) },
++    xftpServers = userServers.flatMap { items(it.xftpServers, it.operator?.operatorTag) },
++  )
++}
++
++fun exportServersBackup(backup: ServersBackup): String =
++  serversBackupJson.encodeToString(ServersBackup.serializer(), backup)
++
++fun parseServersBackup(json: String): ServersBackup? =
++  runCatching { serversBackupJson.decodeFromString(ServersBackup.serializer(), json) }.getOrNull()
++
++/** A server that an import added to the list, together with the protocol it was added under. */
++data class ImportedServer(val protocol: ServerProtocol, val item: ServersBackupItem)
++
++data class ServersImportResult(
++  val servers: List<UserOperatorServers>,
++  val added: List<ImportedServer> = emptyList(),
++  val duplicates: List<String> = emptyList(),
++  val invalid: List<String> = emptyList(),
++)
++
++/**
++ * Merges [backup] into [current] without touching the servers that are already configured.
++ *
++ * Every address is validated with [parseAddress] (the core's parser in the app, a stub in tests)
++ * and must match the protocol of the list it was exported from. Addresses that are already present
++ * in the same protocol are reported as duplicates instead of being added again, and the ones that
++ * cannot be parsed or are invalid are reported in [ServersImportResult.invalid].
++ *
++ * An imported server is added to the operator group with the same [OperatorTag]. If that group does
++ * not exist (or the file has no operator), it is added to the group without an operator, creating
++ * it when the profile has none.
++ */
++fun mergeServersBackup(
++  current: List<UserOperatorServers>,
++  backup: ServersBackup,
++  parseAddress: (String) -> ServerAddress? = { parseServerAddress(it) },
++): ServersImportResult {
++  val servers = current.toMutableList()
++  val added = mutableListOf<ImportedServer>()
++  val duplicates = mutableListOf<String>()
++  val invalid = mutableListOf<String>()
++
++  fun add(protocol: ServerProtocol, item: ServersBackupItem) {
++    val address = item.server.trim()
++    val parsed = parseAddress(address)
++    if (address.isEmpty() || parsed == null || parsed.serverProtocol != protocol || !parsed.valid) {
++      invalid.add(address)
++      return
++    }
++    if (servers.any { group -> group.serversOf(protocol).any { !it.deleted && it.server == address } }) {
++      duplicates.add(address)
++      return
++    }
++    val operatorIndex = if (item.operator != null) {
++      servers.indexOfFirst { it.operator?.operatorTag == item.operator }
++    } else {
++      -1
++    }
++    val existingIndex = if (operatorIndex != -1) operatorIndex else servers.indexOfFirst { it.operator == null }
++    if (existingIndex == -1) {
++      servers.add(UserOperatorServers(operator = null, smpServers = emptyList(), xftpServers = emptyList()))
++    }
++    val index = if (existingIndex != -1) existingIndex else servers.lastIndex
++    val group = servers[index]
++    val server = UserServer(
++      remoteHostId = null,
++      serverId = null,
++      server = address,
++      preset = false,
++      tested = item.tested,
++      enabled = item.enabled,
++      deleted = false,
++      roles = item.roles,
++    )
++    servers[index] = group.copy(
++      smpServers = if (protocol == ServerProtocol.SMP) group.smpServers + server else group.smpServers,
++      xftpServers = if (protocol == ServerProtocol.XFTP) group.xftpServers + server else group.xftpServers,
++    )
++    added.add(ImportedServer(protocol, item.copy(server = address)))
++  }
++
++  backup.smpServers.forEach { add(ServerProtocol.SMP, it) }
++  backup.xftpServers.forEach { add(ServerProtocol.XFTP, it) }
++  return ServersImportResult(servers = servers, added = added, duplicates = duplicates, invalid = invalid)
++}
++
++private fun UserOperatorServers.serversOf(protocol: ServerProtocol): List<UserServer> =
++  if (protocol == ServerProtocol.SMP) smpServers else xftpServers
++
++/**
++ * The new client-side metadata map after importing [added]: servers with a group or a note get the
++ * imported one, and a server imported without metadata drops any stale entry for its address, so
++ * that the file is the only source of the group/note of the servers it adds.
++ */
++fun importedServerMetadata(
++  current: Map<String, ServerMeta>,
++  added: List<ImportedServer>
++): Map<String, ServerMeta> {
++  val metadata = current.toMutableMap()
++  for (a in added) {
++    val meta = ServerMeta(group = a.item.group, note = a.item.note)
++    if (meta.isBlank) metadata.remove(a.item.server) else metadata[a.item.server] = meta
++  }
++  return metadata
++}
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+index 1400b6520..0779aedb5 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+@@ -1075,6 +1075,19 @@
+   <string name="smp_servers_delete_server">Delete server</string>
+   <string name="smp_servers_per_user">The servers for new connections of your current chat profile</string>
+   <string name="smp_save_servers_question">Save servers?</string>
++  <string name="smp_servers_import_export">Import and export servers</string>
++  <string name="smp_servers_export">Export servers</string>
++  <string name="smp_servers_import">Import servers</string>
++  <string name="smp_servers_export_warning">The exported file contains the addresses and verification keys of your custom servers. Keep it private — anyone who gets this file can connect to these servers using your keys.</string>
++  <string name="smp_servers_import_warning">Only import servers you trust — imported servers can see your connection metadata and may be operated by anyone.</string>
++  <string name="smp_servers_import_select_file">Select file</string>
++  <string name="smp_servers_import_summary">%d server(s) will be added.</string>
++  <string name="smp_servers_import_skipped_duplicates">%d server(s) are already in the list and will be skipped.</string>
++  <string name="smp_servers_import_skipped_invalid">%d address(es) are invalid and will be skipped.</string>
++  <string name="smp_servers_import_nothing">Nothing to import: all servers in the file are already in your list or invalid.</string>
++  <string name="smp_servers_import_error">Import servers error</string>
++  <string name="smp_servers_import_error_desc">Make sure the file is a SimpleX servers backup in JSON format.</string>
++  <string name="smp_servers_import_export_footer">Only your custom (non-preset) servers are exported, including their groups and notes. Preset servers are not included.</string>
+   <string name="media_and_file_servers">Media &amp; file servers</string>
+   <string name="xftp_servers">XFTP servers</string>
+   <string name="xftp_servers_configured">Configured XFTP servers</string>
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+index 0efe60f79..5748f63f0 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+@@ -962,6 +962,19 @@
+     <string name="v4_6_hidden_chat_profiles">隐藏的聊天资料</string>
+     <string name="hide_profile">隐藏个人资料</string>
+     <string name="smp_save_servers_question">保存服务器？</string>
++    <string name="smp_servers_import_export">导入和导出服务器</string>
++    <string name="smp_servers_export">导出服务器</string>
++    <string name="smp_servers_import">导入服务器</string>
++    <string name="smp_servers_export_warning">导出的文件包含你自定义服务器的地址和验证密钥。请妥善保管——任何人拿到这个文件，都可以用你的密钥连接这些服务器。</string>
++    <string name="smp_servers_import_warning">请仅导入你信任的服务器——导入的服务器可以看到你的连接元数据，也可能由任何人运营。</string>
++    <string name="smp_servers_import_select_file">选择文件</string>
++    <string name="smp_servers_import_summary">将添加 %d 个服务器。</string>
++    <string name="smp_servers_import_skipped_duplicates">%d 个服务器已在列表中，将被跳过。</string>
++    <string name="smp_servers_import_skipped_invalid">%d 个地址无效，将被跳过。</string>
++    <string name="smp_servers_import_nothing">没有可导入的内容：文件中的所有服务器都已在你的列表中或无效。</string>
++    <string name="smp_servers_import_error">导入服务器出错</string>
++    <string name="smp_servers_import_error_desc">请确认文件是 JSON 格式的 SimpleX 服务器备份。</string>
++    <string name="smp_servers_import_export_footer">只会导出自定义（非预设）服务器，并包含其分组和备注；不包含预设服务器。</string>
+     <string name="to_reveal_profile_enter_password">要显示你的隐藏的个人资料，请在你的聊天个人资料页面的搜索字段中输入完整密码。</string>
+     <string name="save_welcome_message_question">保存欢迎信息？</string>
+     <string name="tap_to_activate_profile">点击以激活个人资料。</string>
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ServersBackupTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ServersBackupTest.kt
+new file mode 100644
+index 000000000..aabdee520
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ServersBackupTest.kt
+@@ -0,0 +1,263 @@
++package chat.simplex.app
++
++import chat.simplex.common.model.*
++import chat.simplex.common.views.usersettings.networkAndServers.*
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertNull
++import kotlin.test.assertTrue
++
++// use this command for testing:
++// ./gradlew desktopTest
++class ServersBackupTest {
++  private val smpAddress = "smp://key@example.com"
++  private val xftpAddress = "xftp://key@files.example.com"
++  private val anotherSmpAddress = "smp://another@second.example"
++
++  // The core's chatParseServer is a JNI call that is not available in unit tests, so the merge
++  // logic receives this stub parser instead of the real one.
++  private fun stubParse(address: String): ServerAddress? = when (address) {
++    smpAddress -> ServerAddress(ServerProtocol.SMP, listOf("example.com"), "", "key")
++    anotherSmpAddress -> ServerAddress(ServerProtocol.SMP, listOf("second.example"), "", "another")
++    xftpAddress -> ServerAddress(ServerProtocol.XFTP, listOf("files.example.com"), "", "key")
++    // duplicated hostname -> ServerAddress.valid == false
++    "smp://key@bad.example" -> ServerAddress(ServerProtocol.SMP, listOf("bad.example", "bad.example"), "", "key")
++    else -> null
++  }
++
++  private fun smpServer(
++    address: String,
++    preset: Boolean = false,
++    deleted: Boolean = false,
++    enabled: Boolean = true,
++    tested: Boolean? = null,
++  ) = UserServer(
++    remoteHostId = null,
++    serverId = null,
++    server = address,
++    preset = preset,
++    tested = tested,
++    enabled = enabled,
++    deleted = deleted,
++  )
++
++  private fun operator(tag: OperatorTag, domains: List<String> = emptyList()) = ServerOperator(
++    operatorId = 1,
++    operatorTag = tag,
++    tradeName = tag.name,
++    legalName = null,
++    serverDomains = domains,
++    conditionsAcceptance = ConditionsAcceptance.Accepted(null, autoAccepted = false),
++    enabled = true,
++    smpRoles = ServerRoles.noOperatorDefault,
++    xftpRoles = ServerRoles.noOperatorDefault,
++  )
++
++  private fun noOperatorGroup(
++    smp: List<UserServer> = emptyList(),
++    xftp: List<UserServer> = emptyList(),
++  ) = UserOperatorServers(operator = null, smpServers = smp, xftpServers = xftp)
++
++  @Test
++  fun testExportSkipsPresetDeletedAndBlankServers() {
++    val servers = listOf(
++      noOperatorGroup(smp = listOf(smpServer(smpAddress), smpServer("smp://preset@example.com", preset = true), smpServer("smp://deleted@example.com", deleted = true), smpServer("")))
++    )
++    val backup = serversBackupOf(servers)
++    assertEquals(listOf(smpAddress), backup.smpServers.map { it.server })
++    assertTrue(backup.xftpServers.isEmpty())
++    assertEquals(1, backup.version)
++  }
++
++  @Test
++  fun testExportKeepsSettingsOperatorAndMetadata() {
++    val servers = listOf(
++      UserOperatorServers(operator(tag = OperatorTag.SimpleX), smpServers = listOf(smpServer(anotherSmpAddress, enabled = false, tested = true)), xftpServers = emptyList()),
++      noOperatorGroup(smp = listOf(smpServer(smpAddress)))
++    )
++    val metadata = mapOf(
++      smpAddress to ServerMeta(group = "Fast", note = "primary"),
++      anotherSmpAddress to ServerMeta(group = "  ", note = null),
++    )
++    val backup = serversBackupOf(servers, metadata)
++    assertEquals(listOf(anotherSmpAddress, smpAddress), backup.smpServers.map { it.server })
++    val first = backup.smpServers[0]
++    assertEquals(OperatorTag.SimpleX, first.operator)
++    assertEquals(false, first.enabled)
++    assertEquals(true, first.tested)
++    assertNull(first.group)
++    val second = backup.smpServers[1]
++    assertNull(second.operator)
++    assertEquals("Fast", second.group)
++    assertEquals("primary", second.note)
++  }
++
++  @Test
++  fun testExportIncludesXftpServers() {
++    val backup = serversBackupOf(listOf(noOperatorGroup(xftp = listOf(smpServer(xftpAddress)))))
++    assertEquals(listOf(xftpAddress), backup.xftpServers.map { it.server })
++  }
++
++  @Test
++  fun testJsonRoundTrip() {
++    val backup = ServersBackup(
++      smpServers = listOf(ServersBackupItem(server = smpAddress, enabled = false, tested = true, roles = ServerRolesOverride(storage = false), operator = OperatorTag.Flux, group = "Fast", note = "n")),
++      xftpServers = listOf(ServersBackupItem(server = xftpAddress)),
++    )
++    val json = exportServersBackup(backup)
++    assertTrue(json.startsWith("{"))
++    assertEquals(backup, parseServersBackup(json))
++  }
++
++  @Test
++  fun testParseServersBackupReturnsNullOnGarbage() {
++    assertNull(parseServersBackup("not json"))
++    assertNull(parseServersBackup(""))
++    assertNull(parseServersBackup("[1, 2, 3]"))
++  }
++
++  @Test
++  fun testParseServersBackupIgnoresUnknownKeysAndUsesDefaults() {
++    val backup = parseServersBackup("""{"version":1,"smpServers":[{"server":"$smpAddress","futureField":42}]}""")
++    assertEquals(ServersBackup(smpServers = listOf(ServersBackupItem(server = smpAddress))), backup)
++  }
++
++  @Test
++  fun testMergeAddsToMatchingOperatorGroup() {
++    val current = listOf(
++      UserOperatorServers(operator(tag = OperatorTag.SimpleX, domains = listOf("simplex.chat")), smpServers = emptyList(), xftpServers = emptyList()),
++      noOperatorGroup()
++    )
++    val backup = ServersBackup(smpServers = listOf(ServersBackupItem(server = smpAddress, operator = OperatorTag.SimpleX)))
++    val result = mergeServersBackup(current, backup, ::stubParse)
++    assertEquals(1, result.added.size)
++    assertTrue(result.duplicates.isEmpty())
++    assertTrue(result.invalid.isEmpty())
++    assertEquals(listOf(smpAddress), result.servers[0].smpServers.map { it.server })
++    assertTrue(result.servers[1].smpServers.isEmpty())
++    val added = result.servers[0].smpServers[0]
++    assertEquals(false, added.preset)
++    assertEquals(false, added.deleted)
++    assertNull(added.remoteHostId)
++    assertNull(added.serverId)
++  }
++
++  @Test
++  fun testMergeFallsBackToNoOperatorGroupWhenTagIsMissing() {
++    val current = listOf(
++      UserOperatorServers(operator(tag = OperatorTag.SimpleX), smpServers = emptyList(), xftpServers = emptyList()),
++      noOperatorGroup()
++    )
++    val backup = ServersBackup(smpServers = listOf(ServersBackupItem(server = smpAddress, operator = OperatorTag.Flux)))
++    val result = mergeServersBackup(current, backup, ::stubParse)
++    assertEquals(listOf(smpAddress), result.servers[1].smpServers.map { it.server })
++    assertTrue(result.servers[0].smpServers.isEmpty())
++  }
++
++  @Test
++  fun testMergeFallsBackToNoOperatorGroupWhenItemHasNoOperator() {
++    val current = listOf(
++      UserOperatorServers(operator(tag = OperatorTag.SimpleX), smpServers = emptyList(), xftpServers = emptyList()),
++      noOperatorGroup()
++    )
++    val backup = ServersBackup(smpServers = listOf(ServersBackupItem(server = smpAddress)))
++    val result = mergeServersBackup(current, backup, ::stubParse)
++    assertEquals(listOf(smpAddress), result.servers[1].smpServers.map { it.server })
++  }
++
++  @Test
++  fun testMergeCreatesNoOperatorGroup() {
++    val current = listOf(UserOperatorServers(operator(tag = OperatorTag.SimpleX), smpServers = emptyList(), xftpServers = emptyList()))
++    val backup = ServersBackup(smpServers = listOf(ServersBackupItem(server = smpAddress)))
++    val result = mergeServersBackup(current, backup, ::stubParse)
++    assertEquals(2, result.servers.size)
++    assertNull(result.servers[1].operator)
++    assertEquals(listOf(smpAddress), result.servers[1].smpServers.map { it.server })
++  }
++
++  @Test
++  fun testMergeSkipsDuplicates() {
++    val current = listOf(noOperatorGroup(smp = listOf(smpServer(smpAddress)), xftp = listOf(smpServer(xftpAddress))))
++    val backup = ServersBackup(
++      smpServers = listOf(ServersBackupItem(server = smpAddress), ServersBackupItem(server = " $smpAddress ")),
++      xftpServers = listOf(ServersBackupItem(server = xftpAddress))
++    )
++    val result = mergeServersBackup(current, backup, ::stubParse)
++    assertTrue(result.added.isEmpty())
++    assertEquals(3, result.duplicates.size)
++    assertEquals(1, result.servers[0].smpServers.size)
++  }
++
++  @Test
++  fun testMergeTreatsDeletedServerAsNotPresent() {
++    val current = listOf(noOperatorGroup(smp = listOf(smpServer(smpAddress, deleted = true))))
++    val backup = ServersBackup(smpServers = listOf(ServersBackupItem(server = smpAddress)))
++    val result = mergeServersBackup(current, backup, ::stubParse)
++    assertEquals(1, result.added.size)
++    assertTrue(result.duplicates.isEmpty())
++    assertEquals(2, result.servers[0].smpServers.size)
++  }
++
++  @Test
++  fun testMergeReportsInvalidAndWrongProtocolAddresses() {
++    val current = listOf(noOperatorGroup())
++    val backup = ServersBackup(
++      smpServers = listOf(
++        ServersBackupItem(server = ""),
++        ServersBackupItem(server = "not an address"),
++        ServersBackupItem(server = "smp://key@bad.example"),
++        ServersBackupItem(server = xftpAddress)
++      ),
++      xftpServers = listOf(ServersBackupItem(server = smpAddress))
++    )
++    val result = mergeServersBackup(current, backup, ::stubParse)
++    assertTrue(result.added.isEmpty())
++    assertEquals(listOf("", "not an address", "smp://key@bad.example", xftpAddress, smpAddress), result.invalid)
++    assertTrue(result.servers[0].smpServers.isEmpty())
++    assertTrue(result.servers[0].xftpServers.isEmpty())
++  }
++
++  @Test
++  fun testMergeKeepsImportedSettings() {
++    val current = listOf(noOperatorGroup())
++    val roles = ServerRolesOverride(storage = false, proxy = true)
++    val backup = ServersBackup(smpServers = listOf(ServersBackupItem(server = smpAddress, enabled = false, tested = true, roles = roles)))
++    val result = mergeServersBackup(current, backup, ::stubParse)
++    val added = result.servers[0].smpServers[0]
++    assertEquals(false, added.enabled)
++    assertEquals(true, added.tested)
++    assertEquals(roles, added.roles)
++  }
++
++  @Test
++  fun testMergeAddsSmpAndXftpToTheSameGroup() {
++    val current = listOf(noOperatorGroup())
++    val backup = ServersBackup(
++      smpServers = listOf(ServersBackupItem(server = smpAddress)),
++      xftpServers = listOf(ServersBackupItem(server = xftpAddress))
++    )
++    val result = mergeServersBackup(current, backup, ::stubParse)
++    assertEquals(2, result.added.size)
++    assertEquals(listOf(smpAddress), result.servers[0].smpServers.map { it.server })
++    assertEquals(listOf(xftpAddress), result.servers[0].xftpServers.map { it.server })
++    assertEquals(listOf(ServerProtocol.SMP, ServerProtocol.XFTP), result.added.map { it.protocol })
++  }
++
++  @Test
++  fun testImportedServerMetadata() {
++    val added = listOf(
++      ImportedServer(ServerProtocol.SMP, ServersBackupItem(server = smpAddress, group = "Fast", note = "primary")),
++      ImportedServer(ServerProtocol.XFTP, ServersBackupItem(server = xftpAddress))
++    )
++    val current = mapOf(xftpAddress to ServerMeta(group = "Old", note = "old"))
++    val result = importedServerMetadata(current, added)
++    assertEquals(mapOf(smpAddress to ServerMeta(group = "Fast", note = "primary")), result)
++  }
++
++  @Test
++  fun testImportedServerMetadataDropsStaleEntryWithoutMetadata() {
++    val added = listOf(ImportedServer(ServerProtocol.SMP, ServersBackupItem(server = smpAddress)))
++    val current = mapOf(smpAddress to ServerMeta(group = "Fast", note = null), anotherSmpAddress to ServerMeta(group = "Slow", note = null))
++    assertEquals(mapOf(anotherSmpAddress to ServerMeta(group = "Slow", note = null)), importedServerMetadata(current, added))
++  }
++}
+diff --git a/apps/multiplatform/product/README.md b/apps/multiplatform/product/README.md
+index 3d529fcf3..1d921d9d1 100644
+--- a/apps/multiplatform/product/README.md
++++ b/apps/multiplatform/product/README.md
+@@ -168,6 +168,7 @@ Server configuration, proxy support, and connectivity.
+ | Network timeouts | Configure connection timeout parameters | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/AdvancedNetworkSettings.kt` |
+ | Server operators | Configure and manage SMP/XFTP server operators | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/OperatorView.kt` |
+ | Server groups and notes | Organize manually added servers into named groups and attach a note to each, stored client-side only | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ProtocolServersView.kt` |
++| Servers import and export | Export the custom (non-preset) servers to a JSON file and merge a JSON backup back, with a leak warning on export and a trust warning on import | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ServersBackup.kt` |
+ | Server status | View aggregate server connectivity status | `common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ServersSummaryView.kt` |
+ | Connection network status dot | Per-connection status dot (connected / connecting / subscription removed) shown next to the name in the direct chat title, the chat list rows and the group member list, and on the contact info page's **Network status** row | `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/SubscriptionStatusDot.kt` |
+ | Network & servers hub | Central network configuration entry point | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt` |
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index 3c9c8f200..a1b6130a7 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -56,6 +56,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC35 | Profile Image Viewer | [views/contact-info.md](views/contact-info.md), [views/group-info.md](views/group-info.md) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../views/helpers/ChatInfoImage.kt` (`ProfileImage` `onClick`, `ProfileImageViewer`, `showProfileImageModal`), `common/.../platform/Images.kt` (`copyImageToClipboard`) and its desktop/Android actuals, `common/.../views/chat/ChatInfoView.kt` (`ChatInfoHeader`), `common/.../views/chat/group/GroupChatInfoView.kt` (`GroupChatInfoHeader`, member list row), `common/.../views/chat/group/GroupMemberInfoView.kt` (`MemberProfileImage`, `GroupMemberInfoHeader`) | N/A (client-only) |
+ | PC36 | Group Members Connection Rate | [views/group-info.md](views/group-info.md) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../views/chat/group/GroupChatInfoView.kt` (`groupMembersConnection`, `groupMembersConnectionRate`, `GroupMembersConnectionStatus`, `groupMembersSectionVisible`, `groupMembersRowsVisible`, member-list collapse toggle), `common/.../views/helpers/Section.kt` (`SectionViewWithButton` title button + card shape), `common/.../model/ChatModel.kt` (`GroupMember.ready`) | N/A (client-only) |
+ | PC37 | Connection Network Status Dot | [views/chat-list.md](views/chat-list.md), [views/chat.md](views/chat.md), [views/contact-info.md](views/contact-info.md), [views/group-info.md](views/group-info.md) | [spec/client/chat-list.md](../spec/client/chat-list.md), [spec/client/chat-view.md](../spec/client/chat-view.md), [spec/state.md](../spec/state.md) | `common/.../views/helpers/SubscriptionStatusDot.kt` (`SubscriptionStatusDot`), `common/.../model/ChatModel.kt` (`connectionSubStatuses`, `connectionSubStatus`), `common/.../model/SimpleXAPI.kt` (`CR.SubscriptionStatusEvt` handler), `common/.../views/chat/ChatView.kt` (`ChatInfoToolbarTitle`), `common/.../views/chatlist/ChatPreviewView.kt` (`chatPreviewTitle`), `common/.../views/chat/group/GroupChatInfoView.kt` (`MemberRow`), `common/.../views/chat/ChatInfoView.kt` (`SubStatusRow`) | N/A (client-only) |
++| PC38 | Servers Import and Export | [views/settings.md](views/settings.md) | [spec/api.md](../spec/api.md), [spec/state.md](../spec/state.md) | `common/.../views/usersettings/networkAndServers/ServersBackup.kt` (`ServersBackup`, `ServersBackupItem`, `serversBackupOf`, `exportServersBackup`, `parseServersBackup`, `mergeServersBackup`, `importedServerMetadata`), `common/.../views/usersettings/networkAndServers/NetworkAndServers.kt` (`ServersImportExportSection`), `common/.../platform/Files.kt` (`rememberFileChooserLauncher`, `copyBytesToFile`) | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
+ - `common/.../` expands to `common/src/commonMain/kotlin/chat/simplex/common/`
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index bbc7b07eb..e17455475 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -16,6 +16,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
+ 8. [Profile Images (RULE-20)](#8-profile-images)
+ 9. [Connection Status Display (RULE-21)](#9-connection-status-display)
+ 10. [Network Status Dot (RULE-22)](#10-network-status-dot)
++11. [Servers Import and Export (RULE-23)](#11-servers-import-and-export)
+ 
+ ---
+ 
+@@ -383,3 +384,38 @@ attached to it -- is display metadata owned by the client.
+   (`SubStatusRow`, the info-page dot this component was extracted from)
+ - Test: `common/src/commonTest/kotlin/chat/simplex/app/ConnectionSubStatusTest.kt`
+ 
++---
++
++## 11. Servers Import and Export
++
++### RULE-23: Import Merges Validated Custom Servers Only
++
++1. **Only custom servers are exported.** The export MUST skip preset servers (they come from the
++   client and operator configuration) and deleted servers, and it MUST keep the operator tag and the
++   client-side group/note of each server so that an import can restore them.
++2. **The export warning is mandatory.** The export MUST be preceded by a confirmation that states
++   that the file contains the server addresses and verification keys (the address string carries the
++   key hash and the basic-auth password) and that it must be kept private.
++3. **The import warning is mandatory.** The import MUST be preceded by a confirmation that only
++   trusted servers should be imported, because an imported server can see the user's connection
++   metadata.
++4. **Import validates and merges, it never replaces.** Every imported address MUST be validated with
++   the core parser (`parseServerAddress`), MUST match the protocol of the list it was exported from,
++   and MUST be rejected as invalid otherwise. Addresses already present in the same protocol MUST be
++   skipped as duplicates, the existing servers MUST NOT be modified, and the merged list MUST be
++   persisted through `setUserServers` like any other server change.
++5. **Imported servers are ordinary custom servers.** An imported server MUST be stored with
++   `preset = false`, `deleted = false` and no `remoteHostId`/`serverId`, and it MUST be added to the
++   operator group with the same `OperatorTag`, falling back to the group without an operator.
++6. **The backup format is client-only and separate.** The JSON file MUST NOT become part of
++   `AppSettings` or of the cross-device backup format, and the core server list (`/_servers`) MUST
++   NOT change its shape.
++
++**Enforcement:**
++- `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ServersBackup.kt`
++  (`serversBackupOf`, `exportServersBackup`, `parseServersBackup`, `mergeServersBackup`,
++  `importedServerMetadata`)
++- `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt`
++  (`ServersImportExportSection`, reuses `saveServers`)
++- Test: `common/src/commonTest/kotlin/chat/simplex/app/ServersBackupTest.kt`
++
+diff --git a/apps/multiplatform/product/views/settings.md b/apps/multiplatform/product/views/settings.md
+index d8afe9fce..3270e9649 100644
+--- a/apps/multiplatform/product/views/settings.md
++++ b/apps/multiplatform/product/views/settings.md
+@@ -54,7 +54,7 @@ All rows disabled when `chatModel.chatRunning != true` (except Appearance).
+ | Advanced network | `AdvancedNetworkSettings` -- timeouts, TCP keep-alive, reconnect intervals |
+ | Proxy configuration | SOCKS proxy, .onion host settings |
+ 
+-Sub-files: `NetworkAndServers.kt`, `ProtocolServersView.kt`, `ProtocolServerView.kt`, `NewServerView.kt`, `ScanProtocolServer.kt`, `AdvancedNetworkSettings.kt`, `OperatorView.kt`
++Sub-files: `NetworkAndServers.kt`, `ProtocolServersView.kt`, `ProtocolServerView.kt`, `NewServerView.kt`, `ScanProtocolServer.kt`, `AdvancedNetworkSettings.kt`, `OperatorView.kt`, `ServersBackup.kt`
+ 
+ ##### Adding Servers Manually (`NewServerView`)
+ 
+@@ -93,6 +93,24 @@ string. They are deliberately *not* fields of `UserServer`: that structure is se
+ `/_servers` core command and read back from the core, so client-only fields would be lost on the
+ next round-trip (see `spec/api.md` §2.10).
+ 
++##### Import and Export (`ServersImportExportSection`)
++
++Two rows of the "Network & servers" page (`NetworkAndServers.kt`, between the proxy settings and
++the "Save servers" row) that move the custom server list between devices or profiles through a JSON
++file (`ServersBackup.kt`).
++
++| Element | Behaviour |
++|---|---|
++| Export servers | Confirmation dialog with the leak warning ("the exported file contains the addresses and verification keys of your custom servers"), then a save-file chooser writing `simplex-servers.json`. |
++| Import servers | Confirmation dialog with the trust warning ("only import servers you trust"), then an open-file chooser; the file is parsed and validated before anything is written. |
++| Exported content | Only custom servers: preset and deleted servers are skipped. Every entry keeps the protocol list (SMP/XFTP), `enabled`, `tested`, the role overrides, the operator tag and the client-side group/note. |
++| Import preview | The confirmation names how many servers will be added, how many are already present (skipped as duplicates) and how many addresses are invalid (skipped). |
++| Import merge | Addresses are validated with the core parser and must match the protocol they were exported from; valid new servers are appended to the operator group with the same operator tag (or to the group without an operator), the existing list is never replaced, and the merged list is saved through the same `saveServers` path as manual edits. |
++| Footer | "Only your custom (non-preset) servers are exported, including their groups and notes. Preset servers are not included." |
++
++The JSON format is client-only and versioned (`ServersBackup.version = 1`); it is not part of
++`AppSettings` and does not change the `/_servers` core command.
++
+ #### Audio & Video Calls (`CallSettingsView`)
+ 
+ | Setting | Description |
+@@ -206,4 +224,5 @@ The two combinations are always kept distinct: choosing the combination already
+ | `OperatorView.kt` | `views/usersettings/networkAndServers/OperatorView.kt` |
+ | `ProtocolServersView.kt` | `views/usersettings/networkAndServers/ProtocolServersView.kt` |
+ | `NewServerView.kt` | `views/usersettings/networkAndServers/NewServerView.kt` |
++| `ServersBackup.kt` | `views/usersettings/networkAndServers/ServersBackup.kt` (custom-server JSON backup and merge logic) |
+ | `PlatformTextField.desktop.kt` | `platform/PlatformTextField.desktop.kt` (Enter key handling for send / newline) |
+diff --git a/apps/multiplatform/spec/api.md b/apps/multiplatform/spec/api.md
+index 74795e2ae..1693e6492 100644
+--- a/apps/multiplatform/spec/api.md
++++ b/apps/multiplatform/spec/api.md
+@@ -14,7 +14,8 @@
+    - 2.8 [Settings & Network](#28-settings--network)
+    - 2.9 [Chat Tags](#29-chat-tags)
+    - 2.10 [Server Operators](#210-server-operators)
+-   - 2.11 [Archive](#211-archive)
++   - 2.11 [Server backup (client-only JSON)](#211-server-backup-client-only-json)
++   - 2.12 [Archive](#212-archive)
+ 3. [Response Types](#3-response-types)
+ 4. [Event Types](#4-event-types)
+ 5. [Error Types](#5-error-types)
+@@ -275,7 +276,7 @@ settings view keeps a `List<UserOperatorServers>` state
+ ([`NetworkAndServers.kt#L56`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt#L56)),
+ validates it reactively with `validateServers_` and persists it with `setUserServers` from
+ `saveServers`
+-([`NetworkAndServers.kt#L996`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt#L996)).
++([`NetworkAndServers.kt#L1103`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt#L1103)).
+ Each entry of `smpServers`/`xftpServers` is a `UserServer`
+ ([`SimpleXAPI.kt#L4872`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L4872)).
+ 
+@@ -311,7 +312,41 @@ block the valid ones — the valid addresses are added and the invalid ones are
+ `smp_servers_invalid_address` alert. Server editing keeps the single-address behaviour because
+ `allowMultipleAddresses` defaults to `false`.
+ 
+-### 2.11 Archive
++### 2.11 Server backup (client-only JSON)
++
++Import/export does not add a core command: it reuses `ApiGetUserServers`/`ApiSetUserServers`
++([§2.10](#210-server-operators)) and only moves the list through a JSON file
++([`ServersBackup.kt`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ServersBackup.kt)).
++
++```kotlin
++@Serializable data class ServersBackup(
++  val version: Int = 1,
++  val smpServers: List<ServersBackupItem> = emptyList(),
++  val xftpServers: List<ServersBackupItem> = emptyList(),
++)
++@Serializable data class ServersBackupItem(
++  val server: String,
++  val enabled: Boolean = true,
++  val tested: Boolean? = null,
++  val roles: ServerRolesOverride = ServerRolesOverride(),
++  val operator: OperatorTag? = null,
++  val group: String? = null,
++  val note: String? = null,
++)
++```
++
++`serversBackupOf` exports only custom servers (`!preset && !deleted && server.isNotBlank()`), keeping
++the operator tag and the client-side group/note; `exportServersBackup`/`parseServersBackup` are the
++JSON codec (pretty-printed, `encodeDefaults = true`, `explicitNulls = false`, `ignoreUnknownKeys =
++true`). `mergeServersBackup` is pure: it validates every address with `parseServerAddress` (injectable
++for tests, because `chatParseServer` is a JNI call), requires the protocol to match the list it was
++exported from, skips addresses already present for that protocol, appends the rest to the operator
++group with the same `OperatorTag` (falling back to the group without an operator, created when
++missing), and returns both the new list and the added/duplicate/invalid addresses. The UI then writes
++`importedServerMetadata(...)` back to `AppPreferences.serverMetadata` and persists the merged list
++with the ordinary `saveServers`.
++
++### 2.12 Archive
+ 
+ | Command | Parameters | Description | Line |
+ |---------|-----------|-------------|------|
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index 29a8273f1..9bea2a387 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -47,6 +47,7 @@
+ | PC35 | Profile Image Viewer |
+ | PC36 | Group Members Connection Rate |
+ | PC37 | Connection Network Status Dot |
++| PC38 | Servers Import and Export |
+ 
+ ---
+ 
+@@ -65,7 +66,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `model/CryptoFile.kt` | PC10, PC23 | Medium | Encrypted file read/write helpers |
+ | `platform/Core.kt` | PC1 through PC31 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
+ | `platform/AppCommon.kt` | PC1 through PC31 | Medium | Shared app initialization logic |
+-| `platform/Files.kt` | PC10, PC23, PC26 | Medium | File path resolution, temp dirs, encryption utilities |
++| `platform/Files.kt` | PC10, PC23, PC26, PC38 | Medium | File path resolution, temp dirs, encryption utilities, and the file chooser used by the server export/import |
+ | `platform/NtfManager.kt` | PC18 | High | Notification manager expect declarations |
+ | `platform/Notifications.kt` | PC18 | Medium | Notification channel and permission abstractions |
+ | `platform/SimplexService.kt` | PC18 | Medium | Background service expect declarations |
+@@ -229,12 +230,13 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `views/usersettings/HelpView.kt` | — | Low | Help and support links |
+ | `views/usersettings/MarkdownHelpView.kt` | PC4 | Low | Markdown formatting guide |
+ | `views/usersettings/VersionInfoView.kt` | — | Low | Version display |
+-| `views/usersettings/networkAndServers/NetworkAndServers.kt` | PC25 | High | Server and network configuration hub |
++| `views/usersettings/networkAndServers/NetworkAndServers.kt` | PC25, PC38 | High | Server and network configuration hub, incl. the custom-server import/export section |
+ | `views/usersettings/networkAndServers/AdvancedNetworkSettings.kt` | PC25 | Medium | SOCKS proxy, timeouts, etc. |
+ | `views/usersettings/networkAndServers/OperatorView.kt` | PC25 | Medium | Server operator management |
+ | `views/usersettings/networkAndServers/ProtocolServersView.kt` | PC25, PC34 | Medium | SMP/XFTP server list, grouped by client-side group |
+ | `views/usersettings/networkAndServers/ProtocolServerView.kt` | PC25, PC34 | Low | Individual server editing, incl. group/note |
+ | `views/usersettings/networkAndServers/NewServerView.kt` | PC25, PC34 | Low | Add new server(s) by hand (one address per line for a batch), incl. group/note |
++| `views/usersettings/networkAndServers/ServersBackup.kt` | PC38 | Low | Custom-server JSON backup format and the pure export/merge logic used by import/export |
+ | `views/usersettings/networkAndServers/ScanProtocolServer.kt` | PC25 | Low | QR scan for server address |
+ 
+ ### 1.10 Views — Database & Migration
+diff --git a/apps/multiplatform/spec/state.md b/apps/multiplatform/spec/state.md
+index 49fe038e9..af83280a1 100644
+--- a/apps/multiplatform/spec/state.md
++++ b/apps/multiplatform/spec/state.md
+@@ -471,6 +471,11 @@ exact `UserServer.server` address string and never leaves the device.
+ |---|---|---|---|
+ | `serverMetadata` | `Map<String, ServerMeta>` | `mapOf()` | `ServerMeta(group: String? = null, note: String? = null)` per server address |
+ 
++The export/import feature ([§api.md 2.11](api.md#211-server-backup-client-only-json)) serializes this
++map (together with the custom servers) into a JSON file on demand. The file itself is not state: it
++is never stored in `AppPreferences`, in `AppSettings`, or in the core, and importing it only updates
++this map through `importedServerMetadata`.
++
+ #### Remote Access (lines 238-243)
+ 
+ | Key | Type | Default | Purpose |
+diff --git a/plans/2026-10-16-servers-import-export.md b/plans/2026-10-16-servers-import-export.md
+new file mode 100644
+index 000000000..bd9d50547
+--- /dev/null
++++ b/plans/2026-10-16-servers-import-export.md
+@@ -0,0 +1,75 @@
++# Import and export of custom servers (based on 7.0.4)
++
++## Problem
++
++TODO item 12 (m00648): the user wants to export their own (custom) servers to a JSON file so the
++configuration can be backed up or moved to another device, and import such a file back. The export
++must warn that the file contains server verification keys and addresses that can leak; the import
++must warn that only trusted servers should be imported.
++
++## Solution
++
++Pure logic in a new file `views/usersettings/networkAndServers/ServersBackup.kt`:
++
++- `ServersBackup(version, smpServers, xftpServers)` / `ServersBackupItem(server, enabled, tested,
++  roles, operator, group, note)` — `@Serializable`, JSON, pretty-printed.
++- `serversBackupOf(userServers, metadata)` — collects every non-preset, non-deleted SMP/XFTP server
++  of the whole profile (all operator groups), tagging each with its `OperatorTag` and with the
++  client-side group/note from `serverMetadata`.
++- `exportServersBackup(backup): String` / `parseServersBackup(json): ServersBackup?`.
++- `mergeServersBackup(current, backup, parseAddress)` — validates every address, skips duplicates and
++  invalid addresses, appends to the operator group matching the item's `OperatorTag` (falling back
++  to the group without an operator, which is created if missing), and returns the new list plus what
++  was added/skipped.
++- `importedServerMetadata(current, added)` — writes the imported groups/notes back into the
++  client-side metadata map.
++
++UI: `NetworkAndServers.kt` gets a new `ServersImportExportSection` between the "message servers"
++section and the "save servers" section, with two rows:
++
++- **Export servers** — confirm dialog carrying the leak warning, then the platform save dialog,
++  then the JSON is written with `copyBytesToFile` (same as theme export).
++- **Import servers** — confirm dialog carrying the trust warning, then the platform open dialog;
++  after parsing, a second confirm dialog summarises how many servers will be added and how many are
++  duplicates/invalid; on confirm the merged list is persisted with `saveServers`.
++
++## Design decisions
++
++- Only non-preset servers are exported: preset servers come from the client/operator configuration
++  and change between versions, so exporting them would only create duplicates on import.
++- The `parseAddress` parameter of `mergeServersBackup` defaults to `ServerAddress.parseServerAddress`
++  but is injectable, because the core function behind it (`chatParseServer`) is an external call
++  that cannot be loaded in the desktop unit tests.
++- Group and note are included, because they are part of the user's custom-server configuration
++  (item 5); they are written back into `serverMetadata` on import.
++- Import merges into the existing list instead of replacing it, and reuses the existing
++  `saveServers` path so the core, `currUserServers` and `userServers` stay in sync.
++- No changes to the `AppSettings` cross-device backup format and no core (Haskell) changes, same as
++  items 1, 4, 5, 6, 8 and 10.
++
++## Steps
++
++1. Add `ServersBackup.kt` with the pure logic and JSON (de)serialisation.
++2. Add the new strings to `MR/base/strings.xml` and `MR/zh-rCN/strings.xml`.
++3. Add `ServersImportExportSection` and call it from `NetworkAndServersLayout`.
++4. Add `common/src/commonTest/kotlin/chat/simplex/app/ServersBackupTest.kt` covering export
++   filtering, JSON round-trip, operator/nil-operator merging, duplicates, invalid addresses and
++   metadata round-trip.
++5. Update `product/views/settings.md`, `product/concepts.md` (PC38), `product/rules.md` (RULE-23),
++   `product/README.md`, `spec/impact.md` and `spec/api.md`.
++6. Run `./gradlew :common:desktopTest`, then commit and store the diff as
++   `diff/0009-servers-import-export.patch`.
++
++## Adversarial review
++
++- *Does importing replace the user's servers?* No — it appends to the existing list; only rows that
++  do not exist yet are added, and the result is saved through the normal save path.
++- *Can an import smuggle in a preset server?* Imported rows are always created with `preset = false`
++  and `deleted = false`, so they always behave like manually added servers.
++- *What if the file contains an address of the other protocol?* A `smp://` address inside
++  `xftpServers` (or the reverse) is reported as invalid and skipped, matching the list it was
++  exported from.
++- *What if the `OperatorTag` of an imported server does not exist anymore?* The server goes to the
++  group without an operator instead of being dropped.
++- *Is the export warning real?* Yes — the address string carries the server key hash and (when set)
++  the basic-auth password, so the file must be treated as a secret.

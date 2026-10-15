@@ -471,6 +471,11 @@ exact `UserServer.server` address string and never leaves the device.
 |---|---|---|---|
 | `serverMetadata` | `Map<String, ServerMeta>` | `mapOf()` | `ServerMeta(group: String? = null, note: String? = null)` per server address |
 
+The export/import feature ([§api.md 2.11](api.md#211-server-backup-client-only-json)) serializes this
+map (together with the custom servers) into a JSON file on demand. The file itself is not state: it
+is never stored in `AppPreferences`, in `AppSettings`, or in the core, and importing it only updates
+this map through `importedServerMetadata`.
+
 #### Remote Access (lines 238-243)
 
 | Key | Type | Default | Purpose |

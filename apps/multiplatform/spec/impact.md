@@ -47,6 +47,7 @@
 | PC35 | Profile Image Viewer |
 | PC36 | Group Members Connection Rate |
 | PC37 | Connection Network Status Dot |
+| PC38 | Servers Import and Export |
 
 ---
 
@@ -65,7 +66,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `model/CryptoFile.kt` | PC10, PC23 | Medium | Encrypted file read/write helpers |
 | `platform/Core.kt` | PC1 through PC31 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
 | `platform/AppCommon.kt` | PC1 through PC31 | Medium | Shared app initialization logic |
-| `platform/Files.kt` | PC10, PC23, PC26 | Medium | File path resolution, temp dirs, encryption utilities |
+| `platform/Files.kt` | PC10, PC23, PC26, PC38 | Medium | File path resolution, temp dirs, encryption utilities, and the file chooser used by the server export/import |
 | `platform/NtfManager.kt` | PC18 | High | Notification manager expect declarations |
 | `platform/Notifications.kt` | PC18 | Medium | Notification channel and permission abstractions |
 | `platform/SimplexService.kt` | PC18 | Medium | Background service expect declarations |
@@ -229,12 +230,13 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `views/usersettings/HelpView.kt` | — | Low | Help and support links |
 | `views/usersettings/MarkdownHelpView.kt` | PC4 | Low | Markdown formatting guide |
 | `views/usersettings/VersionInfoView.kt` | — | Low | Version display |
-| `views/usersettings/networkAndServers/NetworkAndServers.kt` | PC25 | High | Server and network configuration hub |
+| `views/usersettings/networkAndServers/NetworkAndServers.kt` | PC25, PC38 | High | Server and network configuration hub, incl. the custom-server import/export section |
 | `views/usersettings/networkAndServers/AdvancedNetworkSettings.kt` | PC25 | Medium | SOCKS proxy, timeouts, etc. |
 | `views/usersettings/networkAndServers/OperatorView.kt` | PC25 | Medium | Server operator management |
 | `views/usersettings/networkAndServers/ProtocolServersView.kt` | PC25, PC34 | Medium | SMP/XFTP server list, grouped by client-side group |
 | `views/usersettings/networkAndServers/ProtocolServerView.kt` | PC25, PC34 | Low | Individual server editing, incl. group/note |
 | `views/usersettings/networkAndServers/NewServerView.kt` | PC25, PC34 | Low | Add new server(s) by hand (one address per line for a batch), incl. group/note |
+| `views/usersettings/networkAndServers/ServersBackup.kt` | PC38 | Low | Custom-server JSON backup format and the pure export/merge logic used by import/export |
 | `views/usersettings/networkAndServers/ScanProtocolServer.kt` | PC25 | Low | QR scan for server address |
 
 ### 1.10 Views — Database & Migration

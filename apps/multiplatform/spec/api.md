@@ -14,7 +14,8 @@
    - 2.8 [Settings & Network](#28-settings--network)
    - 2.9 [Chat Tags](#29-chat-tags)
    - 2.10 [Server Operators](#210-server-operators)
-   - 2.11 [Archive](#211-archive)
+   - 2.11 [Server backup (client-only JSON)](#211-server-backup-client-only-json)
+   - 2.12 [Archive](#212-archive)
 3. [Response Types](#3-response-types)
 4. [Event Types](#4-event-types)
 5. [Error Types](#5-error-types)
@@ -275,7 +276,7 @@ settings view keeps a `List<UserOperatorServers>` state
 ([`NetworkAndServers.kt#L56`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt#L56)),
 validates it reactively with `validateServers_` and persists it with `setUserServers` from
 `saveServers`
-([`NetworkAndServers.kt#L996`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt#L996)).
+([`NetworkAndServers.kt#L1103`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt#L1103)).
 Each entry of `smpServers`/`xftpServers` is a `UserServer`
 ([`SimpleXAPI.kt#L4872`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L4872)).
 
@@ -311,7 +312,41 @@ block the valid ones — the valid addresses are added and the invalid ones are 
 `smp_servers_invalid_address` alert. Server editing keeps the single-address behaviour because
 `allowMultipleAddresses` defaults to `false`.
 
-### 2.11 Archive
+### 2.11 Server backup (client-only JSON)
+
+Import/export does not add a core command: it reuses `ApiGetUserServers`/`ApiSetUserServers`
+([§2.10](#210-server-operators)) and only moves the list through a JSON file
+([`ServersBackup.kt`](../common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ServersBackup.kt)).
+
+```kotlin
+@Serializable data class ServersBackup(
+  val version: Int = 1,
+  val smpServers: List<ServersBackupItem> = emptyList(),
+  val xftpServers: List<ServersBackupItem> = emptyList(),
+)
+@Serializable data class ServersBackupItem(
+  val server: String,
+  val enabled: Boolean = true,
+  val tested: Boolean? = null,
+  val roles: ServerRolesOverride = ServerRolesOverride(),
+  val operator: OperatorTag? = null,
+  val group: String? = null,
+  val note: String? = null,
+)
+```
+
+`serversBackupOf` exports only custom servers (`!preset && !deleted && server.isNotBlank()`), keeping
+the operator tag and the client-side group/note; `exportServersBackup`/`parseServersBackup` are the
+JSON codec (pretty-printed, `encodeDefaults = true`, `explicitNulls = false`, `ignoreUnknownKeys =
+true`). `mergeServersBackup` is pure: it validates every address with `parseServerAddress` (injectable
+for tests, because `chatParseServer` is a JNI call), requires the protocol to match the list it was
+exported from, skips addresses already present for that protocol, appends the rest to the operator
+group with the same `OperatorTag` (falling back to the group without an operator, created when
+missing), and returns both the new list and the added/duplicate/invalid addresses. The UI then writes
+`importedServerMetadata(...)` back to `AppPreferences.serverMetadata` and persists the merged list
+with the ordinary `saveServers`.
+
+### 2.12 Archive
 
 | Command | Parameters | Description | Line |
 |---------|-----------|-------------|------|

@@ -54,7 +54,7 @@ All rows disabled when `chatModel.chatRunning != true` (except Appearance).
 | Advanced network | `AdvancedNetworkSettings` -- timeouts, TCP keep-alive, reconnect intervals |
 | Proxy configuration | SOCKS proxy, .onion host settings |
 
-Sub-files: `NetworkAndServers.kt`, `ProtocolServersView.kt`, `ProtocolServerView.kt`, `NewServerView.kt`, `ScanProtocolServer.kt`, `AdvancedNetworkSettings.kt`, `OperatorView.kt`
+Sub-files: `NetworkAndServers.kt`, `ProtocolServersView.kt`, `ProtocolServerView.kt`, `NewServerView.kt`, `ScanProtocolServer.kt`, `AdvancedNetworkSettings.kt`, `OperatorView.kt`, `ServersBackup.kt`
 
 ##### Adding Servers Manually (`NewServerView`)
 
@@ -92,6 +92,24 @@ Group and note live in the client-only `serverMetadata` map preference, keyed by
 string. They are deliberately *not* fields of `UserServer`: that structure is serialized into the
 `/_servers` core command and read back from the core, so client-only fields would be lost on the
 next round-trip (see `spec/api.md` §2.10).
+
+##### Import and Export (`ServersImportExportSection`)
+
+Two rows of the "Network & servers" page (`NetworkAndServers.kt`, between the proxy settings and
+the "Save servers" row) that move the custom server list between devices or profiles through a JSON
+file (`ServersBackup.kt`).
+
+| Element | Behaviour |
+|---|---|
+| Export servers | Confirmation dialog with the leak warning ("the exported file contains the addresses and verification keys of your custom servers"), then a save-file chooser writing `simplex-servers.json`. |
+| Import servers | Confirmation dialog with the trust warning ("only import servers you trust"), then an open-file chooser; the file is parsed and validated before anything is written. |
+| Exported content | Only custom servers: preset and deleted servers are skipped. Every entry keeps the protocol list (SMP/XFTP), `enabled`, `tested`, the role overrides, the operator tag and the client-side group/note. |
+| Import preview | The confirmation names how many servers will be added, how many are already present (skipped as duplicates) and how many addresses are invalid (skipped). |
+| Import merge | Addresses are validated with the core parser and must match the protocol they were exported from; valid new servers are appended to the operator group with the same operator tag (or to the group without an operator), the existing list is never replaced, and the merged list is saved through the same `saveServers` path as manual edits. |
+| Footer | "Only your custom (non-preset) servers are exported, including their groups and notes. Preset servers are not included." |
+
+The JSON format is client-only and versioned (`ServersBackup.version = 1`); it is not part of
+`AppSettings` and does not change the `/_servers` core command.
 
 #### Audio & Video Calls (`CallSettingsView`)
 
@@ -206,4 +224,5 @@ The two combinations are always kept distinct: choosing the combination already 
 | `OperatorView.kt` | `views/usersettings/networkAndServers/OperatorView.kt` |
 | `ProtocolServersView.kt` | `views/usersettings/networkAndServers/ProtocolServersView.kt` |
 | `NewServerView.kt` | `views/usersettings/networkAndServers/NewServerView.kt` |
+| `ServersBackup.kt` | `views/usersettings/networkAndServers/ServersBackup.kt` (custom-server JSON backup and merge logic) |
 | `PlatformTextField.desktop.kt` | `platform/PlatformTextField.desktop.kt` (Enter key handling for send / newline) |

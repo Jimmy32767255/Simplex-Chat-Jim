@@ -16,6 +16,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
 8. [Profile Images (RULE-20)](#8-profile-images)
 9. [Connection Status Display (RULE-21)](#9-connection-status-display)
 10. [Network Status Dot (RULE-22)](#10-network-status-dot)
+11. [Servers Import and Export (RULE-23)](#11-servers-import-and-export)
 
 ---
 
@@ -382,4 +383,39 @@ attached to it -- is display metadata owned by the client.
   `views/chat/group/GroupChatInfoView.kt` (`MemberRow`), `views/chat/ChatInfoView.kt`
   (`SubStatusRow`, the info-page dot this component was extracted from)
 - Test: `common/src/commonTest/kotlin/chat/simplex/app/ConnectionSubStatusTest.kt`
+
+---
+
+## 11. Servers Import and Export
+
+### RULE-23: Import Merges Validated Custom Servers Only
+
+1. **Only custom servers are exported.** The export MUST skip preset servers (they come from the
+   client and operator configuration) and deleted servers, and it MUST keep the operator tag and the
+   client-side group/note of each server so that an import can restore them.
+2. **The export warning is mandatory.** The export MUST be preceded by a confirmation that states
+   that the file contains the server addresses and verification keys (the address string carries the
+   key hash and the basic-auth password) and that it must be kept private.
+3. **The import warning is mandatory.** The import MUST be preceded by a confirmation that only
+   trusted servers should be imported, because an imported server can see the user's connection
+   metadata.
+4. **Import validates and merges, it never replaces.** Every imported address MUST be validated with
+   the core parser (`parseServerAddress`), MUST match the protocol of the list it was exported from,
+   and MUST be rejected as invalid otherwise. Addresses already present in the same protocol MUST be
+   skipped as duplicates, the existing servers MUST NOT be modified, and the merged list MUST be
+   persisted through `setUserServers` like any other server change.
+5. **Imported servers are ordinary custom servers.** An imported server MUST be stored with
+   `preset = false`, `deleted = false` and no `remoteHostId`/`serverId`, and it MUST be added to the
+   operator group with the same `OperatorTag`, falling back to the group without an operator.
+6. **The backup format is client-only and separate.** The JSON file MUST NOT become part of
+   `AppSettings` or of the cross-device backup format, and the core server list (`/_servers`) MUST
+   NOT change its shape.
+
+**Enforcement:**
+- `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ServersBackup.kt`
+  (`serversBackupOf`, `exportServersBackup`, `parseServersBackup`, `mergeServersBackup`,
+  `importedServerMetadata`)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt`
+  (`ServersImportExportSection`, reuses `saveServers`)
+- Test: `common/src/commonTest/kotlin/chat/simplex/app/ServersBackupTest.kt`
 
