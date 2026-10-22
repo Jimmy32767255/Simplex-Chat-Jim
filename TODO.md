@@ -127,7 +127,14 @@ none
   - 文档：`product/rules.md`（RULE-22 新增「全应用统一状态源」条款及条目）、`product/views/contact-info.md`、`product/views/chat.md`、`product/concepts.md`（PC37）、`spec/state.md`、`spec/client/chat-view.md`、`spec/client/chat-list.md`、`spec/impact.md`、`plans/2026-10-22-fix-status-dot-source.md`。
   - 测试：扩充 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ConnectionSubStatusTest.kt` 到 12 个用例（新增「能取到当前打开聊天的状态」「不会把别的聊天的状态拿来用」「没有连接时忽略打开聊天的状态」「事件状态优先于打开聊天的状态」「`ConnectionStats` 优先于打开聊天的状态」），`./gradlew :common:desktopTest` 全部通过（12/12，全部 17 个测试类无失败）。差异补丁见 `diff/`。
 
-- [ ] 程序刚启动的时候连线连接状态的那个点不会显示，需要手动点进去一次才行
+- [x] 程序刚启动的时候连线连接状态的那个点不会显示，需要手动点进去一次才行
+  - 原因：客户端的连接状态只有两个来源——① 核心的 `CEvtSubscriptionStatus` 事件（只在服务器的订阅状态**发生变化**时才发；启动时已经连上的连接没有任何变化，因此不会发事件）；② `apiContactInfo` 返回的 `ConnectionStats.subStatus`（以前只有在打开聊天 `ChatView` 或打开信息页时才会去拉）。所以刚启动时逐连接状态表是空的、也没有任何连接拉过 stats，解析器对每个连接都返回 `null`，按「没有状态就不画点」的规则所有点都不显示；打开一次聊天后才会补上那一个连接。
+  - 修复方法：新增纯函数 `chatsForConnectionStatus(chats, requested, statusKnown)` 筛选出「联系人 ready && active、连接状态仍未知、本会话尚未请求过该 `agentConnId`」的私聊；在 `ChatListView` 里用一个 `LaunchedEffect`（依赖私聊 id 列表）把这些连接的 `agentConnId` 记进 `ChatModel.connectionStatusRequested`，然后在 `withBGApi` 中逐个调用 `apiContactInfo`（与打开聊天时完全相同的一次调用，保证数值同源），结果用 `ChatsContext.updateContactConnectionStats` 写入模型，解析器即可通过 `Connection.connectionStats.subStatus` 读到。请求异常会被 try/catch 记录并吞掉（例如联系人已被删除），该连接本会话不再重试，点保持隐藏。
+  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`（`connectionStatusRequested`、`chatsForConnectionStatus`）、`.../views/chatlist/ChatListView.kt`（后台预取）。
+  - 未改核心、未新增字符串/偏好/`AppSettings` 字段，仍是会话内内存状态，不落盘；订阅事件到来时仍会覆盖这些值。
+  - 范围说明：只对私聊连接做预取（每个联系人本会话最多一次）。群成员的圆点仍需等订阅事件或打开该成员信息页，因为按成员逐个请求在大群里会是一次打开就几十上百次调用；如果之后需要，可在这个基础上再加按群成员的懒加载。
+  - 文档：`product/rules.md`（RULE-22 新增第 5 条「状态本会话只请求一次且在后台」）、`product/views/chat-list.md`、`product/concepts.md`（PC37）、`spec/client/chat-list.md`（Connection Status Dot）、`spec/state.md`（`connectionStatusRequested`）、`spec/impact.md`、`plans/2026-10-22-fix-status-dot-startup.md`。
+  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ConnectionStatusPrefetchTest.kt`（9 个用例：需要预取的私聊／状态已知／已请求过／无连接／未 ready／未 active／群聊／混合场景只返回待请求的／每个连接都参与判断），`./gradlew :common:desktopTest` 全部通过（9/9，全部 18 个测试类共 107 个用例无失败）。差异补丁见 `diff/`。
 
 - [ ] 好像有性能问题，在主页滚动列表会很卡
 

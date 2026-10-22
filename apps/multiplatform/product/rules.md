@@ -379,7 +379,14 @@ attached to it -- is display metadata owned by the client.
 4. **Direct chats and members only.** The dot MUST only be shown for direct chats/contacts and for
    group members that have an active connection. Group and channel rows MUST NOT show it, because
    they have no single connection to report.
-5. **The chat title only reports the open chat.** The direct chat title MUST NOT display a status of
+5. **Statuses are requested once, in the background.** Because the core only reports a connection
+   status on subscription events, the chat list MUST request the connection stats of the direct chats
+   whose status is still unknown once per session in the background
+   (`chatsForConnectionStatus` + `ChatModel.connectionStatusRequested`), so the dots are shown without
+   opening each chat first. Groups that are already known, connections that are not ready and active,
+   and connections requested earlier in the session MUST be skipped, and failures MUST be caught and
+   swallowed so the dot simply stays hidden.
+6. **The chat title only reports the open chat.** The direct chat title MUST NOT display a status of
    any connection other than the chat's own active connection - in particular it MUST NOT fall back
    to `chatSubStatus` unless that connection is the one currently opened
    (`chatModel.chatAgentConnId`), because `chatSubStatus` is not cleared when a chat is closed.
@@ -391,6 +398,8 @@ attached to it -- is display metadata owned by the client.
   (`connectionSubStatuses`, `connectionSubStatus`, `ChatModel.connectionStatus`)
 - `common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`
   (`CR.SubscriptionStatusEvt` handler)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatListView.kt`
+  (background request of the connection stats, `ChatModel.connectionStatusRequested`)
 - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt`
   (`ChatInfoToolbarTitle`), `views/chatlist/ChatPreviewView.kt` (`chatPreviewTitle`),
   `views/chat/group/GroupChatInfoView.kt` (`MemberRow`), `views/chat/ChatInfoView.kt`

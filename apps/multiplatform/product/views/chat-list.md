@@ -105,6 +105,14 @@ membership is inactive and groups already requested), stores the result in the s
 same `groupMembersConnection`/`groupMembersConnectionRate` helpers as the group info page, and is
 hidden for relay groups or groups in `nextConnectPrepared`, exactly like the info-page member section.
 
+The network status dot of a direct chat needs the connection status, and the core only reports one on
+subscription events: a connection that was already up when the app started has none, which is why the
+dot used to appear only after the chat had been opened once. `ChatListView` therefore requests the
+connection stats of the ready and active direct chats whose status is still unknown once per session
+in the background (`chatsForConnectionStatus` + `ChatModel.connectionStatusRequested`, with
+`apiContactInfo` just like opening the chat), so the dots are there right after startup. The request is
+silent on failure and each connection is asked at most once per session.
+
 ### Context Menu (Long Press / Right Click)
 
 Each chat type provides specific dropdown menu items:
