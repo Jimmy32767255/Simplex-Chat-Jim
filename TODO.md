@@ -105,6 +105,15 @@
   - 文档：`product/concepts.md`（PC39）、`product/rules.md`（RULE-24）、`product/README.md`、`product/views/chat-list.md`、`product/views/group-info.md`、`spec/impact.md`、`spec/state.md`、`spec/client/chat-list.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupConnectionRateCacheTest.kt`（10 个用例：普通群/频道/未激活成员/已请求/非群聊的预取筛选，以及成员更新时的替换、追加活跃成员、移除失效成员、忽略未缓存群、不追加失效的新成员），`./gradlew :common:desktopTest` 全部通过（10/10，全部 17 个测试类无失败）。差异补丁见 `diff/`。
 
+- [x] 在设置里添加一个开关允许将收藏视为置顶（开启后已收藏的联系人或群会永远显示在主页对话列表的最上方）
+  - 已实现（基于 7.0.4）：新增客户端布尔偏好 `AppPreferences.favoritesAsPinned`（默认关闭，键名 `FavoritesAsPinned`），设置页新增「对话列表」（`settings_chat_list`）分区，其中的开关「将收藏视为置顶」（`favorites_as_pinned`）带一行说明文字。开启后主页对话列表把已收藏的联系人和群整体移到最上方。
+  - 排序实现是纯显示层的：`ChatModel.kt` 新增 `isFavoriteChat(chat)`（即 `chat.chatInfo.chatSettings?.favorite == true`，与收藏筛选和星标图标用同一个字段）和 `favoritesPinnedFirst(chats, favoritesAsPinned)`（用 `partition` 稳定分组，收藏在前、其余在后，两组内部原有顺序不变）；`ChatListView` 在 `filteredChats(...)` 之后调用它，偏好关闭时原样返回。`ChatModel.chats` 的顺序、内核数据和数据库都没有被改动，关掉开关立即恢复原顺序。
+  - 只影响主页对话列表：复用 `filteredChats` 的其他界面（例如分享列表）不会被重排；搜索/筛选结果同样适用这条规则（收藏永远在上方），这一点也已写进文档。
+  - 不修改核心（Haskell）与网络协议，不修改 `AppSettings` 跨设备导入/导出结构（新的偏好只是本机设置），未改任何既有字符串。
+  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`（`favoritesAsPinned` + `SHARED_PREFS_FAVORITES_AS_PINNED`）、`.../model/ChatModel.kt`（`isFavoriteChat`、`favoritesPinnedFirst`）、`.../views/chatlist/ChatListView.kt`（应用排序）、`.../views/usersettings/SettingsView.kt`（「对话列表」分区与开关）、`common/src/commonMain/resources/MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 3 条字符串）。
+  - 文档：`product/rules.md`（RULE-25）、`product/concepts.md`（PC40）、`product/README.md`、`product/views/chat-list.md`（Chat List Order）、`product/views/settings.md`（Chat List Section）、`spec/client/chat-list.md`（Chat List Order）、`spec/state.md`（`favoritesAsPinned`）、`spec/impact.md`、`plans/2026-10-22-favorites-pinned-first.md`。
+  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/FavoritesPinnedFirstTest.kt`（8 个用例：关闭时顺序不变、收藏移到最上方、两组内部顺序保持、没有收藏/全是收藏时不变、空列表、无聊天设置的对话不算收藏、联系人与群都被识别），`./gradlew :common:desktopTest` 全部通过（8/8，全部 19 个测试类共 115 个用例无失败），`:common:compileDebugKotlinAndroid` 也通过。差异补丁见 `diff/`。
+
 ## mod:
 
 none

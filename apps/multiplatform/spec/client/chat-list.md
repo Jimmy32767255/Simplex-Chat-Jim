@@ -137,7 +137,7 @@ sealed class ActiveFilter {
 
 ### Search Filtering
 
-The `filteredChats` function (line ~1474) applies filters in this order:
+The `filteredChats` function (`ChatListView.kt#L1521`) applies filters in this order:
 
 1. **SimpleX link match:** If a pasted link resolved to a known contact/group, show only that chat.
 2. **Text search:** Case-insensitive match against `chat.chatInfo.chatViewName`, `chat.chatInfo.fullName`, and `chat.chatInfo.localAlias`.
@@ -145,6 +145,18 @@ The `filteredChats` function (line ~1474) applies filters in this order:
    - `PresetTag`: Matches chat type and characteristics (e.g., `CONTACTS` filters `ChatInfo.Direct`, `GROUPS` filters `ChatInfo.Group`).
    - `UserTag`: Matches chats whose `chatTags` contain the tag ID.
    - `Unread`: Matches chats with `unreadCount > 0` or `unreadChat == true`.
+
+### Chat List Order
+
+The filtered list keeps the order of `ChatModel.chats` (the core order, with recently updated chats
+popped to the front by `ChatsContext`). `ChatListView` then passes it through
+`favoritesPinnedFirst(chats, appPrefs.favoritesAsPinned.state.value)`:
+
+- `isFavoriteChat(chat)` is `chat.chatInfo.chatSettings?.favorite == true` (contacts and groups alike).
+- With the preference off the list is returned unchanged; with it on, `partition` puts the favorites
+  first and both halves keep their relative order.
+- The reorder happens in the composable only: `ChatModel.chats` is never mutated, nothing is sent to the
+  core, and other consumers of `filteredChats` (the share sheet) keep the original order.
 
 ### Search Bar
 

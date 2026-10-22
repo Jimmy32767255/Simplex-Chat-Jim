@@ -3044,6 +3044,9 @@
     <string name="v7_1_channels_descr">添加协管并签署每条消息。</string>
     <string name="v7_1_flat_layout">扁平布局和 Markdown</string>
     <string name="v7_1_flat_layout_descr">在外观设置中启用。</string>
+    <string name="settings_chat_list">对话列表</string>
+    <string name="favorites_as_pinned">将收藏视为置顶</string>
+    <string name="favorites_as_pinned_footer">已收藏的联系人和群组将始终显示在对话列表的最上方，位于其他对话之前。</string>
     <string name="settings_message_sending">消息发送</string>
     <string name="send_message_with">发送消息的快捷键</string>
     <string name="insert_newline_with">换行的快捷键</string>

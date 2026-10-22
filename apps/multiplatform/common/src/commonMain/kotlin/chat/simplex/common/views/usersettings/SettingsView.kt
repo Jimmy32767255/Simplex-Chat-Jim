@@ -1,6 +1,7 @@
 package chat.simplex.common.views.usersettings
 
 import SectionBottomSpacer
+import SectionTextFooter
 import itemHPadding
 import SectionItemView
 import SectionDividerSpaced
@@ -125,6 +126,16 @@ fun SettingsLayout(
       }
     }
     SectionTextFooter(stringResource(badgeBenefits))
+    SectionDividerSpaced()
+
+    SectionView(stringResource(MR.strings.settings_chat_list)) {
+      SettingsPreferenceItem(
+        painterResource(MR.images.ic_star),
+        stringResource(MR.strings.favorites_as_pinned),
+        appPrefs.favoritesAsPinned
+      )
+      SectionTextFooter(stringResource(MR.strings.favorites_as_pinned_footer))
+    }
     SectionDividerSpaced()
 
     SectionView(stringResource(MR.strings.advanced_settings)) {

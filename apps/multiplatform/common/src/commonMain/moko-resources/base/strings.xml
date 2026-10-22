@@ -3399,6 +3399,9 @@
   <string name="v7_1_channels_descr">Add moderators and sign every message.</string>
   <string name="v7_1_flat_layout">Flat layout and markdown</string>
   <string name="v7_1_flat_layout_descr">Enable in Appearance settings.</string>
+  <string name="settings_chat_list">Chat list</string>
+  <string name="favorites_as_pinned">Treat favorites as pinned</string>
+  <string name="favorites_as_pinned_footer">Favorite contacts and groups will always be shown at the top of the chat list, above the other chats.</string>
   <string name="settings_message_sending">Message sending</string>
   <string name="send_message_with">Send message with</string>
   <string name="insert_newline_with">Insert newline with</string>

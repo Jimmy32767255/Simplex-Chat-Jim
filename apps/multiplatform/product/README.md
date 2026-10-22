@@ -172,6 +172,7 @@ Server configuration, proxy support, and connectivity.
 | Server status | View aggregate server connectivity status | `common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ServersSummaryView.kt` |
 | Connection network status dot | Per-connection status dot (connected / connecting / subscription removed) shown next to the name in the direct chat title, the chat list rows and the group member list, and on the contact info page's **Network status** row | `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/SubscriptionStatusDot.kt` |
 | Group connection rate in the chat list | Group member connection-rate dot (green / yellow / grey) in front of group names on the home screen, computed from member lists prefetched in the background and refreshed by member updates | `common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatPreviewView.kt` |
+| Favorites as pinned | Optional switch that moves favorited contacts and groups to the top of the home chat list (display order only) | `common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatListView.kt` |
 | Network & servers hub | Central network configuration entry point | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt` |
 
 ### 8. Customization

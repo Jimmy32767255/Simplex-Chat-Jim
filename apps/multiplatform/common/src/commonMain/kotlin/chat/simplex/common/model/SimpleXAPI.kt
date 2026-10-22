@@ -320,6 +320,10 @@ class AppPreferences {
     set = fun(value: ChatLayoutMode) = settings.putString(SHARED_PREFS_CHAT_LAYOUT, value.text)
   )
 
+  // Show the favorite contacts and groups at the top of the home chat list, like pinned chats.
+  // Client-side display preference only: the chat order itself is not changed or persisted.
+  val favoritesAsPinned = mkBoolPreference(SHARED_PREFS_FAVORITES_AS_PINNED, false)
+
   val hintPreferences: List<HintPref> = listOf(
     hintPref(laNoticeShown, false),
     hintPref(oneHandUICardShown, false),
@@ -542,6 +546,7 @@ class AppPreferences {
     private const val SHARED_PREFS_ONE_HAND_UI = "OneHandUI"
     private const val SHARED_PREFS_CHAT_BOTTOM_BAR = "ChatBottomBar"
     private const val SHARED_PREFS_CHAT_LAYOUT = "ChatLayout"
+    private const val SHARED_PREFS_FAVORITES_AS_PINNED = "FavoritesAsPinned"
     private const val SHARED_PREFS_SELF_DESTRUCT = "LocalAuthenticationSelfDestruct"
     private const val SHARED_PREFS_SELF_DESTRUCT_DISPLAY_NAME = "LocalAuthenticationSelfDestructDisplayName"
     private const val SHARED_PREFS_PQ_EXPERIMENTAL_ENABLED = "PQExperimentalEnabled" // no longer used
