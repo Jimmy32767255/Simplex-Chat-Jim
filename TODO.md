@@ -4,6 +4,8 @@
 
 对于 AI：假如遇到无法实现、实现困难、官方已实现、破坏现有逻辑和功能、或者改动不确定的地方，请询问我
 
+## feat & add:
+
 - [x] 在桌面端选择换行键组合（比如用回车键发送，控制加回车换行，或者反过来，又或者把控制改成上挡之类的，总之是两个下拉菜单，分别控制发送以及换行，但是不知道放哪，可以在设置页面里开一个新的分类）
   - **已实现（基于 7.0.4）**：设置页新增桌面端专属「消息发送」分类，内含「发送消息的快捷键」与「换行的快捷键」两个下拉菜单，均提供 `Enter`、`Shift + Enter`、`Ctrl + Enter`、`Alt + Enter` 四种组合。
   - 新增枚举 `ChatEnterKeyCombination` 与偏好项 `messageSendKey`（默认 `Enter`）/ `messageNewlineKey`（默认 `Shift + Enter`），位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`。使用 `mkSafeEnumPreference` 存储，遇到不认识的旧值会安全回退到默认值，便于日后升级。
@@ -102,3 +104,21 @@
   - 与条目 1、5、6、8、10 一致：不修改核心（Haskell）与网络协议，不修改 `AppSettings` 跨设备导入/导出结构，未新增字符串（复用已有的 `ic_circle_filled`/`ic_pending_filled`/`ic_error_filled`），缓存只在本次会话内存中存在、不写入磁盘。
   - 文档：`product/concepts.md`（PC39）、`product/rules.md`（RULE-24）、`product/README.md`、`product/views/chat-list.md`、`product/views/group-info.md`、`spec/impact.md`、`spec/state.md`、`spec/client/chat-list.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupConnectionRateCacheTest.kt`（10 个用例：普通群/频道/未激活成员/已请求/非群聊的预取筛选，以及成员更新时的替换、追加活跃成员、移除失效成员、忽略未缓存群、不追加失效的新成员），`./gradlew :common:desktopTest` 全部通过（10/10，全部 17 个测试类无失败）。差异补丁见 `diff/`。
+
+## mod:
+
+none
+
+## bug fix:
+
+- [ ] 群成员连接率似乎忘记排除自己了，导致永远无法达到百分之一百
+
+- [ ] 点的显示有时候和联系人页面里显示的连接状态不一致
+
+- [ ] 程序刚启动的时候连线连接状态的那个点不会显示，需要手动点进去一次才行
+
+- [ ] 好像有性能问题，在主页滚动列表会很卡
+
+## del:
+
+none
