@@ -2921,6 +2921,7 @@ object ChatController {
         if (active(r.user)) {
           withContext(Dispatchers.Main) {
             chatModel.chatsContext.upsertGroupMember(rhId, r.groupInfo, r.toMember)
+            chatModel.updateGroupMembersForRate(r.groupInfo, r.toMember)
           }
           withContext(Dispatchers.Main) {
             chatModel.secondaryChatsContext.value?.upsertGroupMember(rhId, r.groupInfo, r.toMember)

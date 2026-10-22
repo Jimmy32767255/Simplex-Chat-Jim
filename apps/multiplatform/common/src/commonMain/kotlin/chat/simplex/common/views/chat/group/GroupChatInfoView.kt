@@ -1188,11 +1188,6 @@ internal fun groupMembersRowsVisible(nextConnectPrepared: Boolean, useRelays: Bo
 @Composable
 private fun GroupMembersConnectionStatus(connected: Int, total: Int) {
   val percentage = if (total > 0) floor(100f * connected / total).toInt() else 0
-  val (icon, tint) = when (groupMembersConnectionRate(connected, total)) {
-    GroupMembersConnectionRate.ALL_CONNECTED -> MR.images.ic_circle_filled to Color.Green
-    GroupMembersConnectionRate.PARTIALLY_CONNECTED -> MR.images.ic_pending_filled to WarningYellow
-    GroupMembersConnectionRate.NONE_CONNECTED -> MR.images.ic_error_filled to MaterialTheme.colors.secondary
-  }
   Row(
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(DEFAULT_SPACE_AFTER_ICON)
@@ -1203,8 +1198,22 @@ private fun GroupMembersConnectionStatus(connected: Int, total: Int) {
       style = MaterialTheme.typography.caption,
       fontSize = 12.sp
     )
-    Icon(painterResource(icon), null, Modifier.size(16.dp), tint = tint)
+    GroupMembersConnectionRateDot(connected, total)
   }
+}
+
+/**
+ * The connection rate of a group as a dot: green when every member is connected, yellow when only
+ * some are, grey when nobody is. It is shown in the member list title and in the chat list.
+ */
+@Composable
+fun GroupMembersConnectionRateDot(connected: Int, total: Int, size: Dp = 16.dp) {
+  val (icon, tint) = when (groupMembersConnectionRate(connected, total)) {
+    GroupMembersConnectionRate.ALL_CONNECTED -> MR.images.ic_circle_filled to Color.Green
+    GroupMembersConnectionRate.PARTIALLY_CONNECTED -> MR.images.ic_pending_filled to WarningYellow
+    GroupMembersConnectionRate.NONE_CONNECTED -> MR.images.ic_error_filled to MaterialTheme.colors.secondary
+  }
+  Icon(painterResource(icon), null, Modifier.size(size), tint = tint)
 }
 
 @Composable

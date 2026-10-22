@@ -31,6 +31,9 @@ import chat.simplex.common.model.ChatController.appPrefs
 import chat.simplex.common.model.GroupInfo
 import chat.simplex.common.platform.*
 import chat.simplex.common.views.chat.*
+import chat.simplex.common.views.chat.group.GroupMembersConnectionRateDot
+import chat.simplex.common.views.chat.group.groupMembersConnection
+import chat.simplex.common.views.chat.group.groupMembersSectionVisible
 import chat.simplex.common.views.newchat.planAndConnect
 import chat.simplex.common.views.chat.item.*
 import chat.simplex.res.MR
@@ -179,7 +182,16 @@ fun ChatPreviewView(
             else -> if (cInfo.groupInfo.nextConnectPrepared) MaterialTheme.colors.primary else Color.Unspecified
           }
         }
-        chatPreviewTitleText(color = color)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          // Connection rate of the group members, loaded in the background for the chat list
+          val members = chatModel.groupMembersForRate[cInfo.groupInfo.groupId]
+          if (members != null && groupMembersSectionVisible(cInfo.groupInfo.nextConnectPrepared, cInfo.groupInfo.useRelays)) {
+            val (connected, total) = groupMembersConnection(members, cInfo.groupInfo.membership)
+            GroupMembersConnectionRateDot(connected, total)
+            Spacer(Modifier.width(4.dp))
+          }
+          chatPreviewTitleText(color = color)
+        }
       }
       else -> chatPreviewTitleText()
     }

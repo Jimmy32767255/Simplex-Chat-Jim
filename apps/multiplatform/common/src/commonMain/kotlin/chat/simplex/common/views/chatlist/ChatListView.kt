@@ -190,6 +190,32 @@ fun ChatListView(chatModel: ChatModel, userPickerState: MutableStateFlow<Animate
     }
   }
 
+  // Member lists are not part of the chat list data, so they are loaded once per session in the
+  // background to show the group members connection rate dot next to the group names.
+  val groupChatIds = remember { derivedStateOf { chatModel.chats.value.filter { it.chatInfo is ChatInfo.Group }.map { it.id } } }
+  LaunchedEffect(groupChatIds.value) {
+    val pending = groupChatsForConnectionRate(chatModel.chats.value, chatModel.groupRateRequested)
+    if (pending.isEmpty()) return@LaunchedEffect
+    for (chat in pending) {
+      (chat.chatInfo as? ChatInfo.Group)?.let { chatModel.groupRateRequested.add(it.groupInfo.groupId) }
+    }
+    withBGApi {
+      for (chat in pending) {
+        val groupInfo = (chat.chatInfo as? ChatInfo.Group)?.groupInfo ?: continue
+        // The group can disappear while its member list is being requested. Failing silently keeps
+        // the dot hidden instead of crashing the app, and the group is not retried this session.
+        try {
+          val members = chatModel.controller.apiListMembers(chat.remoteHostId, groupInfo.groupId)
+          withContext(Dispatchers.Main) {
+            chatModel.groupMembersForRate[groupInfo.groupId] = members
+          }
+        } catch (e: Exception) {
+          Log.d(TAG, "Failed to load members for the chat list connection rate, group ${groupInfo.groupId}: ${e.stackTraceToString()}")
+        }
+      }
+    }
+  }
+
   if (appPlatform.isDesktop) {
     KeyChangeEffect(chatModel.chatId.value) {
       if (chatModel.chatId.value != null && !ModalManager.end.isLastModalOpen(ModalViewId.SECONDARY_CHAT)) {

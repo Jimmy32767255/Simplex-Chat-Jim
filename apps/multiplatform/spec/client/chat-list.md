@@ -159,7 +159,7 @@ The `filteredChats` function (line ~1474) applies filters in this order:
 
 ## 5. Chat Preview
 
-**Location:** [`ChatPreviewView.kt#L41`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatPreviewView.kt#L41)
+**Location:** [`ChatPreviewView.kt#L44`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatPreviewView.kt#L44)
 
 ```kotlin
 fun ChatPreviewView(
@@ -183,7 +183,7 @@ Each chat preview row contains:
 | Element | Position | Content |
 |---|---|---|
 | Profile image | Left | `ChatInfoImage` with overlay icons for inactive contacts/groups |
-| Title row | Top-right of image | Chat name (bold), verified shield (direct), timestamp. Direct chats that are ready and active are preceded by the connection network status dot |
+| Title row | Top-right of image | Chat name (bold), verified shield (direct), timestamp. Direct chats that are ready and active are preceded by the connection network status dot; ordinary groups with a known member list are preceded by the group member connection-rate dot |
 | Preview row | Below title | Last message preview or draft indicator, unread badge |
 | Unread badge | Right | Circular badge with count, or dot for muted chats |
 
@@ -194,6 +194,23 @@ before the verified shield for `ChatInfo.Direct` rows whose contact is `ready &&
 status is known. The dot is the shared component from `views/helpers/SubscriptionStatusDot.kt`; the
 per-connection status map is filled from `CR.SubscriptionStatusEvt`, with
 `Connection.connectionStats.subStatus` as the fallback. Nothing is rendered when no status is known.
+
+### Group Connection Rate Dot
+
+For `ChatInfo.Group` rows `chatPreviewTitle()` renders `GroupMembersConnectionRateDot` before the name
+when `ChatModel.groupMembersForRate[groupId]` is known and
+`groupMembersSectionVisible(nextConnectPrepared, useRelays)` is true, with `connected`/`total` coming
+from the same `groupMembersConnection(members, membership)` helper as the group info page. The dot is
+green when every member has a ready connection, yellow when some do and grey when nobody does; nothing
+is rendered while the member list is unknown, so rows never shift.
+
+The list itself is prefetched by `ChatListView`: a `LaunchedEffect` over the group chat ids picks the
+chats returned by `groupChatsForConnectionRate(chats, chatModel.groupRateRequested)` (ordinary groups,
+active own membership, not requested yet), marks them requested, and requests `apiListMembers` for each
+inside `withBGApi`, storing the result in `ChatModel.groupMembersForRate` on the main thread. Failures
+are silent. `CR.GroupMemberUpdated` keeps the cached list fresh through
+`ChatModel.updateGroupMembersForRate` (replace/append active members, drop inactive ones, ignore
+uncached groups). The cache is session-local and never persisted.
 
 ### Draft Display
 
@@ -233,7 +250,7 @@ On desktop, the currently selected chat (`chatModel.chatId.value == chat.id`) re
 
 ### TagsView
 
-**Location:** [`ChatListView.kt#L1214`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatListView.kt#L1214)
+**Location:** [`ChatListView.kt#L1220`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatListView.kt#L1220)
 
 Renders a horizontally scrollable row of tag chips (via `TagsRow`, which is a platform-specific `expect` composable).
 

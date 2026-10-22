@@ -17,6 +17,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
 9. [Connection Status Display (RULE-21)](#9-connection-status-display)
 10. [Network Status Dot (RULE-22)](#10-network-status-dot)
 11. [Servers Import and Export (RULE-23)](#11-servers-import-and-export)
+12. [Group Connection Rate in the Chat List (RULE-24)](#12-group-connection-rate-in-the-chat-list)
 
 ---
 
@@ -418,4 +419,41 @@ attached to it -- is display metadata owned by the client.
 - `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt`
   (`ServersImportExportSection`, reuses `saveServers`)
 - Test: `common/src/commonTest/kotlin/chat/simplex/app/ServersBackupTest.kt`
+
+---
+
+## 12. Group Connection Rate in the Chat List
+
+### RULE-24: The Chat List Rate Uses Background-Loaded Member Lists Only
+
+1. **Same computation as the info page.** The chat-list dot MUST be derived from the same helpers as
+   the group info page (`groupMembersConnection` + `groupMembersConnectionRate`), so the two never
+   disagree for the same member list.
+2. **Only ordinary groups, only when the list is known.** The dot MUST NOT be shown for relay groups
+   (channels) or for groups in `nextConnectPrepared`, mirroring `groupMembersSectionVisible` on the
+   info page, and it MUST NOT be shown before a member list is cached - no optimistic or "unknown"
+   state such as a grey dot.
+3. **The prefetch is bounded and silent.** Member lists MUST be requested at most once per group per
+   session (`groupRateRequested`), MUST be requested in the background off the UI thread, MUST skip
+   groups whose own membership is inactive, and MUST NOT show progress or error UI in the chat list
+   when a request fails. Failures, including an exception thrown by the request (for example when the
+   group was deleted meanwhile), MUST be caught and swallowed so that only the dot stays hidden.
+4. **The cache is session-local.** `ChatModel.groupMembersForRate` MUST NOT be persisted, MUST NOT be
+   part of `AppSettings` or the cross-device backup, and MUST NOT be confused with
+   `ChatModel.groupMembers`, which is the member list of the currently opened group.
+5. **Member updates keep the cache fresh.** A `CR.GroupMemberUpdated` event MUST update the cached
+   list when that group is cached: an active member replaces its entry or is appended, an inactive
+   one is removed, and updates for groups that were never cached MUST be ignored.
+
+**Enforcement:**
+- `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`
+  (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`,
+  `groupChatsForConnectionRate`)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatListView.kt`
+  (background prefetch effect)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatPreviewView.kt`
+  (`chatPreviewTitle` group branch)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`
+  (`GroupMembersConnectionRateDot`, shared with the member list title)
+- Test: `common/src/commonTest/kotlin/chat/simplex/app/GroupConnectionRateCacheTest.kt`
 

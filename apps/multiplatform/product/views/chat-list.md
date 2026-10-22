@@ -80,7 +80,7 @@ Each row rendered by `ChatPreviewView` inside `ChatListNavLinkView`:
 | Element | Description |
 |---|---|
 | Avatar | `ProfileImage` with overlay icons (inactive contact, left/removed group member) |
-| Chat name | Display name with verified icon for verified contacts; colored for pending/connecting states. Direct chats that are ready and active are preceded by the shared connection network status dot (`SubscriptionStatusDot`: filled green circle = connected, pending icon = connecting, error icon = subscription removed or missing) when a status is known for the contact's connection |
+| Chat name | Display name with verified icon for verified contacts; colored for pending/connecting states. Direct chats that are ready and active are preceded by the shared connection network status dot (`SubscriptionStatusDot`: filled green circle = connected, pending icon = connecting, error icon = subscription removed or missing) when a status is known for the contact's connection. Ordinary group chats are preceded by the group member connection-rate dot (`GroupMembersConnectionRateDot`: green = all members connected, yellow = some, grey = none) |
 | Last message preview | Truncated text of most recent message; draft indicator with edit icon; attachment icons |
 | Timestamp | Relative time of last activity |
 | Unread badge | Numeric count badge; distinct styling for mentions |
@@ -95,6 +95,15 @@ Chat types handled by `ChatListNavLinkView`:
 - `ChatInfo.Local` -- note-to-self folder
 - `ChatInfo.ContactRequest` -- incoming contact request (tap shows accept/reject alert)
 - `ChatInfo.ContactConnection` -- pending connection (tap opens `ContactConnectionView`)
+
+The group connection-rate dot needs the member list, which the home screen does not otherwise
+load: when the chat list is shown, `ChatListView` asks `chatModel.controller.apiListMembers` for every
+ordinary group once per session (`groupChatsForConnectionRate` skips channels, groups whose own
+membership is inactive and groups already requested), stores the result in the session-local
+`ChatModel.groupMembersForRate` and keeps it fresh from `CR.GroupMemberUpdated` events
+(`ChatModel.updateGroupMembersForRate`). The dot is rendered only once the list is known, reuses the
+same `groupMembersConnection`/`groupMembersConnectionRate` helpers as the group info page, and is
+hidden for relay groups or groups in `nextConnectPrepared`, exactly like the info-page member section.
 
 ### Context Menu (Long Press / Right Click)
 
