@@ -127,6 +127,9 @@ object ChatModel {
   val groupMembersForRate = mutableStateMapOf<Long, List<GroupMember>>()
   // group ids whose member list was already requested for the connection rate dot in this session
   internal val groupRateRequested = mutableSetOf<Long>()
+  // agent connection ids whose connection stats were already requested to show the status dots in
+  // this session, so that the chat list doesn't request them again on every update
+  internal val connectionStatusRequested = mutableSetOf<String>()
   val switchingUsersAndHosts = mutableStateOf(false)
 
   // current chat
@@ -2048,6 +2051,29 @@ internal fun connectionStatus(
 ): SubscriptionStatus? =
   connectionSubStatus(conn, liveStatuses)
     ?: openChatStatus?.takeIf { conn != null && openChatAgentConnId != null && conn.agentConnId == openChatAgentConnId }
+
+/**
+ * The direct chats whose connection status still has to be fetched to show the network status dot,
+ * for example after the app was started: the core only reports a connection status on subscription
+ * events, so connections that are already up at startup have no status until something asks for their
+ * connection stats. Chats that are not ready and active, connections whose status is already known
+ * ([statusKnown]) and connections that were already asked in this session are skipped.
+ */
+internal fun chatsForConnectionStatus(
+  chats: List<Chat>,
+  requested: Set<String>,
+  statusKnown: (Connection) -> Boolean
+): List<Chat> =
+  chats.filter { chat ->
+    val contact = (chat.chatInfo as? ChatInfo.Direct)?.contact
+    val conn = contact?.activeConn
+    contact != null &&
+      conn != null &&
+      contact.ready &&
+      contact.active &&
+      conn.agentConnId !in requested &&
+      !statusKnown(conn)
+  }
 
 /**
  * The group chats whose member list still has to be loaded to show the connection rate dot in the

@@ -216,6 +216,37 @@ fun ChatListView(chatModel: ChatModel, userPickerState: MutableStateFlow<Animate
     }
   }
 
+  // The core only reports a connection status on subscription events, so a connection that is
+  // already up when the app starts has no status until its connection stats are requested. They are
+  // requested once per session in the background for the direct chats in the list, so that the
+  // network status dots are there without opening each chat first.
+  val directChatIds = remember { derivedStateOf { chatModel.chats.value.filter { it.chatInfo is ChatInfo.Direct }.map { it.id } } }
+  LaunchedEffect(directChatIds.value) {
+    val pending = chatsForConnectionStatus(chatModel.chats.value, chatModel.connectionStatusRequested) { chatModel.connectionStatus(it) != null }
+    if (pending.isEmpty()) return@LaunchedEffect
+    for (chat in pending) {
+      (chat.chatInfo as? ChatInfo.Direct)?.contact?.activeConn?.let { chatModel.connectionStatusRequested.add(it.agentConnId) }
+    }
+    withBGApi {
+      for (chat in pending) {
+        val contact = (chat.chatInfo as? ChatInfo.Direct)?.contact ?: continue
+        // The contact can disappear while its stats are being requested. Failing silently keeps the
+        // dot hidden instead of crashing the app, and the connection is not retried this session.
+        try {
+          val r = chatModel.controller.apiContactInfo(chat.remoteHostId, contact.apiId)
+          val stats = r?.first
+          if (stats != null) {
+            withContext(Dispatchers.Main) {
+              chatModel.chatsContext.updateContactConnectionStats(chat.remoteHostId, contact, stats)
+            }
+          }
+        } catch (e: Exception) {
+          Log.d(TAG, "Failed to load the connection status for the chat list, contact ${contact.contactId}: ${e.stackTraceToString()}")
+        }
+      }
+    }
+  }
+
   if (appPlatform.isDesktop) {
     KeyChangeEffect(chatModel.chatId.value) {
       if (chatModel.chatId.value != null && !ModalManager.end.isLastModalOpen(ModalViewId.SECONDARY_CHAT)) {

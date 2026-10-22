@@ -195,6 +195,16 @@ status is known. The dot is the shared component from `views/helpers/Subscriptio
 per-connection status map is filled from `CR.SubscriptionStatusEvt`, with
 `Connection.connectionStats.subStatus` as the fallback. Nothing is rendered when no status is known.
 
+The core only reports a connection status on subscription events, so a connection that is already up
+when the app starts has no status until its connection stats are requested. `ChatListView` therefore
+requested them once per session in the background: a `LaunchedEffect` over the direct chat ids takes
+the chats returned by `chatsForConnectionStatus(chats, chatModel.connectionStatusRequested, statusKnown)`
+(ready and active contacts whose connection has no status yet and wasn't requested in this session),
+marks their `agentConnId` as requested, and calls `apiContactInfo` inside `withBGApi` — the same call
+the chat uses when it is opened — storing the stats with
+`ChatsContext.updateContactConnectionStats`, which the resolver reads. Failures are silent (the dot
+stays hidden and the connection is not retried this session).
+
 ### Group Connection Rate Dot
 
 For `ChatInfo.Group` rows `chatPreviewTitle()` renders `GroupMembersConnectionRateDot` before the name
