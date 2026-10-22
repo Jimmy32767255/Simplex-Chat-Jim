@@ -189,7 +189,7 @@ Each chat preview row contains:
 
 ### Connection Status Dot
 
-`chatPreviewTitle()` renders `SubscriptionStatusDot(connectionSubStatus(cInfo.contact.activeConn, chatModel.connectionSubStatuses))`
+`chatPreviewTitle()` renders `SubscriptionStatusDot(chatModel.connectionStatus(cInfo.contact.activeConn))`
 before the verified shield for `ChatInfo.Direct` rows whose contact is `ready && active` and whose
 status is known. The dot is the shared component from `views/helpers/SubscriptionStatusDot.kt`; the
 per-connection status map is filled from `CR.SubscriptionStatusEvt`, with

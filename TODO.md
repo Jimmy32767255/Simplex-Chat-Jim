@@ -119,7 +119,13 @@ none
   - 文档：`product/rules.md`（RULE-21 第 2 条）、`product/views/group-info.md`（Connection rate 行）、`spec/client/chat-view.md`（§8 成员列表）、`plans/2026-10-22-fix-group-rate-self.md`。
   - 测试：`GroupMembersConnectionRateTest` 扩充到 13 个用例（成员使用不同 `groupMemberId`；新增「自己只被计一次」「自己不活跃时不算已连接」「达到 100%」等），`./gradlew :common:desktopTest` 全部通过（13/13，全部 17 个测试类无失败）。差异补丁见 `diff/`。
 
-- [ ] 点的显示有时候和联系人页面里显示的连接状态不一致
+- [x] 点的显示有时候和联系人页面里显示的连接状态不一致
+  - 原因：同一个连接的状态在两个地方来自不同的数据源。圆点（主页列表、私聊标题、群成员列表）读的是 `connectionSubStatus(conn, chatModel.connectionSubStatuses)`（事件缓存，其次才是上次拉取的 `ConnectionStats.subStatus`）；而联系人页面的「服务器 → 网络状态」行读的是 `chatModel.chatSubStatus`——这个状态只在「打开某个聊天」或「收到属于当前打开聊天的订阅事件」时才会被写入，聊天关闭时还会被清空，与页面上显示的那个连接并不对应；群成员信息页又读自己临时拉取的 `cStats.subStatus`。三者来源不同，所以只要其中一处有值另一处没有（例如 `CR.ContactConnected` 只写了 `chatSubStatus` 而没写逐连接缓存），显示就会不一致。
+  - 修复方法：新增统一解析器 `ChatModel.connectionStatus(conn)`（内部是纯函数 `connectionStatus(conn, liveStatuses, openChatAgentConnId, openChatStatus)`），优先级为「事件里该连接的最新状态 → 该连接上次拉取的 `ConnectionStats.subStatus` → 当前打开聊天的状态（且仅当 `conn.agentConnId == chatAgentConnId`，避免串到别的聊天）」。主页列表、私聊标题、群成员列表、联系人信息页、群成员信息页全部改为读它；后两者保留自己的 `cStats.subStatus` 仅作为解析器还未知时的兜底。
+  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`（`ChatModel.connectionStatus` + 纯函数）、`.../views/chat/ChatView.kt`（`ChatInfoToolbarTitle`）、`.../views/chat/ChatInfoView.kt`（联系人页网络状态行）、`.../views/chat/group/GroupChatInfoView.kt`（`MemberRow`）、`.../views/chat/group/GroupMemberInfoView.kt`（成员信息页网络状态行）、`.../views/chatlist/ChatPreviewView.kt`（`chatPreviewTitle`）。
+  - 未改核心、未新增字符串、未新增偏好或 `AppSettings` 字段；状态仍是会话内的内存缓存，不落盘。
+  - 文档：`product/rules.md`（RULE-22 新增「全应用统一状态源」条款及条目）、`product/views/contact-info.md`、`product/views/chat.md`、`product/concepts.md`（PC37）、`spec/state.md`、`spec/client/chat-view.md`、`spec/client/chat-list.md`、`spec/impact.md`、`plans/2026-10-22-fix-status-dot-source.md`。
+  - 测试：扩充 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ConnectionSubStatusTest.kt` 到 12 个用例（新增「能取到当前打开聊天的状态」「不会把别的聊天的状态拿来用」「没有连接时忽略打开聊天的状态」「事件状态优先于打开聊天的状态」「`ConnectionStats` 优先于打开聊天的状态」），`./gradlew :common:desktopTest` 全部通过（12/12，全部 17 个测试类无失败）。差异补丁见 `diff/`。
 
 - [ ] 程序刚启动的时候连线连接状态的那个点不会显示，需要手动点进去一次才行
 
