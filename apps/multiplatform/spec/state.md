@@ -448,12 +448,13 @@ val appPrefs: AppPreferences by lazy { AppPreferences() }
 | `selfDestruct` | `Boolean` | `false` | Self-destruct enabled |
 | `selfDestructDisplayName` | `String?` | null | Display name for self-destruct profile |
 
-#### UI Preferences (lines 255-257)
+#### UI Preferences (lines 307-311)
 
 | Key | Type | Default | Purpose |
 |---|---|---|---|
 | `oneHandUI` | `Boolean` | `true` | One-hand mode |
 | `chatBottomBar` | `Boolean` | `true` | Bottom bar in chat |
+| `favoritesAsPinned` | `Boolean` | `false` | Show favorite contacts and groups at the top of the home chat list (`favoritesPinnedFirst`); a display preference, the chat order itself is unchanged |
 
 #### Desktop Chat Input (lines 136-137)
 

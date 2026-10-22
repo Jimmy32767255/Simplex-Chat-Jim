@@ -3238,6 +3238,9 @@
   <string name="badge_unverified_desc">This badge could not be verified and may not be genuine.</string>
   <string name="badge_unknown_key_title">Badge cannot be verified</string>
   <string name="badge_unknown_key_desc">The badge is signed with a key that this version of the app does not recognize. Update the app to verify this badge.</string>
+  <string name="settings_chat_list">Chat list</string>
+  <string name="favorites_as_pinned">Treat favorites as pinned</string>
+  <string name="favorites_as_pinned_footer">Favorite contacts and groups will always be shown at the top of the chat list, above the other chats.</string>
   <string name="settings_message_sending">Message sending</string>
   <string name="send_message_with">Send message with</string>
   <string name="insert_newline_with">Insert newline with</string>

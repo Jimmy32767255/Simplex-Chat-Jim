@@ -113,6 +113,18 @@ in the background (`chatsForConnectionStatus` + `ChatModel.connectionStatusReque
 `apiContactInfo` just like opening the chat), so the dots are there right after startup. The request is
 silent on failure and each connection is asked at most once per session.
 
+### Chat List Order
+
+The list itself follows the order of `ChatModel.chats`: the order the core returns, with the chats that
+received an update popped to the front by `ChatsContext` (sorted by their last activity).
+
+`ChatListView` then applies `favoritesPinnedFirst(filteredChats(...), appPrefs.favoritesAsPinned.state.value)`:
+when the "Treat favorites as pinned" switch (Settings → Chat list) is on, the chats whose
+`chatSettings.favorite` is true — contacts and groups alike — are moved to the top as a stable group,
+and the remaining chats keep their order. The switch changes the displayed order only: nothing is sent
+to the core, no per-chat state is added, and switching it off restores the previous order. Lists that
+reuse `filteredChats` (e.g. the share sheet) are not reordered.
+
 ### Context Menu (Long Press / Right Click)
 
 Each chat type provides specific dropdown menu items:

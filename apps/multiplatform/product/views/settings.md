@@ -201,6 +201,19 @@ Platform-specific section (expect/actual composable):
 | Reset all hints | Reset dismissed hint/card preferences |
 | App version | Version string with build info; taps open `VersionInfoView` |
 
+### Chat List Section
+
+Rendered on all platforms, between the main settings section and "Advanced settings".
+
+| Row | Preference Key | Default | Description |
+|---|---|---|---|
+| Treat favorites as pinned | `favoritesAsPinned` | Off | Favorite contacts and groups are always shown at the top of the home chat list, above the other chats |
+
+The footer explains that favorited contacts and groups will always be shown at the top of the chat list.
+The switch only changes the displayed order (`favoritesPinnedFirst` in `ChatListView`); the chat order
+stored in the model, the core and the database is untouched, and switching it off restores the previous
+order (see `product/rules.md` RULE-25).
+
 ### Message Sending Section (desktop only)
 
 Rendered only when `appPlatform.isDesktop`. Both rows offer the same four combinations: `Enter`, `Shift + Enter`, `Ctrl + Enter`, `Alt + Enter`.

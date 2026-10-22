@@ -49,6 +49,7 @@
 | PC37 | Connection Network Status Dot |
 | PC38 | Servers Import and Export |
 | PC39 | Chat List Group Connection Rate |
+| PC40 | Favorites Pinned First |
 
 ---
 
@@ -62,8 +63,8 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 |-------------|--------------------------|------------|-------|
 | `App.kt` | PC1 through PC31 | High | Root composable — navigation scaffold for all features |
 | `AppLock.kt` | PC22 | Medium | App lock state and authorization lifecycle |
-| `model/ChatModel.kt` | PC1 through PC39 | High | Central state object — every feature reads or writes here; also holds the session-local per-connection status map (`connectionSubStatuses`) with its resolvers (`connectionSubStatus`, `ChatModel.connectionStatus`), the set of connections whose stats were already requested (`connectionStatusRequested`) and its selector (`chatsForConnectionStatus`), and the session-local chat-list cache of group member lists (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`) |
-| `model/SimpleXAPI.kt` | PC1 through PC39 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` and the chat-list member cache from `CR.GroupMemberUpdated` |
+| `model/ChatModel.kt` | PC1 through PC40 | High | Central state object — every feature reads or writes here; also holds the session-local per-connection status map (`connectionSubStatuses`) with its resolvers (`connectionSubStatus`, `ChatModel.connectionStatus`), the set of connections whose stats were already requested (`connectionStatusRequested`) and its selector (`chatsForConnectionStatus`), and the session-local chat-list cache of group member lists (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`), and the favorites-first ordering helpers (`isFavoriteChat`, `favoritesPinnedFirst`) |
+| `model/SimpleXAPI.kt` | PC1 through PC40 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` and the chat-list member cache from `CR.GroupMemberUpdated` |
 | `model/CryptoFile.kt` | PC10, PC23 | Medium | Encrypted file read/write helpers |
 | `platform/Core.kt` | PC1 through PC31 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
 | `platform/AppCommon.kt` | PC1 through PC31 | Medium | Shared app initialization logic |
@@ -99,7 +100,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/chatlist/ChatListView.kt` | PC1, PC28, PC37, PC39 | High | Main screen — chat list rendering, search, the background prefetch of group member lists for the connection-rate dot and of the still unknown connection statuses for the network status dots |
+| `views/chatlist/ChatListView.kt` | PC1, PC28, PC37, PC39, PC40 | High | Main screen — chat list rendering, search, the favorites-first reordering when `favoritesAsPinned` is on, the background prefetch of group member lists for the connection-rate dot and of the still unknown connection statuses for the network status dots |
 | `views/chatlist/GetStakeBanner.kt` | PC1 | Low | Crowdfunding banner and shared banner card chrome |
 | `views/chatlist/ChatListNavLinkView.kt` | PC1, PC2, PC3 | Medium | Navigation from chat list item to chat |
 | `views/chatlist/ChatPreviewView.kt` | PC1, PC2, PC3, PC11, PC37, PC39 | Medium | Chat row preview rendering, incl. the contact connection status dot and the group member connection-rate dot left of the name |
@@ -213,7 +214,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29, PC32 | Medium | Settings navigation hub |
+| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29, PC32, PC40 | Medium | Settings navigation hub, incl. the desktop message-sending section and the "Chat list" section with the favorites-as-pinned switch |
 | `views/usersettings/Appearance.kt` | PC24 | Low | Theme and appearance customization |
 | `views/usersettings/PrivacySettings.kt` | PC20, PC22 | Medium | Privacy and lock settings |
 | `views/usersettings/UserProfileView.kt` | PC19 | Medium | Profile display name and image editing |

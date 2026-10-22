@@ -1,6 +1,7 @@
 package chat.simplex.common.views.usersettings
 
 import SectionBottomSpacer
+import SectionTextFooter
 import itemHPadding
 import SectionItemView
 import SectionDividerSpaced
@@ -103,6 +104,16 @@ fun SettingsLayout(
       SettingsActionItem(painterResource(MR.images.ic_help), stringResource(MR.strings.help_and_support), showSettingsModal { HelpAndSupportView(it, showModal, showCustomModal) })
       DatabaseItem(encrypted, passphraseSaved, showSettingsModal { DatabaseView() }, stopped)
       SettingsActionItem(painterResource(MR.images.ic_ios_share), stringResource(MR.strings.migrate_from_device_to_another_device), { withAuth(generalGetString(MR.strings.auth_open_migration_to_another_device), generalGetString(MR.strings.auth_log_in_using_credential)) { ModalManager.fullscreen.showCustomModal { close -> MigrateFromDeviceView(close) } } }, disabled = stopped)
+    }
+    SectionDividerSpaced()
+
+    SectionView(stringResource(MR.strings.settings_chat_list)) {
+      SettingsPreferenceItem(
+        painterResource(MR.images.ic_star),
+        stringResource(MR.strings.favorites_as_pinned),
+        appPrefs.favoritesAsPinned
+      )
+      SectionTextFooter(stringResource(MR.strings.favorites_as_pinned_footer))
     }
     SectionDividerSpaced()
 

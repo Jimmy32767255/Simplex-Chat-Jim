@@ -306,6 +306,9 @@ class AppPreferences {
 
   val oneHandUI = mkBoolPreference(SHARED_PREFS_ONE_HAND_UI, true)
   val chatBottomBar = mkBoolPreference(SHARED_PREFS_CHAT_BOTTOM_BAR, true)
+  // Show the favorite contacts and groups at the top of the home chat list, like pinned chats.
+  // Client-side display preference only: the chat order itself is not changed or persisted.
+  val favoritesAsPinned = mkBoolPreference(SHARED_PREFS_FAVORITES_AS_PINNED, false)
 
   val hintPreferences: List<HintPref> = listOf(
     hintPref(laNoticeShown, false),
@@ -522,6 +525,7 @@ class AppPreferences {
     private const val SHARED_PREFS_CONFIRM_DB_UPGRADES = "ConfirmDBUpgrades"
     private const val SHARED_PREFS_ONE_HAND_UI = "OneHandUI"
     private const val SHARED_PREFS_CHAT_BOTTOM_BAR = "ChatBottomBar"
+    private const val SHARED_PREFS_FAVORITES_AS_PINNED = "FavoritesAsPinned"
     private const val SHARED_PREFS_SELF_DESTRUCT = "LocalAuthenticationSelfDestruct"
     private const val SHARED_PREFS_SELF_DESTRUCT_DISPLAY_NAME = "LocalAuthenticationSelfDestructDisplayName"
     private const val SHARED_PREFS_PQ_EXPERIMENTAL_ENABLED = "PQExperimentalEnabled" // no longer used

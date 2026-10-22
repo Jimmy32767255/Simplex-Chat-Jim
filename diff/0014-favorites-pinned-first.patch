@@ -1,0 +1,511 @@
+diff --git a/TODO.md b/TODO.md
+index ba4ac7cc9..65df2213f 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -105,6 +105,15 @@
+   - 文档：`product/concepts.md`（PC39）、`product/rules.md`（RULE-24）、`product/README.md`、`product/views/chat-list.md`、`product/views/group-info.md`、`spec/impact.md`、`spec/state.md`、`spec/client/chat-list.md`。
+   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupConnectionRateCacheTest.kt`（10 个用例：普通群/频道/未激活成员/已请求/非群聊的预取筛选，以及成员更新时的替换、追加活跃成员、移除失效成员、忽略未缓存群、不追加失效的新成员），`./gradlew :common:desktopTest` 全部通过（10/10，全部 17 个测试类无失败）。差异补丁见 `diff/`。
+ 
++- [x] 在设置里添加一个开关允许将收藏视为置顶（开启后已收藏的联系人或群会永远显示在主页对话列表的最上方）
++  - 已实现（基于 7.0.4）：新增客户端布尔偏好 `AppPreferences.favoritesAsPinned`（默认关闭，键名 `FavoritesAsPinned`），设置页新增「对话列表」（`settings_chat_list`）分区，其中的开关「将收藏视为置顶」（`favorites_as_pinned`）带一行说明文字。开启后主页对话列表把已收藏的联系人和群整体移到最上方。
++  - 排序实现是纯显示层的：`ChatModel.kt` 新增 `isFavoriteChat(chat)`（即 `chat.chatInfo.chatSettings?.favorite == true`，与收藏筛选和星标图标用同一个字段）和 `favoritesPinnedFirst(chats, favoritesAsPinned)`（用 `partition` 稳定分组，收藏在前、其余在后，两组内部原有顺序不变）；`ChatListView` 在 `filteredChats(...)` 之后调用它，偏好关闭时原样返回。`ChatModel.chats` 的顺序、内核数据和数据库都没有被改动，关掉开关立即恢复原顺序。
++  - 只影响主页对话列表：复用 `filteredChats` 的其他界面（例如分享列表）不会被重排；搜索/筛选结果同样适用这条规则（收藏永远在上方），这一点也已写进文档。
++  - 不修改核心（Haskell）与网络协议，不修改 `AppSettings` 跨设备导入/导出结构（新的偏好只是本机设置），未改任何既有字符串。
++  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`（`favoritesAsPinned` + `SHARED_PREFS_FAVORITES_AS_PINNED`）、`.../model/ChatModel.kt`（`isFavoriteChat`、`favoritesPinnedFirst`）、`.../views/chatlist/ChatListView.kt`（应用排序）、`.../views/usersettings/SettingsView.kt`（「对话列表」分区与开关）、`common/src/commonMain/resources/MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 3 条字符串）。
++  - 文档：`product/rules.md`（RULE-25）、`product/concepts.md`（PC40）、`product/README.md`、`product/views/chat-list.md`（Chat List Order）、`product/views/settings.md`（Chat List Section）、`spec/client/chat-list.md`（Chat List Order）、`spec/state.md`（`favoritesAsPinned`）、`spec/impact.md`、`plans/2026-10-22-favorites-pinned-first.md`。
++  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/FavoritesPinnedFirstTest.kt`（8 个用例：关闭时顺序不变、收藏移到最上方、两组内部顺序保持、没有收藏/全是收藏时不变、空列表、无聊天设置的对话不算收藏、联系人与群都被识别），`./gradlew :common:desktopTest` 全部通过（8/8，全部 19 个测试类共 115 个用例无失败），`:common:compileDebugKotlinAndroid` 也通过。差异补丁见 `diff/`。
++
+ ## mod:
+ 
+ none
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
+index 5a87ddebc..74812e4a2 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
+@@ -2089,6 +2089,20 @@ internal fun groupChatsForConnectionRate(chats: List<Chat>, requested: Set<Long>
+       groupInfo.groupId !in requested
+   }
+ 
++/** Whether the chat is marked as favorite, i.e. it shows up in the favorites filter of the chat list. */
++internal fun isFavoriteChat(chat: Chat): Boolean = chat.chatInfo.chatSettings?.favorite == true
++
++/**
++ * Moves the favorite chats to the top of the home chat list when [favoritesAsPinned] is enabled,
++ * so that favorited contacts and groups stay visible above the recently active ones. The order inside
++ * both groups is kept, and the list is returned unchanged when the preference is off.
++ */
++internal fun favoritesPinnedFirst(chats: List<Chat>, favoritesAsPinned: Boolean): List<Chat> {
++  if (!favoritesAsPinned) return chats
++  val (favorites, others) = chats.partition { isFavoriteChat(it) }
++  return favorites + others
++}
++
+ @Serializable
+ data class Connection(
+   val connId: Long,
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
+index 0a4fb8df0..9fb6baa27 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
+@@ -306,6 +306,9 @@ class AppPreferences {
+ 
+   val oneHandUI = mkBoolPreference(SHARED_PREFS_ONE_HAND_UI, true)
+   val chatBottomBar = mkBoolPreference(SHARED_PREFS_CHAT_BOTTOM_BAR, true)
++  // Show the favorite contacts and groups at the top of the home chat list, like pinned chats.
++  // Client-side display preference only: the chat order itself is not changed or persisted.
++  val favoritesAsPinned = mkBoolPreference(SHARED_PREFS_FAVORITES_AS_PINNED, false)
+ 
+   val hintPreferences: List<HintPref> = listOf(
+     hintPref(laNoticeShown, false),
+@@ -522,6 +525,7 @@ class AppPreferences {
+     private const val SHARED_PREFS_CONFIRM_DB_UPGRADES = "ConfirmDBUpgrades"
+     private const val SHARED_PREFS_ONE_HAND_UI = "OneHandUI"
+     private const val SHARED_PREFS_CHAT_BOTTOM_BAR = "ChatBottomBar"
++    private const val SHARED_PREFS_FAVORITES_AS_PINNED = "FavoritesAsPinned"
+     private const val SHARED_PREFS_SELF_DESTRUCT = "LocalAuthenticationSelfDestruct"
+     private const val SHARED_PREFS_SELF_DESTRUCT_DISPLAY_NAME = "LocalAuthenticationSelfDestructDisplayName"
+     private const val SHARED_PREFS_PQ_EXPERIMENTAL_ENABLED = "PQExperimentalEnabled" // no longer used
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatListView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatListView.kt
+index 328e01529..bd133b2ef 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatListView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatListView.kt
+@@ -1003,7 +1003,11 @@ private fun BoxScope.ChatList(searchText: MutableState<TextFieldValue>, listStat
+   val searchShowingSimplexLink = remember { mutableStateOf(false) }
+   val searchChatFilteredBySimplexLink = remember { mutableStateOf<Set<String>>(emptySet()) }
+   val connectNameCandidate = remember { mutableStateOf<String?>(null) }
+-  val chats = filteredChats(searchShowingSimplexLink, searchChatFilteredBySimplexLink, searchText.value.text, allChats.value.toList(), activeFilter.value)
++  val favoritesAsPinned = remember { appPrefs.favoritesAsPinned.state }
++  val chats = favoritesPinnedFirst(
++    filteredChats(searchShowingSimplexLink, searchChatFilteredBySimplexLink, searchText.value.text, allChats.value.toList(), activeFilter.value),
++    favoritesAsPinned.value
++  )
+   val topPaddingToContent = topPaddingToContent(false)
+   val blankSpaceSize = if (oneHandUI.value) WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + AppBarHeight * fontSizeSqrtMultiplier else topPaddingToContent
+   LazyColumnWithScrollBar(
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt
+index 5fcdbdbad..7e79077b4 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt
+@@ -1,6 +1,7 @@
+ package chat.simplex.common.views.usersettings
+ 
+ import SectionBottomSpacer
++import SectionTextFooter
+ import itemHPadding
+ import SectionItemView
+ import SectionDividerSpaced
+@@ -106,6 +107,16 @@ fun SettingsLayout(
+     }
+     SectionDividerSpaced()
+ 
++    SectionView(stringResource(MR.strings.settings_chat_list)) {
++      SettingsPreferenceItem(
++        painterResource(MR.images.ic_star),
++        stringResource(MR.strings.favorites_as_pinned),
++        appPrefs.favoritesAsPinned
++      )
++      SectionTextFooter(stringResource(MR.strings.favorites_as_pinned_footer))
++    }
++    SectionDividerSpaced()
++
+     SectionView(stringResource(MR.strings.advanced_settings)) {
+       SettingsActionItem(painterResource(MR.images.ic_wifi_tethering), stringResource(MR.strings.network_and_servers), showCustomModal { _, close -> NetworkAndServersView(close) }, disabled = stopped)
+       if (appPlatform == AppPlatform.ANDROID) {
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+index 0779aedb5..6f3be11b8 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+@@ -3238,6 +3238,9 @@
+   <string name="badge_unverified_desc">This badge could not be verified and may not be genuine.</string>
+   <string name="badge_unknown_key_title">Badge cannot be verified</string>
+   <string name="badge_unknown_key_desc">The badge is signed with a key that this version of the app does not recognize. Update the app to verify this badge.</string>
++  <string name="settings_chat_list">Chat list</string>
++  <string name="favorites_as_pinned">Treat favorites as pinned</string>
++  <string name="favorites_as_pinned_footer">Favorite contacts and groups will always be shown at the top of the chat list, above the other chats.</string>
+   <string name="settings_message_sending">Message sending</string>
+   <string name="send_message_with">Send message with</string>
+   <string name="insert_newline_with">Insert newline with</string>
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+index 5748f63f0..9cde8d376 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+@@ -2945,6 +2945,9 @@
+     <string name="v7_0_simplex_names">SimpleX 公开名称 (测试)</string>
+     <string name="info_row_file_servers">文件服务器</string>
+     <string name="share_text_file_servers">文件服务器：%s</string>
++    <string name="settings_chat_list">对话列表</string>
++    <string name="favorites_as_pinned">将收藏视为置顶</string>
++    <string name="favorites_as_pinned_footer">已收藏的联系人和群组将始终显示在对话列表的最上方，位于其他对话之前。</string>
+     <string name="settings_message_sending">消息发送</string>
+     <string name="send_message_with">发送消息的快捷键</string>
+     <string name="insert_newline_with">换行的快捷键</string>
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/FavoritesPinnedFirstTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/FavoritesPinnedFirstTest.kt
+new file mode 100644
+index 000000000..bf99e3942
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/FavoritesPinnedFirstTest.kt
+@@ -0,0 +1,87 @@
++package chat.simplex.app
++
++import chat.simplex.common.model.*
++import kotlin.test.Test
++import kotlin.test.assertEquals
++
++// use this command for testing:
++// ./gradlew desktopTest
++class FavoritesPinnedFirstTest {
++  private fun settings(favorite: Boolean): ChatSettings =
++    ChatSettings(enableNtfs = MsgFilter.All, sendRcpts = null, favorite = favorite)
++
++  private fun directChat(contactId: Long, favorite: Boolean): Chat =
++    Chat(
++      remoteHostId = null,
++      chatInfo = ChatInfo.Direct(Contact.sampleData.copy(contactId = contactId, chatSettings = settings(favorite))),
++      chatItems = arrayListOf()
++    )
++
++  private fun groupChat(groupId: Long, favorite: Boolean): Chat =
++    Chat(
++      remoteHostId = null,
++      chatInfo = ChatInfo.Group(GroupInfo.sampleData.copy(groupId = groupId, chatSettings = settings(favorite)), groupChatScope = null),
++      chatItems = arrayListOf()
++    )
++
++  @Test
++  fun testOrderIsUnchangedWhenThePreferenceIsOff() {
++    val chats = listOf(directChat(1, favorite = false), groupChat(2, favorite = true), directChat(3, favorite = false))
++    assertEquals(chats, favoritesPinnedFirst(chats, favoritesAsPinned = false))
++  }
++
++  @Test
++  fun testFavoriteChatsAreMovedToTheTop() {
++    val first = directChat(1, favorite = false)
++    val favorite = groupChat(2, favorite = true)
++    val last = directChat(3, favorite = false)
++    assertEquals(listOf(favorite, first, last), favoritesPinnedFirst(listOf(first, favorite, last), favoritesAsPinned = true))
++  }
++
++  @Test
++  fun testOrderInsideBothGroupsIsPreserved() {
++    val c1 = directChat(1, favorite = false)
++    val c2 = directChat(2, favorite = true)
++    val g3 = groupChat(3, favorite = false)
++    val g4 = groupChat(4, favorite = true)
++    val c5 = directChat(5, favorite = true)
++    val g6 = groupChat(6, favorite = false)
++    assertEquals(listOf(c2, g4, c5, c1, g3, g6), favoritesPinnedFirst(listOf(c1, c2, g3, g4, c5, g6), favoritesAsPinned = true))
++  }
++
++  @Test
++  fun testNoFavoritesLeavesTheListAsIs() {
++    val chats = listOf(directChat(1, favorite = false), groupChat(2, favorite = false))
++    assertEquals(chats, favoritesPinnedFirst(chats, favoritesAsPinned = true))
++  }
++
++  @Test
++  fun testAllFavoritesLeavesTheListAsIs() {
++    val chats = listOf(directChat(1, favorite = true), groupChat(2, favorite = true))
++    assertEquals(chats, favoritesPinnedFirst(chats, favoritesAsPinned = true))
++  }
++
++  @Test
++  fun testEmptyListStaysEmpty() {
++    assertEquals(emptyList(), favoritesPinnedFirst(emptyList(), favoritesAsPinned = true))
++  }
++
++  @Test
++  fun testChatWithoutSettingsIsNotFavorite() {
++    val chatWithoutSettings = Chat(
++      remoteHostId = null,
++      chatInfo = ChatInfo.ContactRequest.sampleData,
++      chatItems = arrayListOf()
++    )
++    assertEquals(false, isFavoriteChat(chatWithoutSettings))
++    val favorite = groupChat(2, favorite = true)
++    assertEquals(listOf(favorite, chatWithoutSettings), favoritesPinnedFirst(listOf(chatWithoutSettings, favorite), favoritesAsPinned = true))
++  }
++
++  @Test
++  fun testGroupsAndContactsAreBothRecognised() {
++    assertEquals(true, isFavoriteChat(directChat(1, favorite = true)))
++    assertEquals(true, isFavoriteChat(groupChat(2, favorite = true)))
++    assertEquals(false, isFavoriteChat(directChat(3, favorite = false)))
++  }
++}
+diff --git a/apps/multiplatform/product/README.md b/apps/multiplatform/product/README.md
+index 9d04c6310..55eb5909f 100644
+--- a/apps/multiplatform/product/README.md
++++ b/apps/multiplatform/product/README.md
+@@ -172,6 +172,7 @@ Server configuration, proxy support, and connectivity.
+ | Server status | View aggregate server connectivity status | `common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ServersSummaryView.kt` |
+ | Connection network status dot | Per-connection status dot (connected / connecting / subscription removed) shown next to the name in the direct chat title, the chat list rows and the group member list, and on the contact info page's **Network status** row | `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/SubscriptionStatusDot.kt` |
+ | Group connection rate in the chat list | Group member connection-rate dot (green / yellow / grey) in front of group names on the home screen, computed from member lists prefetched in the background and refreshed by member updates | `common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatPreviewView.kt` |
++| Favorites as pinned | Optional switch that moves favorited contacts and groups to the top of the home chat list (display order only) | `common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatListView.kt` |
+ | Network & servers hub | Central network configuration entry point | `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NetworkAndServers.kt` |
+ 
+ ### 8. Customization
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index 952bdcb43..1db4a02d1 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -58,6 +58,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC37 | Connection Network Status Dot | [views/chat-list.md](views/chat-list.md), [views/chat.md](views/chat.md), [views/contact-info.md](views/contact-info.md), [views/group-info.md](views/group-info.md) | [spec/client/chat-list.md](../spec/client/chat-list.md), [spec/client/chat-view.md](../spec/client/chat-view.md), [spec/state.md](../spec/state.md) | `common/.../views/helpers/SubscriptionStatusDot.kt` (`SubscriptionStatusDot`), `common/.../model/ChatModel.kt` (`connectionSubStatuses`, `connectionSubStatus`, `ChatModel.connectionStatus` as the single status source for dots and info pages), `common/.../model/SimpleXAPI.kt` (`CR.SubscriptionStatusEvt` handler), `common/.../views/chat/ChatView.kt` (`ChatInfoToolbarTitle`), `common/.../views/chatlist/ChatPreviewView.kt` (`chatPreviewTitle`), `common/.../views/chatlist/ChatListView.kt` (background request of unknown connection statuses), `common/.../views/chat/group/GroupChatInfoView.kt` (`MemberRow`), `common/.../views/chat/ChatInfoView.kt` (`SubStatusRow`) | N/A (client-only) |
+ | PC38 | Servers Import and Export | [views/settings.md](views/settings.md) | [spec/api.md](../spec/api.md), [spec/state.md](../spec/state.md) | `common/.../views/usersettings/networkAndServers/ServersBackup.kt` (`ServersBackup`, `ServersBackupItem`, `serversBackupOf`, `exportServersBackup`, `parseServersBackup`, `mergeServersBackup`, `importedServerMetadata`), `common/.../views/usersettings/networkAndServers/NetworkAndServers.kt` (`ServersImportExportSection`), `common/.../platform/Files.kt` (`rememberFileChooserLauncher`, `copyBytesToFile`) | N/A (client-only) |
+ | PC39 | Chat List Group Connection Rate | [views/chat-list.md](views/chat-list.md), [views/group-info.md](views/group-info.md) | [spec/client/chat-list.md](../spec/client/chat-list.md), [spec/state.md](../spec/state.md) | `common/.../views/chatlist/ChatPreviewView.kt` (`chatPreviewTitle` group branch dot), `common/.../views/chatlist/ChatListView.kt` (background member prefetch), `common/.../views/chat/group/GroupChatInfoView.kt` (`GroupMembersConnectionRateDot`, `groupMembersConnection`, `groupMembersConnectionRate`, `groupMembersSectionVisible`), `common/.../model/ChatModel.kt` (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`), `common/.../model/SimpleXAPI.kt` (`CR.GroupMemberUpdated` cache refresh) | N/A (client-only) |
++| PC40 | Favorites Pinned First | [views/chat-list.md](views/chat-list.md), [views/settings.md](views/settings.md) | [spec/client/chat-list.md](../spec/client/chat-list.md), [spec/state.md](../spec/state.md) | `common/.../model/SimpleXAPI.kt` (`AppPreferences.favoritesAsPinned`), `common/.../model/ChatModel.kt` (`isFavoriteChat`, `favoritesPinnedFirst`), `common/.../views/chatlist/ChatListView.kt` (ordering), `common/.../views/usersettings/SettingsView.kt` (toggle) | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
+ - `common/.../` expands to `common/src/commonMain/kotlin/chat/simplex/common/`
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index 468116367..b3c98e976 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -18,6 +18,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
+ 10. [Network Status Dot (RULE-22)](#10-network-status-dot)
+ 11. [Servers Import and Export (RULE-23)](#11-servers-import-and-export)
+ 12. [Group Connection Rate in the Chat List (RULE-24)](#12-group-connection-rate-in-the-chat-list)
++13. [Chat List Order (RULE-25)](#13-chat-list-order)
+ 
+ ---
+ 
+@@ -480,3 +481,36 @@ attached to it -- is display metadata owned by the client.
+   (`GroupMembersConnectionRateDot`, shared with the member list title)
+ - Test: `common/src/commonTest/kotlin/chat/simplex/app/GroupConnectionRateCacheTest.kt`
+ 
++---
++
++## 13. Chat List Order
++
++### RULE-25: Pinned Favorites Only Reorder the Displayed List
++
++The "Treat favorites as pinned" preference (`AppPreferences.favoritesAsPinned`, default off) moves the
++favorited contacts and groups to the top of the home chat list. It is a display preference and nothing
++else:
++
++1. **Order is client-side only.** The chats stored in `ChatModel.chats` keep their order (the core's
++   order plus the recent-activity pops), and nothing about the order is sent to the core, written to the
++   database or persisted per chat; turning the preference off restores the previous order immediately.
++
++2. **Only the home list is affected.** `favoritesPinnedFirst(chats, favoritesAsPinned)` is applied to
++   the list produced by `filteredChats` in `ChatListView`. Other lists that reuse `filteredChats` (for
++   example the share sheet) keep the original order.
++
++3. **Both halves keep their relative order.** The favorites are moved to the front as a stable group
++   (Kotlin `partition`), and the remaining chats keep the order they had, so a new message in a
++   non-favorite chat cannot push a favorite down and a favorite cannot jump over another favorite.
++
++4. **Favorite means the existing chat setting.** `isFavoriteChat(chat)` is
++   `chat.chatInfo.chatSettings?.favorite == true` — the same flag the favorites filter and the star icon
++   use, for contacts and groups alike. No new per-chat state is introduced.
++
++Enforcement:
++- `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt` (`isFavoriteChat`,
++  `favoritesPinnedFirst`)
++- `common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatListView.kt` (ordering applied to
++  the filtered list)
++- `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt` (the toggle)
++- Test: `common/src/commonTest/kotlin/chat/simplex/app/FavoritesPinnedFirstTest.kt`
+diff --git a/apps/multiplatform/product/views/chat-list.md b/apps/multiplatform/product/views/chat-list.md
+index b5c796fdb..a0568c72d 100644
+--- a/apps/multiplatform/product/views/chat-list.md
++++ b/apps/multiplatform/product/views/chat-list.md
+@@ -113,6 +113,18 @@ in the background (`chatsForConnectionStatus` + `ChatModel.connectionStatusReque
+ `apiContactInfo` just like opening the chat), so the dots are there right after startup. The request is
+ silent on failure and each connection is asked at most once per session.
+ 
++### Chat List Order
++
++The list itself follows the order of `ChatModel.chats`: the order the core returns, with the chats that
++received an update popped to the front by `ChatsContext` (sorted by their last activity).
++
++`ChatListView` then applies `favoritesPinnedFirst(filteredChats(...), appPrefs.favoritesAsPinned.state.value)`:
++when the "Treat favorites as pinned" switch (Settings → Chat list) is on, the chats whose
++`chatSettings.favorite` is true — contacts and groups alike — are moved to the top as a stable group,
++and the remaining chats keep their order. The switch changes the displayed order only: nothing is sent
++to the core, no per-chat state is added, and switching it off restores the previous order. Lists that
++reuse `filteredChats` (e.g. the share sheet) are not reordered.
++
+ ### Context Menu (Long Press / Right Click)
+ 
+ Each chat type provides specific dropdown menu items:
+diff --git a/apps/multiplatform/product/views/settings.md b/apps/multiplatform/product/views/settings.md
+index 3270e9649..ae5ea14ad 100644
+--- a/apps/multiplatform/product/views/settings.md
++++ b/apps/multiplatform/product/views/settings.md
+@@ -201,6 +201,19 @@ Platform-specific section (expect/actual composable):
+ | Reset all hints | Reset dismissed hint/card preferences |
+ | App version | Version string with build info; taps open `VersionInfoView` |
+ 
++### Chat List Section
++
++Rendered on all platforms, between the main settings section and "Advanced settings".
++
++| Row | Preference Key | Default | Description |
++|---|---|---|---|
++| Treat favorites as pinned | `favoritesAsPinned` | Off | Favorite contacts and groups are always shown at the top of the home chat list, above the other chats |
++
++The footer explains that favorited contacts and groups will always be shown at the top of the chat list.
++The switch only changes the displayed order (`favoritesPinnedFirst` in `ChatListView`); the chat order
++stored in the model, the core and the database is untouched, and switching it off restores the previous
++order (see `product/rules.md` RULE-25).
++
+ ### Message Sending Section (desktop only)
+ 
+ Rendered only when `appPlatform.isDesktop`. Both rows offer the same four combinations: `Enter`, `Shift + Enter`, `Ctrl + Enter`, `Alt + Enter`.
+diff --git a/apps/multiplatform/spec/client/chat-list.md b/apps/multiplatform/spec/client/chat-list.md
+index 0db0f1060..a704e6d0d 100644
+--- a/apps/multiplatform/spec/client/chat-list.md
++++ b/apps/multiplatform/spec/client/chat-list.md
+@@ -137,7 +137,7 @@ sealed class ActiveFilter {
+ 
+ ### Search Filtering
+ 
+-The `filteredChats` function (line ~1474) applies filters in this order:
++The `filteredChats` function (`ChatListView.kt#L1521`) applies filters in this order:
+ 
+ 1. **SimpleX link match:** If a pasted link resolved to a known contact/group, show only that chat.
+ 2. **Text search:** Case-insensitive match against `chat.chatInfo.chatViewName`, `chat.chatInfo.fullName`, and `chat.chatInfo.localAlias`.
+@@ -146,6 +146,18 @@ The `filteredChats` function (line ~1474) applies filters in this order:
+    - `UserTag`: Matches chats whose `chatTags` contain the tag ID.
+    - `Unread`: Matches chats with `unreadCount > 0` or `unreadChat == true`.
+ 
++### Chat List Order
++
++The filtered list keeps the order of `ChatModel.chats` (the core order, with recently updated chats
++popped to the front by `ChatsContext`). `ChatListView` then passes it through
++`favoritesPinnedFirst(chats, appPrefs.favoritesAsPinned.state.value)`:
++
++- `isFavoriteChat(chat)` is `chat.chatInfo.chatSettings?.favorite == true` (contacts and groups alike).
++- With the preference off the list is returned unchanged; with it on, `partition` puts the favorites
++  first and both halves keep their relative order.
++- The reorder happens in the composable only: `ChatModel.chats` is never mutated, nothing is sent to the
++  core, and other consumers of `filteredChats` (the share sheet) keep the original order.
++
+ ### Search Bar
+ 
+ `ChatListSearchBar` (line ~765) provides:
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index f418ba0dc..bdeaf2b0a 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -49,6 +49,7 @@
+ | PC37 | Connection Network Status Dot |
+ | PC38 | Servers Import and Export |
+ | PC39 | Chat List Group Connection Rate |
++| PC40 | Favorites Pinned First |
+ 
+ ---
+ 
+@@ -62,8 +63,8 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ |-------------|--------------------------|------------|-------|
+ | `App.kt` | PC1 through PC31 | High | Root composable — navigation scaffold for all features |
+ | `AppLock.kt` | PC22 | Medium | App lock state and authorization lifecycle |
+-| `model/ChatModel.kt` | PC1 through PC39 | High | Central state object — every feature reads or writes here; also holds the session-local per-connection status map (`connectionSubStatuses`) with its resolvers (`connectionSubStatus`, `ChatModel.connectionStatus`), the set of connections whose stats were already requested (`connectionStatusRequested`) and its selector (`chatsForConnectionStatus`), and the session-local chat-list cache of group member lists (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`) |
+-| `model/SimpleXAPI.kt` | PC1 through PC39 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` and the chat-list member cache from `CR.GroupMemberUpdated` |
++| `model/ChatModel.kt` | PC1 through PC40 | High | Central state object — every feature reads or writes here; also holds the session-local per-connection status map (`connectionSubStatuses`) with its resolvers (`connectionSubStatus`, `ChatModel.connectionStatus`), the set of connections whose stats were already requested (`connectionStatusRequested`) and its selector (`chatsForConnectionStatus`), and the session-local chat-list cache of group member lists (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`), and the favorites-first ordering helpers (`isFavoriteChat`, `favoritesPinnedFirst`) |
++| `model/SimpleXAPI.kt` | PC1 through PC40 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` and the chat-list member cache from `CR.GroupMemberUpdated` |
+ | `model/CryptoFile.kt` | PC10, PC23 | Medium | Encrypted file read/write helpers |
+ | `platform/Core.kt` | PC1 through PC31 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
+ | `platform/AppCommon.kt` | PC1 through PC31 | Medium | Shared app initialization logic |
+@@ -99,7 +100,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ 
+ | Source File | Product Concepts Affected | Risk Level | Notes |
+ |-------------|--------------------------|------------|-------|
+-| `views/chatlist/ChatListView.kt` | PC1, PC28, PC37, PC39 | High | Main screen — chat list rendering, search, the background prefetch of group member lists for the connection-rate dot and of the still unknown connection statuses for the network status dots |
++| `views/chatlist/ChatListView.kt` | PC1, PC28, PC37, PC39, PC40 | High | Main screen — chat list rendering, search, the favorites-first reordering when `favoritesAsPinned` is on, the background prefetch of group member lists for the connection-rate dot and of the still unknown connection statuses for the network status dots |
+ | `views/chatlist/GetStakeBanner.kt` | PC1 | Low | Crowdfunding banner and shared banner card chrome |
+ | `views/chatlist/ChatListNavLinkView.kt` | PC1, PC2, PC3 | Medium | Navigation from chat list item to chat |
+ | `views/chatlist/ChatPreviewView.kt` | PC1, PC2, PC3, PC11, PC37, PC39 | Medium | Chat row preview rendering, incl. the contact connection status dot and the group member connection-rate dot left of the name |
+@@ -213,7 +214,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ 
+ | Source File | Product Concepts Affected | Risk Level | Notes |
+ |-------------|--------------------------|------------|-------|
+-| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29, PC32 | Medium | Settings navigation hub |
++| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29, PC32, PC40 | Medium | Settings navigation hub, incl. the desktop message-sending section and the "Chat list" section with the favorites-as-pinned switch |
+ | `views/usersettings/Appearance.kt` | PC24 | Low | Theme and appearance customization |
+ | `views/usersettings/PrivacySettings.kt` | PC20, PC22 | Medium | Privacy and lock settings |
+ | `views/usersettings/UserProfileView.kt` | PC19 | Medium | Profile display name and image editing |
+diff --git a/apps/multiplatform/spec/state.md b/apps/multiplatform/spec/state.md
+index 0721cd994..ee497ac78 100644
+--- a/apps/multiplatform/spec/state.md
++++ b/apps/multiplatform/spec/state.md
+@@ -448,12 +448,13 @@ val appPrefs: AppPreferences by lazy { AppPreferences() }
+ | `selfDestruct` | `Boolean` | `false` | Self-destruct enabled |
+ | `selfDestructDisplayName` | `String?` | null | Display name for self-destruct profile |
+ 
+-#### UI Preferences (lines 255-257)
++#### UI Preferences (lines 307-311)
+ 
+ | Key | Type | Default | Purpose |
+ |---|---|---|---|
+ | `oneHandUI` | `Boolean` | `true` | One-hand mode |
+ | `chatBottomBar` | `Boolean` | `true` | Bottom bar in chat |
++| `favoritesAsPinned` | `Boolean` | `false` | Show favorite contacts and groups at the top of the home chat list (`favoritesPinnedFirst`); a display preference, the chat order itself is unchanged |
+ 
+ #### Desktop Chat Input (lines 136-137)
+ 
+diff --git a/plans/2026-10-22-favorites-pinned-first.md b/plans/2026-10-22-favorites-pinned-first.md
+new file mode 100644
+index 000000000..9c476c437
+--- /dev/null
++++ b/plans/2026-10-22-favorites-pinned-first.md
+@@ -0,0 +1,59 @@
++# Favorite chats pinned to the top of the home chat list
++
++Date: 2026-10-22
++Base version: 7.0.4
++Request: add a setting switch that treats favorites as pinned — when it is on, favorited contacts and
++groups are always shown at the top of the home chat list.
++
++## Problem
++
++The chat list is ordered by last activity only. Favorited chats are just a filter (the star tag) and the
++star icon on the row, so a favorite that rarely gets new messages sinks to the bottom of the list.
++
++## Solution
++
++A new client-side boolean preference `AppPreferences.favoritesAsPinned` (default off) with a switch in
++Settings → **Chat list**, and a stable reorder of the filtered chat list in `ChatListView`.
++
++## Design decisions
++
++- **Display order only.** The order of `ChatModel.chats` (core order + the `ChatsContext` recent-activity
++  pops) is the source of truth and stays untouched; the reorder happens in the composable on the list
++  returned by `filteredChats`. Nothing is sent to the core, nothing is stored per chat, and the shipped
++  `AppSettings` back-up format is not extended — same portability stance as the other TODO items.
++- **"Favorite" is the existing flag.** `chatInfo.chatSettings?.favorite` is what the favorites filter and
++  the star icon already use, so no new per-chat state and no core command is needed. Contacts and groups
++  are treated identically.
++- **Stable partition.** `chats.partition { isFavoriteChat(it) }` keeps the relative order inside both
++  halves, so message activity can reorder within a half but never move a favorite below a non-favorite,
++  and two favorites keep their activity order among themselves.
++- **One place applies it.** Only `ChatListView` calls `favoritesPinnedFirst`; the share sheet and other
++  users of `filteredChats` are unaffected, which keeps the change minimal and predictable.
++- **Pure helpers, unit-testable.** `isFavoriteChat` and `favoritesPinnedFirst` are top-level `internal`
++  functions in `ChatModel.kt`, so they can be tested without Compose.
++
++## Steps
++
++1. Add `favoritesAsPinned` to `AppPreferences` (`mkBoolPreference`, default `false`) with its own
++   `SHARED_PREFS_*` constant.
++2. Add `isFavoriteChat` / `favoritesPinnedFirst` to `ChatModel.kt`.
++3. Apply the reorder in `ChatListView` next to `filteredChats`, reading the preference state so the list
++   recomposes when the switch is toggled.
++4. Add a "Chat list" section with the switch and a footer to `SettingsLayout`.
++5. Add the strings (`settings_chat_list`, `favorites_as_pinned`, `favorites_as_pinned_footer`) to the base
++   and zh-rCN string files.
++6. Unit-test the helpers (favorites moved, order preserved in both halves, no-op when off, both chat
++   kinds, chat without settings, empty list).
++
++## Adversarial review
++
++- *Does it fight the pop-to-top behaviour?* No: pops reorder `ChatModel.chats`, and the partition is
++  applied afterwards on the fresh list, so within the non-favorite half the activity order is still
++  correct, and a favorite that receives a message stays on top.
++- *What about the search results?* The same order is applied to them, which is consistent with "always at
++  the top"; it is documented rather than special-cased.
++- *Does it affect unread/other filters?* It only reorders whatever the filters return, so a filter that
++  already shrank the list is reordered the same way.
++- *Does it hide any chat?* No, it is a reorder: the same set of chats is shown.
++- *Android/desktop consistency?* The preference is platform independent (both platforms use the same
++  settings page), unlike the desktop-only message-sending section.

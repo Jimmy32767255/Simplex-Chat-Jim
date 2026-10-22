@@ -2089,6 +2089,20 @@ internal fun groupChatsForConnectionRate(chats: List<Chat>, requested: Set<Long>
       groupInfo.groupId !in requested
   }
 
+/** Whether the chat is marked as favorite, i.e. it shows up in the favorites filter of the chat list. */
+internal fun isFavoriteChat(chat: Chat): Boolean = chat.chatInfo.chatSettings?.favorite == true
+
+/**
+ * Moves the favorite chats to the top of the home chat list when [favoritesAsPinned] is enabled,
+ * so that favorited contacts and groups stay visible above the recently active ones. The order inside
+ * both groups is kept, and the list is returned unchanged when the preference is off.
+ */
+internal fun favoritesPinnedFirst(chats: List<Chat>, favoritesAsPinned: Boolean): List<Chat> {
+  if (!favoritesAsPinned) return chats
+  val (favorites, others) = chats.partition { isFavoriteChat(it) }
+  return favorites + others
+}
+
 @Serializable
 data class Connection(
   val connId: Long,

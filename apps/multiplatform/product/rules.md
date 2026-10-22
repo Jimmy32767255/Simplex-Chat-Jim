@@ -18,6 +18,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
 10. [Network Status Dot (RULE-22)](#10-network-status-dot)
 11. [Servers Import and Export (RULE-23)](#11-servers-import-and-export)
 12. [Group Connection Rate in the Chat List (RULE-24)](#12-group-connection-rate-in-the-chat-list)
+13. [Chat List Order (RULE-25)](#13-chat-list-order)
 
 ---
 
@@ -480,3 +481,36 @@ attached to it -- is display metadata owned by the client.
   (`GroupMembersConnectionRateDot`, shared with the member list title)
 - Test: `common/src/commonTest/kotlin/chat/simplex/app/GroupConnectionRateCacheTest.kt`
 
+---
+
+## 13. Chat List Order
+
+### RULE-25: Pinned Favorites Only Reorder the Displayed List
+
+The "Treat favorites as pinned" preference (`AppPreferences.favoritesAsPinned`, default off) moves the
+favorited contacts and groups to the top of the home chat list. It is a display preference and nothing
+else:
+
+1. **Order is client-side only.** The chats stored in `ChatModel.chats` keep their order (the core's
+   order plus the recent-activity pops), and nothing about the order is sent to the core, written to the
+   database or persisted per chat; turning the preference off restores the previous order immediately.
+
+2. **Only the home list is affected.** `favoritesPinnedFirst(chats, favoritesAsPinned)` is applied to
+   the list produced by `filteredChats` in `ChatListView`. Other lists that reuse `filteredChats` (for
+   example the share sheet) keep the original order.
+
+3. **Both halves keep their relative order.** The favorites are moved to the front as a stable group
+   (Kotlin `partition`), and the remaining chats keep the order they had, so a new message in a
+   non-favorite chat cannot push a favorite down and a favorite cannot jump over another favorite.
+
+4. **Favorite means the existing chat setting.** `isFavoriteChat(chat)` is
+   `chat.chatInfo.chatSettings?.favorite == true` — the same flag the favorites filter and the star icon
+   use, for contacts and groups alike. No new per-chat state is introduced.
+
+Enforcement:
+- `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt` (`isFavoriteChat`,
+  `favoritesPinnedFirst`)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatListView.kt` (ordering applied to
+  the filtered list)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt` (the toggle)
+- Test: `common/src/commonTest/kotlin/chat/simplex/app/FavoritesPinnedFirstTest.kt`

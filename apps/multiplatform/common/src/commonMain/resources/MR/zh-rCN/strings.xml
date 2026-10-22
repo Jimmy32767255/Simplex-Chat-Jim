@@ -2945,6 +2945,9 @@
     <string name="v7_0_simplex_names">SimpleX 公开名称 (测试)</string>
     <string name="info_row_file_servers">文件服务器</string>
     <string name="share_text_file_servers">文件服务器：%s</string>
+    <string name="settings_chat_list">对话列表</string>
+    <string name="favorites_as_pinned">将收藏视为置顶</string>
+    <string name="favorites_as_pinned_footer">已收藏的联系人和群组将始终显示在对话列表的最上方，位于其他对话之前。</string>
     <string name="settings_message_sending">消息发送</string>
     <string name="send_message_with">发送消息的快捷键</string>
     <string name="insert_newline_with">换行的快捷键</string>
