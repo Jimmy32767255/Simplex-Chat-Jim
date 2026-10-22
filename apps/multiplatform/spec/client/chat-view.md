@@ -241,10 +241,11 @@ Key sections: contact profile, local alias, connection stats, shared media, disa
 While the contact is `ready && active`, the **Servers** section shows the connection's current server
 and a **Network status** row whose dot is the shared `SubscriptionStatusDot` (previously the private
 `ServerImage` inside `ChatInfoView.kt`). The same composable draws the dot in the toolbar title
-(`ChatInfoToolbarTitle`), which resolves the status with
-`connectionSubStatus(cInfo.contact.activeConn, chatModel.connectionSubStatuses)` and only falls back to
-`chatModel.chatSubStatus` when that connection is the currently open one; nothing is drawn when the
-status is unknown.
+(`ChatInfoToolbarTitle`), and both read the status from `chatModel.connectionStatus(conn)`, the single
+resolver used by every status dot in the app: live event status first, then the last fetched
+connection stats, and only then the status of the open chat while this connection is the open chat's
+own connection. Reading it from a single place is what keeps the row and the dot in agreement;
+nothing is drawn when the status is unknown.
 
 ---
 

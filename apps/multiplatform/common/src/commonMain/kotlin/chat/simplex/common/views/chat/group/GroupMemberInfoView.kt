@@ -625,7 +625,8 @@ fun GroupMemberInfoLayout(
     if (cStats != null) {
       SectionDividerSpaced()
       SectionView(title = stringResource(MR.strings.conn_stats_section_title_servers)) {
-        val subStatus = cStats.subStatus
+        // the same status the status dot next to the member name shows (see ChatModel.connectionStatus)
+        val subStatus = chat.simplex.common.platform.chatModel.connectionStatus(member.activeConn) ?: cStats.subStatus
         if (subStatus != null) {
           SectionItemView({
             AlertManager.shared.showAlertMsg(

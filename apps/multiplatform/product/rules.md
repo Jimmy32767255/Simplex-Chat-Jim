@@ -363,6 +363,13 @@ attached to it -- is display metadata owned by the client.
 1. **One dot, one connection.** A dot MUST describe exactly the connection it is attached to,
    resolved by agent connection id (`connectionSubStatus`), never by chat or contact identity. A
    status that belongs to a different connection MUST NOT be displayed on it.
+1b. **One status source for the whole app.** Every place that displays a connection status - the
+   dots of the chat list, the chat title, the member list, and the contact / member info pages - MUST
+   read it from `ChatModel.connectionStatus(conn)` (the pure `connectionStatus` helper), which
+   resolves the live event status first, then the last fetched connection stats, and last the status
+   of the open chat for its own connection. Reading the status from anywhere else (for example
+   `chatModel.chatSubStatus` directly, as the contact info page did) makes the dot and the info page
+   disagree.
 2. **The dot is a display only.** It MUST NOT change any state, MUST NOT be persisted, and MUST NOT
    be added to `AppSettings` or to the cross-device backup format; the per-connection status map
    (`ChatModel.connectionSubStatuses`) is session-local client state.
@@ -381,13 +388,15 @@ attached to it -- is display metadata owned by the client.
 - `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/SubscriptionStatusDot.kt`
   (`SubscriptionStatusDot`)
 - `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`
-  (`connectionSubStatuses`, `connectionSubStatus`)
+  (`connectionSubStatuses`, `connectionSubStatus`, `ChatModel.connectionStatus`)
 - `common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`
   (`CR.SubscriptionStatusEvt` handler)
 - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt`
   (`ChatInfoToolbarTitle`), `views/chatlist/ChatPreviewView.kt` (`chatPreviewTitle`),
   `views/chat/group/GroupChatInfoView.kt` (`MemberRow`), `views/chat/ChatInfoView.kt`
-  (`SubStatusRow`, the info-page dot this component was extracted from)
+  (`SubStatusRow`, the info-page dot this component was extracted from, and the contact info page's
+  network status row), `views/chat/group/GroupMemberInfoView.kt` (member info page's network status
+  row)
 - Test: `common/src/commonTest/kotlin/chat/simplex/app/ConnectionSubStatusTest.kt`
 
 ---

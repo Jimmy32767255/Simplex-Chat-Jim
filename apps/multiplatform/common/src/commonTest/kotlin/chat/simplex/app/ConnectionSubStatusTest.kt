@@ -59,4 +59,43 @@ class ConnectionSubStatusTest {
     val c = conn(agentConnId = "abc", subStatus = SubscriptionStatus.NoSub)
     assertEquals(SubscriptionStatus.NoSub, connectionSubStatus(c, emptyMap()))
   }
+
+  @Test
+  fun testConnectionStatusUsesTheOpenChatStatusForItsOwnConnection() {
+    // the status the chat fetched when it was opened, before any subscription event arrived
+    val c = conn(agentConnId = "abc")
+    assertEquals(
+      SubscriptionStatus.Pending,
+      connectionStatus(c, emptyMap(), openChatAgentConnId = "abc", openChatStatus = SubscriptionStatus.Pending)
+    )
+  }
+
+  @Test
+  fun testConnectionStatusIgnoresTheOpenChatStatusOfAnotherConnection() {
+    val c = conn(agentConnId = "abc")
+    assertNull(connectionStatus(c, emptyMap(), openChatAgentConnId = "other", openChatStatus = SubscriptionStatus.Active))
+  }
+
+  @Test
+  fun testConnectionStatusIgnoresTheOpenChatStatusWithoutAConnection() {
+    assertNull(connectionStatus(null, emptyMap(), openChatAgentConnId = "abc", openChatStatus = SubscriptionStatus.Active))
+  }
+
+  @Test
+  fun testConnectionStatusPrefersLiveStatusOverTheOpenChatStatus() {
+    val c = conn(agentConnId = "abc", subStatus = SubscriptionStatus.Active)
+    assertEquals(
+      SubscriptionStatus.Active,
+      connectionStatus(c, mapOf("abc" to SubscriptionStatus.Active), openChatAgentConnId = "abc", openChatStatus = SubscriptionStatus.Pending)
+    )
+  }
+
+  @Test
+  fun testConnectionStatusFallsBackToConnectionStatsBeforeTheOpenChatStatus() {
+    val c = conn(agentConnId = "abc", subStatus = SubscriptionStatus.NoSub)
+    assertEquals(
+      SubscriptionStatus.NoSub,
+      connectionStatus(c, emptyMap(), openChatAgentConnId = "abc", openChatStatus = SubscriptionStatus.Active)
+    )
+  }
 }

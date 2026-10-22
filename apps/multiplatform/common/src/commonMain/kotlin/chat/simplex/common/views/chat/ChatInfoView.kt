@@ -643,15 +643,15 @@ fun ChatInfoLayout(
 
     if (contact.ready && contact.active) {
       SectionView(title = stringResource(MR.strings.conn_stats_section_title_servers)) {
-        val chatSubStatus = chatModel.chatSubStatus.value
-        if (chatSubStatus != null) {
+        val subStatus = chatModel.connectionStatus(contact.activeConn) ?: cStats?.subStatus
+        if (subStatus != null) {
           SectionItemView({
             AlertManager.shared.showAlertMsg(
               generalGetString(MR.strings.network_status),
-              chatSubStatus.statusExplanation
+              subStatus.statusExplanation
             )
           }) {
-            SubStatusRow(chatSubStatus)
+            SubStatusRow(subStatus)
           }
         }
         if (cStats != null) {

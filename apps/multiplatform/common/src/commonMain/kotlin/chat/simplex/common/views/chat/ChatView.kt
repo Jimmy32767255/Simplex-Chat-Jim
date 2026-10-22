@@ -1561,9 +1561,7 @@ fun ChatInfoToolbarTitle(cInfo: ChatInfo, imageSize: Dp = 40.dp, iconColor: Colo
   // Network status of the direct chat connection, shown next to the contact name
   val connectionStatus =
     if (cInfo is ChatInfo.Direct && cInfo.contact.ready && cInfo.contact.active) {
-      val conn = cInfo.contact.activeConn
-      connectionSubStatus(conn, chatModel.connectionSubStatuses)
-        ?: chatModel.chatSubStatus.value.takeIf { conn != null && conn.agentConnId == chatModel.chatAgentConnId.value }
+      chatModel.connectionStatus(cInfo.contact.activeConn)
     } else null
   Row(
     horizontalArrangement = Arrangement.Center,

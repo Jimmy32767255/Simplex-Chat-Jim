@@ -1271,7 +1271,7 @@ fun MemberRow(member: GroupMember, user: Boolean = false, infoPage: Boolean = tr
       Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
           // Network status of the member connection, shown next to the member name
-          val connectionStatus = connectionSubStatus(member.activeConn, chatModel.connectionSubStatuses)
+          val connectionStatus = chatModel.connectionStatus(member.activeConn)
           if (member.activeConn != null && connectionStatus != null) {
             SubscriptionStatusDot(connectionStatus)
             Spacer(Modifier.width(4.dp))

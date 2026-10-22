@@ -384,6 +384,18 @@ object ChatModel {
     }
   }
 
+  /**
+   * The network (subscription) status of a connection as shown by every status dot and by the
+   * contact and member info pages: the last status event received for this connection (see
+   * [connectionSubStatuses]), then the status of the last fetched connection stats, and finally the
+   * status of the open chat while this connection is the one the open chat uses.
+   *
+   * Every place that displays a connection status MUST use this function, so that the dot and the
+   * info page cannot disagree.
+   */
+  fun connectionStatus(conn: Connection?): SubscriptionStatus? =
+    connectionStatus(conn, connectionSubStatuses, chatAgentConnId.value, chatSubStatus.value)
+
   // Spec: spec/state.md#ChatsContext
   class ChatsContext(val secondaryContextFilter: SecondaryContextFilter?) {
     val chats = mutableStateOf(SnapshotStateList<Chat>())
@@ -2021,6 +2033,21 @@ class ContactRef(
  */
 internal fun connectionSubStatus(conn: Connection?, liveStatuses: Map<String, SubscriptionStatus>): SubscriptionStatus? =
   conn?.let { liveStatuses[it.agentConnId] ?: it.connectionStats?.subStatus }
+
+/**
+ * [connectionSubStatus] plus the last resort status of the open chat: the core only reports the
+ * subscription status of a connection on subscription events, so the status that was fetched when
+ * the chat was opened is used while this connection is the one the open chat is using. The open
+ * chat's status is never applied to any other connection.
+ */
+internal fun connectionStatus(
+  conn: Connection?,
+  liveStatuses: Map<String, SubscriptionStatus>,
+  openChatAgentConnId: String?,
+  openChatStatus: SubscriptionStatus?
+): SubscriptionStatus? =
+  connectionSubStatus(conn, liveStatuses)
+    ?: openChatStatus?.takeIf { conn != null && openChatAgentConnId != null && conn.agentConnId == openChatAgentConnId }
 
 /**
  * The group chats whose member list still has to be loaded to show the connection rate dot in the

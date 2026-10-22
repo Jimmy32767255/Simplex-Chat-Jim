@@ -62,7 +62,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 |-------------|--------------------------|------------|-------|
 | `App.kt` | PC1 through PC31 | High | Root composable — navigation scaffold for all features |
 | `AppLock.kt` | PC22 | Medium | App lock state and authorization lifecycle |
-| `model/ChatModel.kt` | PC1 through PC39 | High | Central state object — every feature reads or writes here; also holds the session-local per-connection status map (`connectionSubStatuses`) with its resolver (`connectionSubStatus`), and the session-local chat-list cache of group member lists (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`) |
+| `model/ChatModel.kt` | PC1 through PC39 | High | Central state object — every feature reads or writes here; also holds the session-local per-connection status map (`connectionSubStatuses`) with its resolvers (`connectionSubStatus`, `ChatModel.connectionStatus`), and the session-local chat-list cache of group member lists (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`) |
 | `model/SimpleXAPI.kt` | PC1 through PC39 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` and the chat-list member cache from `CR.GroupMemberUpdated` |
 | `model/CryptoFile.kt` | PC10, PC23 | Medium | Encrypted file read/write helpers |
 | `platform/Core.kt` | PC1 through PC31 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
