@@ -16,36 +16,68 @@ import kotlin.test.assertTrue
 class GroupMembersConnectionRateTest {
   private val readyMember = GroupMember.sampleData
 
-  private fun memberWithStatus(status: ConnStatus?): GroupMember =
-    readyMember.copy(activeConn = if (status == null) null else Connection.sampleData.copy(connStatus = status))
+  // the current user's own membership never has the id of a listed member
+  private val currentUserId = 100L
+
+  private fun member(id: Long, status: ConnStatus?, memberStatus: GroupMemberStatus = GroupMemberStatus.MemComplete): GroupMember =
+    readyMember.copy(
+      groupMemberId = id,
+      memberStatus = memberStatus,
+      activeConn = if (status == null) null else Connection.sampleData.copy(connStatus = status)
+    )
+
+  private fun currentUser(status: ConnStatus?, memberStatus: GroupMemberStatus = GroupMemberStatus.MemComplete): GroupMember =
+    member(currentUserId, status, memberStatus)
 
   @Test
   fun testAllMembersConnected() {
-    val members = listOf(memberWithStatus(ConnStatus.Ready), memberWithStatus(ConnStatus.Ready))
-    assertEquals(3 to 3, groupMembersConnection(members, memberWithStatus(ConnStatus.Ready)))
+    val members = listOf(member(2, ConnStatus.Ready), member(3, ConnStatus.Ready))
+    // the current membership has no active connection to check, it is connected when it is active
+    assertEquals(3 to 3, groupMembersConnection(members, currentUser(status = null)))
   }
 
   @Test
   fun testNoMembersConnected() {
-    val members = listOf(memberWithStatus(null), memberWithStatus(ConnStatus.Prepared))
-    assertEquals(0 to 3, groupMembersConnection(members, memberWithStatus(null)))
+    val members = listOf(member(2, null), member(3, ConnStatus.Prepared))
+    assertEquals(1 to 3, groupMembersConnection(members, currentUser(status = null)))
   }
 
   @Test
   fun testPartiallyConnected() {
-    val members = listOf(memberWithStatus(ConnStatus.Ready), memberWithStatus(null), memberWithStatus(ConnStatus.Failed("error")))
-    assertEquals(1 to 4, groupMembersConnection(members, memberWithStatus(null)))
+    val members = listOf(member(2, ConnStatus.Ready), member(3, null), member(4, ConnStatus.Failed("error")))
+    assertEquals(2 to 4, groupMembersConnection(members, currentUser(status = null)))
   }
 
   @Test
   fun testSendReadyIsNotCountedAsConnected() {
-    assertEquals(0 to 2, groupMembersConnection(listOf(memberWithStatus(ConnStatus.SndReady)), memberWithStatus(ConnStatus.SndReady)))
+    val members = listOf(member(2, ConnStatus.SndReady))
+    assertEquals(0 to 2, groupMembersConnection(members, currentUser(status = ConnStatus.SndReady)))
   }
 
   @Test
   fun testEmptyGroupCountsOnlyCurrentMembership() {
-    assertEquals(1 to 1, groupMembersConnection(emptyList(), memberWithStatus(ConnStatus.Ready)))
-    assertEquals(0 to 1, groupMembersConnection(emptyList(), memberWithStatus(null)))
+    assertEquals(1 to 1, groupMembersConnection(emptyList(), currentUser(status = null)))
+    assertEquals(1 to 1, groupMembersConnection(emptyList(), currentUser(status = ConnStatus.Ready)))
+  }
+
+  @Test
+  fun testRateReachesOneHundredPercent() {
+    val members = listOf(member(2, ConnStatus.Ready), member(3, ConnStatus.Ready))
+    val (connected, total) = groupMembersConnection(members, currentUser(status = null))
+    assertEquals(GroupMembersConnectionRate.ALL_CONNECTED, groupMembersConnectionRate(connected, total))
+  }
+
+  @Test
+  fun testCurrentUserIsCountedOnlyOnce() {
+    // some member lists do contain the current user's own membership
+    val members = listOf(member(currentUserId, ConnStatus.Ready), member(2, ConnStatus.Ready))
+    assertEquals(2 to 2, groupMembersConnection(members, currentUser(status = null)))
+  }
+
+  @Test
+  fun testInactiveCurrentMembershipIsNotCountedAsConnected() {
+    val members = listOf(member(2, ConnStatus.Ready), member(3, ConnStatus.Ready))
+    assertEquals(2 to 3, groupMembersConnection(members, currentUser(status = null, memberStatus = GroupMemberStatus.MemLeft)))
   }
 
   @Test

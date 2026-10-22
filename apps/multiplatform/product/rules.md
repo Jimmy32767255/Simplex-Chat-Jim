@@ -330,9 +330,14 @@ attached to it -- is display metadata owned by the client.
    member as connected only when `GroupMember.ready` is true
    (`activeConn?.connStatus == ConnStatus.Ready`). Connections that are merely prepared, sending-only
    (`SndReady`) or failed MUST NOT be counted as connected.
-2. **The current user is part of the rate.** `groupMembersConnection` adds the current user's own
-   membership to both the connected and the total count, so the rate stays consistent with the
-   `N members` figure in the same section title, and a fully connected group reads `N/N (100%)`.
+2. **The current user is part of the rate, and counts as connected when active.**
+   `groupMembersConnection` adds the current user's own membership to both the connected and the
+   total count, so the rate stays consistent with the `N members` figure in the same section title,
+   and a fully connected group reads `N/N (100%)`. The own membership MUST be counted only once (the
+   helper filters it out of the member list first, because some lists do contain it), and it MUST be
+   treated as connected when it has no active connection but its `memberStatus` is active
+   (`memberActive`), because `GroupInfo.membership` normally carries no `activeConn` and the rate
+   would otherwise never reach 100%.
 3. **The rate is a display only.** It MUST NOT change any state, MUST NOT be persisted, and MUST NOT
    be added to the cross-device backup format; the member search filter MUST NOT affect it (the rate
    is computed from all members, not from the filtered list).

@@ -269,7 +269,11 @@ The member list section title (non-relay groups only, and not while `nextConnect
 the group **connection rate**: `groupMembersConnection(members, currentMembership)` returns
 `(connected, total)` where a member counts as connected when `GroupMember.ready` is true
 (`activeConn?.connStatus == ConnStatus.Ready`) and the current user's own membership is part of both
-values, matching the `N members` count in the same title. `GroupMembersConnectionStatus` renders it
+values, matching the `N members` count in the same title. The own membership is removed from the
+member list first so it can never be counted twice, and it counts as connected when its
+`memberStatus` is active (`memberActive`, because `GroupInfo.membership` usually carries no
+`activeConn` whose status could be checked), so a fully connected group reaches `N/N (100%)`.
+`GroupMembersConnectionStatus` renders it
 as `connected/total (pct%)` with `floor`-rounded percentage (the same rounding the chat-list
 subscription indicator uses) followed by a status dot: green `ic_circle_filled` when everybody is
 connected, yellow `ic_pending_filled` when only some are (`GroupMembersConnectionRate`) and grey

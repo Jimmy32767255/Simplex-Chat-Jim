@@ -1162,9 +1162,18 @@ enum class GroupMembersConnectionRate {
 /**
  * The number of connected members and the total number of members of a group.
  * The current user's membership is counted in both, as it is in the member list title.
+ *
+ * The member list doesn't normally contain the current user's own membership, so it is added here,
+ * and it is still counted only once if the list does contain it. It counts as connected when its
+ * membership is active: the client can only read the member list while it is connected to the
+ * group, and `GroupInfo.membership` normally has no active connection whose status could be checked,
+ * which used to keep the rate below 100% forever.
  */
-internal fun groupMembersConnection(members: List<GroupMember>, currentMembership: GroupMember): Pair<Int, Int> =
-  (members.count { it.ready } + if (currentMembership.ready) 1 else 0) to (members.size + 1)
+internal fun groupMembersConnection(members: List<GroupMember>, currentMembership: GroupMember): Pair<Int, Int> {
+  val otherMembers = members.filter { it.groupMemberId != currentMembership.groupMemberId }
+  val currentConnected = if (currentMembership.activeConn != null) currentMembership.ready else currentMembership.memberActive
+  return (otherMembers.count { it.ready } + if (currentConnected) 1 else 0) to (otherMembers.size + 1)
+}
 
 /** The connection rate of a group as a whole, based on how many members have a ready connection. */
 internal fun groupMembersConnectionRate(connected: Int, total: Int): GroupMembersConnectionRate = when {

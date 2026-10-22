@@ -1,0 +1,252 @@
+diff --git a/TODO.md b/TODO.md
+index a0f022ea3..866560f21 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -111,7 +111,13 @@ none
+ 
+ ## bug fix:
+ 
+-- [ ] 群成员连接率似乎忘记排除自己了，导致永远无法达到百分之一百
++- [x] 群成员连接率似乎忘记排除自己了，导致永远无法达到百分之一百
++  - 原因：`groupMembersConnection` 原来写的是 `(members.count { it.ready } + if (currentMembership.ready) 1 else 0) to (members.size + 1)`。而 `GroupMember.ready` 等于 `activeConn?.connStatus == ConnStatus.Ready`，当前用户自己的 `GroupInfo.membership` 里通常没有 `activeConn`（连接信息只存在于成员列表的条目上，而成员列表里并不包含自己），所以分子里的 `+1` 永远是 0、分母里的 `+1` 却永远算上，比率就永远差一个人，最多只能到 `(N-1)/N`。
++  - 修复方法：把「自己」从成员列表里先过滤掉（`members.filter { it.groupMemberId != currentMembership.groupMemberId }`，这样即使某个列表里包含了自己也不会重复计数），总数仍然把自己算进去（保持与标题里的 `N members` 一致），而自己是否有连接改为：有 `activeConn` 时按严格的 `ready` 判断，没有 `activeConn` 时按 `memberActive`（成员状态是否活跃）判断——客户端能读到成员列表本身就说明自己已经连上了，所以合理的群在全员联通时会显示 `N/N (100%)`。
++  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`（`groupMembersConnection` 及注释）；测试 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt`。
++  - 未改核心与 `AppSettings`，未新增字符串；群聊列表里的圆点与群信息页共用同一个函数，因此两处结果必然一致。
++  - 文档：`product/rules.md`（RULE-21 第 2 条）、`product/views/group-info.md`（Connection rate 行）、`spec/client/chat-view.md`（§8 成员列表）、`plans/2026-10-22-fix-group-rate-self.md`。
++  - 测试：`GroupMembersConnectionRateTest` 扩充到 13 个用例（成员使用不同 `groupMemberId`；新增「自己只被计一次」「自己不活跃时不算已连接」「达到 100%」等），`./gradlew :common:desktopTest` 全部通过（13/13，全部 17 个测试类无失败）。差异补丁见 `diff/`。
+ 
+ - [ ] 点的显示有时候和联系人页面里显示的连接状态不一致
+ 
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
+index c2962bea3..470923f16 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt
+@@ -1162,9 +1162,18 @@ enum class GroupMembersConnectionRate {
+ /**
+  * The number of connected members and the total number of members of a group.
+  * The current user's membership is counted in both, as it is in the member list title.
++ *
++ * The member list doesn't normally contain the current user's own membership, so it is added here,
++ * and it is still counted only once if the list does contain it. It counts as connected when its
++ * membership is active: the client can only read the member list while it is connected to the
++ * group, and `GroupInfo.membership` normally has no active connection whose status could be checked,
++ * which used to keep the rate below 100% forever.
+  */
+-internal fun groupMembersConnection(members: List<GroupMember>, currentMembership: GroupMember): Pair<Int, Int> =
+-  (members.count { it.ready } + if (currentMembership.ready) 1 else 0) to (members.size + 1)
++internal fun groupMembersConnection(members: List<GroupMember>, currentMembership: GroupMember): Pair<Int, Int> {
++  val otherMembers = members.filter { it.groupMemberId != currentMembership.groupMemberId }
++  val currentConnected = if (currentMembership.activeConn != null) currentMembership.ready else currentMembership.memberActive
++  return (otherMembers.count { it.ready } + if (currentConnected) 1 else 0) to (otherMembers.size + 1)
++}
+ 
+ /** The connection rate of a group as a whole, based on how many members have a ready connection. */
+ internal fun groupMembersConnectionRate(connected: Int, total: Int): GroupMembersConnectionRate = when {
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt
+index 93d1936a9..8434bd9aa 100644
+--- a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt
+@@ -16,36 +16,68 @@ import kotlin.test.assertTrue
+ class GroupMembersConnectionRateTest {
+   private val readyMember = GroupMember.sampleData
+ 
+-  private fun memberWithStatus(status: ConnStatus?): GroupMember =
+-    readyMember.copy(activeConn = if (status == null) null else Connection.sampleData.copy(connStatus = status))
++  // the current user's own membership never has the id of a listed member
++  private val currentUserId = 100L
++
++  private fun member(id: Long, status: ConnStatus?, memberStatus: GroupMemberStatus = GroupMemberStatus.MemComplete): GroupMember =
++    readyMember.copy(
++      groupMemberId = id,
++      memberStatus = memberStatus,
++      activeConn = if (status == null) null else Connection.sampleData.copy(connStatus = status)
++    )
++
++  private fun currentUser(status: ConnStatus?, memberStatus: GroupMemberStatus = GroupMemberStatus.MemComplete): GroupMember =
++    member(currentUserId, status, memberStatus)
+ 
+   @Test
+   fun testAllMembersConnected() {
+-    val members = listOf(memberWithStatus(ConnStatus.Ready), memberWithStatus(ConnStatus.Ready))
+-    assertEquals(3 to 3, groupMembersConnection(members, memberWithStatus(ConnStatus.Ready)))
++    val members = listOf(member(2, ConnStatus.Ready), member(3, ConnStatus.Ready))
++    // the current membership has no active connection to check, it is connected when it is active
++    assertEquals(3 to 3, groupMembersConnection(members, currentUser(status = null)))
+   }
+ 
+   @Test
+   fun testNoMembersConnected() {
+-    val members = listOf(memberWithStatus(null), memberWithStatus(ConnStatus.Prepared))
+-    assertEquals(0 to 3, groupMembersConnection(members, memberWithStatus(null)))
++    val members = listOf(member(2, null), member(3, ConnStatus.Prepared))
++    assertEquals(1 to 3, groupMembersConnection(members, currentUser(status = null)))
+   }
+ 
+   @Test
+   fun testPartiallyConnected() {
+-    val members = listOf(memberWithStatus(ConnStatus.Ready), memberWithStatus(null), memberWithStatus(ConnStatus.Failed("error")))
+-    assertEquals(1 to 4, groupMembersConnection(members, memberWithStatus(null)))
++    val members = listOf(member(2, ConnStatus.Ready), member(3, null), member(4, ConnStatus.Failed("error")))
++    assertEquals(2 to 4, groupMembersConnection(members, currentUser(status = null)))
+   }
+ 
+   @Test
+   fun testSendReadyIsNotCountedAsConnected() {
+-    assertEquals(0 to 2, groupMembersConnection(listOf(memberWithStatus(ConnStatus.SndReady)), memberWithStatus(ConnStatus.SndReady)))
++    val members = listOf(member(2, ConnStatus.SndReady))
++    assertEquals(0 to 2, groupMembersConnection(members, currentUser(status = ConnStatus.SndReady)))
+   }
+ 
+   @Test
+   fun testEmptyGroupCountsOnlyCurrentMembership() {
+-    assertEquals(1 to 1, groupMembersConnection(emptyList(), memberWithStatus(ConnStatus.Ready)))
+-    assertEquals(0 to 1, groupMembersConnection(emptyList(), memberWithStatus(null)))
++    assertEquals(1 to 1, groupMembersConnection(emptyList(), currentUser(status = null)))
++    assertEquals(1 to 1, groupMembersConnection(emptyList(), currentUser(status = ConnStatus.Ready)))
++  }
++
++  @Test
++  fun testRateReachesOneHundredPercent() {
++    val members = listOf(member(2, ConnStatus.Ready), member(3, ConnStatus.Ready))
++    val (connected, total) = groupMembersConnection(members, currentUser(status = null))
++    assertEquals(GroupMembersConnectionRate.ALL_CONNECTED, groupMembersConnectionRate(connected, total))
++  }
++
++  @Test
++  fun testCurrentUserIsCountedOnlyOnce() {
++    // some member lists do contain the current user's own membership
++    val members = listOf(member(currentUserId, ConnStatus.Ready), member(2, ConnStatus.Ready))
++    assertEquals(2 to 2, groupMembersConnection(members, currentUser(status = null)))
++  }
++
++  @Test
++  fun testInactiveCurrentMembershipIsNotCountedAsConnected() {
++    val members = listOf(member(2, ConnStatus.Ready), member(3, ConnStatus.Ready))
++    assertEquals(2 to 3, groupMembersConnection(members, currentUser(status = null, memberStatus = GroupMemberStatus.MemLeft)))
+   }
+ 
+   @Test
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index 648bc7498..be45ef5b1 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -330,9 +330,14 @@ attached to it -- is display metadata owned by the client.
+    member as connected only when `GroupMember.ready` is true
+    (`activeConn?.connStatus == ConnStatus.Ready`). Connections that are merely prepared, sending-only
+    (`SndReady`) or failed MUST NOT be counted as connected.
+-2. **The current user is part of the rate.** `groupMembersConnection` adds the current user's own
+-   membership to both the connected and the total count, so the rate stays consistent with the
+-   `N members` figure in the same section title, and a fully connected group reads `N/N (100%)`.
++2. **The current user is part of the rate, and counts as connected when active.**
++   `groupMembersConnection` adds the current user's own membership to both the connected and the
++   total count, so the rate stays consistent with the `N members` figure in the same section title,
++   and a fully connected group reads `N/N (100%)`. The own membership MUST be counted only once (the
++   helper filters it out of the member list first, because some lists do contain it), and it MUST be
++   treated as connected when it has no active connection but its `memberStatus` is active
++   (`memberActive`), because `GroupInfo.membership` normally carries no `activeConn` and the rate
++   would otherwise never reach 100%.
+ 3. **The rate is a display only.** It MUST NOT change any state, MUST NOT be persisted, and MUST NOT
+    be added to the cross-device backup format; the member search filter MUST NOT affect it (the rate
+    is computed from all members, not from the filtered list).
+diff --git a/apps/multiplatform/product/views/group-info.md b/apps/multiplatform/product/views/group-info.md
+index b8dbc5a5b..5d4e30d86 100644
+--- a/apps/multiplatform/product/views/group-info.md
++++ b/apps/multiplatform/product/views/group-info.md
+@@ -73,7 +73,7 @@ Displays `activeSortedMembers` (excluding left/removed members, sorted by role d
+ | Element | Description |
+ |---|---|
+ | Section title | "N members" (`group_info_section_title_num_members`) with the group connection rate at its right end (rendered by `SectionViewWithButton`) |
+-| Connection rate | `connected/total (pct%)` of the members with a ready connection (`GroupMember.ready`), including the current user's own membership; next to the text is a status dot that is green when everyone is connected, yellow when some are connected and grey when nobody is (`GroupMembersConnectionRateDot`, also used in front of the group name in the home-screen chat list) |
++| Connection rate | `connected/total (pct%)` of the members with a ready connection (`GroupMember.ready`), plus the current user's own membership, which is counted once and counts as connected while it is active (so a fully connected group reaches `100%`); next to the text is a status dot that is green when everyone is connected, yellow when some are connected and grey when nobody is (`GroupMembersConnectionRateDot`, also used in front of the group name in the home-screen chat list) |
+ | Collapse toggle | Chevron at the right end of the title row (`ic_chevron_up` while expanded, `ic_chevron_down` while collapsed). Collapsing hides the add-members button, the search row, the current user's own row and every member row, leaving only the title, so the rest of the page is reachable without scrolling through a large group. The state is per group and lives only while the modal is open (`rememberSaveable(groupInfo.id)`), it is not written to preferences or to the backup format |
+ | Member avatar | `MEMBER_ROW_AVATAR_SIZE` (42dp) profile image; tapping it opens the profile image viewer (full-size image + **Copy image**) |
+ | Member name | Display name with role badge, preceded by the member's connection network status dot when the member has an active connection (`SubscriptionStatusDot`: filled green circle = connected, pending icon = connecting, error icon = removed / no subscription; tinted with the theme's secondary colour). The dot shows nothing while no status is known, so it never shifts the layout |
+diff --git a/apps/multiplatform/spec/client/chat-view.md b/apps/multiplatform/spec/client/chat-view.md
+index f11cd90d3..9dbf02cb2 100644
+--- a/apps/multiplatform/spec/client/chat-view.md
++++ b/apps/multiplatform/spec/client/chat-view.md
+@@ -269,7 +269,11 @@ The member list section title (non-relay groups only, and not while `nextConnect
+ the group **connection rate**: `groupMembersConnection(members, currentMembership)` returns
+ `(connected, total)` where a member counts as connected when `GroupMember.ready` is true
+ (`activeConn?.connStatus == ConnStatus.Ready`) and the current user's own membership is part of both
+-values, matching the `N members` count in the same title. `GroupMembersConnectionStatus` renders it
++values, matching the `N members` count in the same title. The own membership is removed from the
++member list first so it can never be counted twice, and it counts as connected when its
++`memberStatus` is active (`memberActive`, because `GroupInfo.membership` usually carries no
++`activeConn` whose status could be checked), so a fully connected group reaches `N/N (100%)`.
++`GroupMembersConnectionStatus` renders it
+ as `connected/total (pct%)` with `floor`-rounded percentage (the same rounding the chat-list
+ subscription indicator uses) followed by a status dot: green `ic_circle_filled` when everybody is
+ connected, yellow `ic_pending_filled` when only some are (`GroupMembersConnectionRate`) and grey
+diff --git a/plans/2026-10-22-fix-group-rate-self.md b/plans/2026-10-22-fix-group-rate-self.md
+new file mode 100644
+index 000000000..2cad461c2
+--- /dev/null
++++ b/plans/2026-10-22-fix-group-rate-self.md
+@@ -0,0 +1,66 @@
++# Fix: the group connection rate could never reach 100%
++
++Date: 2026-10-22
++Base version: 7.0.4
++TODO item: `## bug fix:` → `群成员连接率似乎忘记排除自己了，导致永远无法达到百分之一百`
++
++## Problem
++
++The member list title of a group showed a rate such as `12/13 (92%)` and never `13/13 (100%)`,
++even when every listed member had a ready connection.
++
++## Cause
++
++`groupMembersConnection` counted
++
++```kotlin
++(members.count { it.ready } + if (currentMembership.ready) 1 else 0) to (members.size + 1)
++```
++
++`GroupMember.ready` is `activeConn?.connStatus == ConnStatus.Ready`, but
++`GroupInfo.membership` (the current user's own membership) normally carries no `activeConn` — the
++connections are only present on the entries of the member list, which doesn't contain the current
++user. So the `+1` term of the numerator was always `0` while the `+1` of the denominator was always
++counted, and the rate was permanently short by one member.
++
++## Fix
++
++```kotlin
++internal fun groupMembersConnection(members: List<GroupMember>, currentMembership: GroupMember): Pair<Int, Int> {
++  val otherMembers = members.filter { it.groupMemberId != currentMembership.groupMemberId }
++  val currentConnected = if (currentMembership.activeConn != null) currentMembership.ready else currentMembership.memberActive
++  return (otherMembers.count { it.ready } + if (currentConnected) 1 else 0) to (otherMembers.size + 1)
++}
++```
++
++- The own membership is filtered out of the list first, so it can never be counted twice when a
++  member list does include it.
++- It still counts towards the total (the title must keep matching the `N members` figure).
++- It counts as connected when its membership is active (`memberActive`), because the client can only
++  read the member list while it is connected to the group; when it does have an `activeConn` the
++  stricter `ready` check is used.
++
++## Files
++
++- `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`
++- `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt`
++  (13 tests; distinct member ids, no-double-count and inactive-membership cases, and
++  `testRateReachesOneHundredPercent`)
++
++## Docs
++
++- `apps/multiplatform/product/rules.md` (RULE-21 invariant 2)
++- `apps/multiplatform/product/views/group-info.md` (Connection rate row)
++- `apps/multiplatform/spec/client/chat-view.md` (§8 member list)
++
++## Adversarial review
++
++- *Could the own membership be counted twice?* No: it is filtered out by `groupMemberId` before the
++  count, and both real lists (which lack it) and hypothetical lists (which include it) are covered by
++  tests.
++- *Could a member list entry share the own `groupMemberId` by accident?* No: `groupMemberId` is
++  unique per group in the core, and the current membership is a member of the same group.
++- *Does an inactive own membership still show a wrong rate?* It is counted in the total but not as
++  connected (`testInactiveCurrentMembershipIsNotCountedAsConnected`), which is the intended reading.
++- *Any effect on the chat list dot?* Both call sites use the same helper, so they stay consistent by
++  construction (RULE-24 invariant 1).
