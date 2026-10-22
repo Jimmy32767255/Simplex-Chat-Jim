@@ -111,7 +111,13 @@ none
 
 ## bug fix:
 
-- [ ] 群成员连接率似乎忘记排除自己了，导致永远无法达到百分之一百
+- [x] 群成员连接率似乎忘记排除自己了，导致永远无法达到百分之一百
+  - 原因：`groupMembersConnection` 原来写的是 `(members.count { it.ready } + if (currentMembership.ready) 1 else 0) to (members.size + 1)`。而 `GroupMember.ready` 等于 `activeConn?.connStatus == ConnStatus.Ready`，当前用户自己的 `GroupInfo.membership` 里通常没有 `activeConn`（连接信息只存在于成员列表的条目上，而成员列表里并不包含自己），所以分子里的 `+1` 永远是 0、分母里的 `+1` 却永远算上，比率就永远差一个人，最多只能到 `(N-1)/N`。
+  - 修复方法：把「自己」从成员列表里先过滤掉（`members.filter { it.groupMemberId != currentMembership.groupMemberId }`，这样即使某个列表里包含了自己也不会重复计数），总数仍然把自己算进去（保持与标题里的 `N members` 一致），而自己是否有连接改为：有 `activeConn` 时按严格的 `ready` 判断，没有 `activeConn` 时按 `memberActive`（成员状态是否活跃）判断——客户端能读到成员列表本身就说明自己已经连上了，所以合理的群在全员联通时会显示 `N/N (100%)`。
+  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`（`groupMembersConnection` 及注释）；测试 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt`。
+  - 未改核心与 `AppSettings`，未新增字符串；群聊列表里的圆点与群信息页共用同一个函数，因此两处结果必然一致。
+  - 文档：`product/rules.md`（RULE-21 第 2 条）、`product/views/group-info.md`（Connection rate 行）、`spec/client/chat-view.md`（§8 成员列表）、`plans/2026-10-22-fix-group-rate-self.md`。
+  - 测试：`GroupMembersConnectionRateTest` 扩充到 13 个用例（成员使用不同 `groupMemberId`；新增「自己只被计一次」「自己不活跃时不算已连接」「达到 100%」等），`./gradlew :common:desktopTest` 全部通过（13/13，全部 17 个测试类无失败）。差异补丁见 `diff/`。
 
 - [ ] 点的显示有时候和联系人页面里显示的连接状态不一致
 
