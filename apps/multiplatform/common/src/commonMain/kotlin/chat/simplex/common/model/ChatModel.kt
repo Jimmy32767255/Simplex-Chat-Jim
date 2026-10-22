@@ -154,6 +154,11 @@ object ChatModel {
   val incompleteInitializedDbRemoved = mutableStateOf(false)
   // map of connection network statuses, key is the agent connection id
   val connectionSubStatuses = mutableStateMapOf<String, SubscriptionStatus>()
+  // map of the group member lists loaded for the chat list connection rate dots, key is the group id.
+  // Session-local: never persisted, never part of AppSettings.
+  val groupMembersForRate = mutableStateMapOf<Long, List<GroupMember>>()
+  // group ids whose member list was already requested for the connection rate dot in this session
+  internal val groupRateRequested = mutableSetOf<Long>()
   val switchingUsersAndHosts = mutableStateOf(false)
 
   // current chat
@@ -419,6 +424,21 @@ object ChatModel {
     activeCtx.addChatItem(rhId, cInfo, cItem)
     if (activeCtx.secondaryContextFilter != null && cInfo.inMainChatList) {
       chatsContext.addChatItem(rhId, cInfo, cItem)
+    }
+  }
+
+  /**
+   * Keeps the chat list connection rate cache in sync with a single member update, mirroring the
+   * filtered list the core returns from `apiListMembers`: active members are added or replaced,
+   * members that are not active anymore are dropped.
+   */
+  fun updateGroupMembersForRate(groupInfo: GroupInfo, member: GroupMember) {
+    val cached = groupMembersForRate[groupInfo.groupId] ?: return
+    val index = cached.indexOfFirst { it.groupMemberId == member.groupMemberId }
+    groupMembersForRate[groupInfo.groupId] = when {
+      !member.memberActive -> if (index == -1) cached else cached.filterIndexed { i, _ -> i != index }
+      index == -1 -> cached + member
+      else -> cached.toMutableList().apply { this[index] = member }
     }
   }
 
@@ -2085,6 +2105,20 @@ class ContactRef(
  */
 internal fun connectionSubStatus(conn: Connection?, liveStatuses: Map<String, SubscriptionStatus>): SubscriptionStatus? =
   conn?.let { liveStatuses[it.agentConnId] ?: it.connectionStats?.subStatus }
+
+/**
+ * The group chats whose member list still has to be loaded to show the connection rate dot in the
+ * chat list: channels (relay groups), groups the user is no longer part of and the groups whose list
+ * was already requested in this session are skipped.
+ */
+internal fun groupChatsForConnectionRate(chats: List<Chat>, requested: Set<Long>): List<Chat> =
+  chats.filter { chat ->
+    val groupInfo = (chat.chatInfo as? ChatInfo.Group)?.groupInfo
+    groupInfo != null &&
+      !groupInfo.useRelays &&
+      groupInfo.membership.memberActive &&
+      groupInfo.groupId !in requested
+  }
 
 @Serializable
 data class Connection(

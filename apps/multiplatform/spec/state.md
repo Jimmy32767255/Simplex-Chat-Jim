@@ -94,6 +94,8 @@ Defined at [`ChatModel.kt line 86`](../common/src/commonMain/kotlin/chat/simplex
 | [`groupMembers`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt#L113) | `MutableState<List<GroupMember>>` | 113 | Members of currently viewed group |
 | [`groupMembersIndexes`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt#L114) | `MutableState<Map<Long, Int>>` | 114 | Index lookup by `groupMemberId` |
 | [`membersLoaded`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt#L115) | `MutableState<Boolean>` | 115 | Whether group members have been loaded |
+| [`groupMembersForRate`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt#L127) | `SnapshotStateMap<Long, List<GroupMember>>` | 127 | Session-local member lists of the groups shown in the chat list, keyed by group id, used only for the connection-rate dot (`GroupMembersConnectionRateDot`). Filled once per session in the background from `apiListMembers`, refreshed by `updateGroupMembersForRate` on `CR.GroupMemberUpdated`. Never persisted, never part of `AppSettings`; distinct from `groupMembers`, which is the open group |
+| [`groupRateRequested`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt#L129) | `MutableSet<Long>` | 129 | Internal set of group ids whose member list was already requested for the chat-list rate dot, so each group is fetched at most once per session |
 
 ### Chat Tags and Filters
 
