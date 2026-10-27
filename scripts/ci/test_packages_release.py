@@ -5,6 +5,7 @@ import email.message
 import hashlib
 import io
 import json
+import re
 import subprocess
 import tomllib
 import urllib.error
@@ -25,7 +26,8 @@ from packages_release import (
     TYPES_DIR,
     TYPES_README,
     ADDON_PLATFORMS,
-    BUILD_WORKFLOW,
+    BUILD_CHANGES,
+    SCOPE_CHANGES,
     LIBS_ASSETS,
     Package,
     Pins,
@@ -37,6 +39,7 @@ from packages_release import (
     bump_npm_version,
     bump_python_version,
     changed_since,
+    changes,
     add_releases,
     claim_core,
     core_release,
@@ -49,7 +52,6 @@ from packages_release import (
     prepare,
     print_build_plan,
     publish_plan,
-    pull_request_paths,
     record_releases,
     recorded_commit,
     release_status,
@@ -239,11 +241,14 @@ class PlanTest(unittest.TestCase):
 
 
 class BuildPlanTest(unittest.TestCase):
-    def test_reads_the_pull_request_paths_of_build_yml(self):
-        paths = pull_request_paths((packages_release.ROOT / BUILD_WORKFLOW).read_text())
-        self.assertIn("src/**", paths)
-        self.assertIn(".github/**", paths)
-        self.assertFalse([path for path in paths if path.startswith("packages/")])
+    def test_build_yml_runs_for_the_paths_of_its_builds(self):
+        workflow = (packages_release.ROOT / ".github/workflows/build.yml").read_text()
+        found = re.search(r'^  pull_request:\n    paths:\n((?:      - ".*"\n)+)', workflow, re.M)
+        self.assertIsNotNone(found, "no pull_request paths in build.yml")
+        paths = re.findall(r'^      - "(.*)"$', found[1], re.M)
+        globs = {path for build in (BUILD_CHANGES | SCOPE_CHANGES).values() for path in build if not path.startswith(":")}
+        self.assertEqual(sorted(paths), sorted(globs))
+        self.assertEqual(len(paths), len(set(paths)), "duplicate pull_request paths in build.yml")
 
     def test_matrix_names_the_runner_of_each_platform(self):
         self.assertEqual(
@@ -408,7 +413,6 @@ class GitRepoTest(unittest.TestCase):
 class PrintBuildPlanTest(GitRepoTest):
     def setUp(self):
         super().setUp()
-        self.write(BUILD_WORKFLOW, 'on:\n  pull_request:\n    paths:\n      - "src/**"\n      - "Dockerfile*"\n\nenv:\n')
         self.write("packages/pkg/src.txt", "a")
         self.commit("base")
         self.base = self.head()
@@ -437,6 +441,69 @@ class PrintBuildPlanTest(GitRepoTest):
         self.write("Dockerfile.build", "d")
         self.commit("top-level Dockerfile")
         self.assertEqual(self.platforms(), [])
+
+    def test_app_change_leaves_the_add_on_to_this_workflow(self):
+        self.write("packages/pkg/src.txt", "b")
+        self.write("apps/ios/Shared/View.swift", "v")
+        self.write("apps/multiplatform/common/Model.kt", "k")
+        self.commit("package and app change")
+        self.assertEqual(self.platforms(), ADDON_PLATFORMS)
+
+
+class ChangesTest(GitRepoTest):
+    def setUp(self):
+        super().setUp()
+        self.write("README.md", "r")
+        self.commit("base")
+        self.base = self.head()
+
+    def builds(self, *files):
+        for file in files:
+            self.write(file, "changed")
+        self.commit("change")
+        output = io.StringIO()
+        with mock.patch.object(packages_release, "ROOT", self.repo), contextlib.redirect_stdout(output):
+            changes(self.base)
+        self.values = dict(line.split("=", 1) for line in output.getvalue().splitlines())
+        return {build for build in BUILD_CHANGES if self.values[build] == "true"}
+
+    def test_ios_change_builds_only_ios(self):
+        self.assertEqual(self.builds("apps/ios/Shared/View.swift"), {"ios"})
+
+    def test_kotlin_change_builds_only_kotlin(self):
+        self.assertEqual(self.builds("apps/multiplatform/common/Model.kt"), {"kotlin"})
+
+    def test_app_changes_build_both_apps_without_the_core(self):
+        self.assertEqual(self.builds("apps/ios/Shared/View.swift", "apps/multiplatform/common/Model.kt"), {"ios", "kotlin"})
+
+    def test_core_change_builds_only_the_core(self):
+        self.assertEqual(self.builds("src/Simplex/Chat.hs"), {"haskell"})
+
+    def test_ios_stub_script_builds_only_ios(self):
+        self.assertEqual(self.builds("scripts/ci/ios-stub-libs.sh"), {"ios"})
+
+    def test_other_ci_script_builds_the_core(self):
+        self.assertEqual(self.builds("scripts/ci/prune-old-builds.sh"), {"haskell"})
+
+    def test_build_image_change_builds_the_core_and_kotlin(self):
+        self.assertEqual(self.builds("Dockerfile.build"), {"haskell", "kotlin"})
+
+    def test_workflow_change_builds_the_core_and_kotlin(self):
+        self.assertEqual(self.builds(".github/workflows/build.yml"), {"haskell", "kotlin"})
+
+    def test_unrelated_change_builds_nothing(self):
+        self.assertEqual(self.builds("docs/guide.md", "packages/pkg/src.txt"), set())
+
+    def test_package_change_builds_only_packages(self):
+        self.assertEqual(self.builds("packages/simplex-chat-python/src/simplex_chat/client.py"), {"packages"})
+
+    def test_badge_web_change_builds_the_core_and_tests_its_scope(self):
+        self.assertEqual(self.builds("apps/simplex-badge-service/web/src/catalog.ts"), {"haskell"})
+        self.assertEqual(self.values["scopes"], "badge-web")
+
+    def test_release_script_change_tests_the_ci_scripts(self):
+        self.assertEqual(self.builds("scripts/ci/packages_release.py"), {"haskell"})
+        self.assertEqual(self.values["scopes"], "ci-scripts")
 
 
 class PackageStateTest(GitRepoTest):
