@@ -362,6 +362,15 @@ fun ChatView(
                       }
                     }
                   },
+                  copyItems = {
+                    val itemIds = selectedChatItems.value
+                    if (itemIds != null) {
+                      // chatItems are stored newest first, the copy follows the order of the conversation
+                      val items = chatsCtx.chatItems.value.filter { itemIds.contains(it.id) }.asReversed()
+                      clipboard.setText(AnnotatedString(chatItemsToText(items, chatInfo) { getTimestampText(it) }))
+                      showToast(generalGetString(MR.strings.copied))
+                    }
+                  },
                   forwardItems = {
                     val itemIds = selectedChatItems.value
 
@@ -1106,7 +1115,8 @@ fun ChatLayout(
                     },
                     archiveItems = { archiveItems(remoteHostId, chatInfo, selectedChatItems) },
                     moderateItems = {},
-                    forwardItems = {}
+                    forwardItems = {},
+                    copyItems = {}
                   )
                 }
               }

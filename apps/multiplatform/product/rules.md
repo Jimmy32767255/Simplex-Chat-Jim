@@ -19,6 +19,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
 11. [Servers Import and Export (RULE-23)](#11-servers-import-and-export)
 12. [Group Connection Rate in the Chat List (RULE-24)](#12-group-connection-rate-in-the-chat-list)
 13. [Chat List Order (RULE-25)](#13-chat-list-order)
+14. [Copy Selected Messages (RULE-26)](#14-copy-selected-messages)
 
 ---
 
@@ -514,3 +515,41 @@ Enforcement:
   the filtered list)
 - `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt` (the toggle)
 - Test: `common/src/commonTest/kotlin/chat/simplex/app/FavoritesPinnedFirstTest.kt`
+
+---
+
+## 14. Copy Selected Messages
+
+### RULE-26: The Copied Text Describes What the Chat Shows
+
+Copying a selection of messages produces a single text block built only from the `ChatItem`s already in
+the model — no API call, no core change, no new stored state:
+
+1. **The send time, never the receive time.** The timestamp comes from `meta.itemTs` through
+   `getTimestampText`, which is the value the chat renders; `meta.createdAt` (the receive time) MUST NOT
+   be used, because for a delayed or forwarded message it differs from the time the author sent it.
+
+2. **The latest version of the text.** The body is `content.text` of the current `ChatItem`, which the
+   core replaces on every edit. Older versions live only in `ChatItemInfo.itemVersions` and MUST NOT be
+   fetched or copied, so copying a selection never depends on a network round trip.
+
+3. **The sender uses the local alias.** `ciSenderName` returns `GroupMember.displayName` for a received
+   group message and the contact's `localAlias.ifEmpty { displayName }` for a received direct message, so
+   an alias always wins over the profile name. Own messages have no sender name, exactly as in the chat;
+   local notes have none either.
+
+4. **Only copyable items are copied.** `canCopyChatItem` excludes live (voice) dummy items and reports,
+   and `chatItemsToText` skips deleted items, so a selection never yields empty paragraphs. The action is
+   capped at 200 items — the delete limit — and is disabled when nothing copyable is selected.
+
+5. **Conversation order.** `ChatModel.chatItems` is stored newest first, so the copy reverses the filtered
+   list to follow the order of the conversation; the order of `selectedChatItems` (a `Set`) MUST NOT be
+   used.
+
+Enforcement:
+- `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt` (`ciSenderName`,
+  `canCopyChatItem`, `chatItemToText`, `chatItemsToText`)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SelectableChatItemToolbars.kt` (the copy
+  button and its enablement in `recheckItems`)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt` (the `copyItems` lambda)
+- Test: `common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt`

@@ -70,6 +70,7 @@ Core message composition, delivery, and interaction features.
 | Message reports | Report messages to group moderators | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupReportsView.kt` |
 | Send message bar | Composable message input with attachments, voice, send button | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt` |
 | Profile image viewer | Tap a contact / group / member avatar to view it full size and copy it to the clipboard | `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/ChatInfoImage.kt` |
+| Copy selected messages | Multi-select toolbar copies the selected messages as text, each with the sender name (local alias first), the send time and the latest version of the text | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SelectableChatItemToolbars.kt` |
 
 ### 2. Contacts
 
