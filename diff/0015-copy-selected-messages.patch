@@ -1,0 +1,582 @@
+diff --git a/TODO.md b/TODO.md
+index 65df2213f..ae67aacc9 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -114,6 +114,15 @@
+   - 文档：`product/rules.md`（RULE-25）、`product/concepts.md`（PC40）、`product/README.md`、`product/views/chat-list.md`（Chat List Order）、`product/views/settings.md`（Chat List Section）、`spec/client/chat-list.md`（Chat List Order）、`spec/state.md`（`favoritesAsPinned`）、`spec/impact.md`、`plans/2026-10-22-favorites-pinned-first.md`。
+   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/FavoritesPinnedFirstTest.kt`（8 个用例：关闭时顺序不变、收藏移到最上方、两组内部顺序保持、没有收藏/全是收藏时不变、空列表、无聊天设置的对话不算收藏、联系人与群都被识别），`./gradlew :common:desktopTest` 全部通过（8/8，全部 19 个测试类共 115 个用例无失败），`:common:compileDebugKotlinAndroid` 也通过。差异补丁见 `diff/`。
+ 
++- [x] 添加选中消息后批量复制到剪贴板的功能（包含发送者名称（如果有备注先用备注）、发送时间（不是收到时间）和正文内容（最新版本））
++  - 已实现（基于 7.0.4）：多选工具栏（删除/举报/转发那一行）最右侧新增「复制选中消息」按钮，一键把选中的消息复制为一整段文本，说明文字为内容描述（`copy_selected_messages`），使用现有的 `ic_content_copy` 图标，无可复制内容时置灰。每条消息的格式为 `发送者, 发送时间` 换行 `正文`，消息之间用一个空行分隔，顺序与聊天中的对话顺序一致（`ChatModel.chatItems` 是最新在前，复制时反向）。
++  - 三处要求的取值：① 发送者名称为收件消息的发送者——群聊取群成员、私聊取联系人，并按 `localAlias.ifEmpty { displayName }` 优先使用「备注」（`ciSenderName`）；自己发送的消息与本地笔记没有发送者名称，只复制时间，与聊天里的显示一致。② 时间用 `meta.itemTs`（发送时间）经现有的 `getTimestampText` 格式化，绝不使用 `meta.createdAt`（收到时间），也不需要新增时间格式字符串。③ 正文用 `ChatItem.content.text`，即内核在每次编辑后替换成的最新版本；历史版本只存在 `ChatItemInfo.itemVersions` 里，需要额外请求，因此批量复制不拉取它、不产生网络往返。
++  - 边界：只复制可复制的项（`canCopyChatItem` 排除墓碑/实时的语音占位（`isLiveDummy`）与举报内容），已删除项会被跳过，不会产生空段落；文件与语音按 `ChatItem.text` 复制成文件名或「语音消息（时长）」的描述，而不是像单选复制那样在桌面端先下载再复制路径（批量下载不可行）；复制上限 200 条（与删除一致），避免超大选择卡住界面或撑爆剪贴板。
++  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`（新增纯函数 `ciSenderName`、`canCopyChatItem`、`chatItemToText`、`chatItemsToText`，时间格式化由调用方注入以便测试）、`.../views/chat/SelectableChatItemToolbars.kt`（复制按钮 + `recheckItems` 里的可用性计算）、`.../views/chat/ChatView.kt`（两处工具栏调用点的 `copyItems` 回调；举报内容那一处传空实现）、`common/src/commonMain/resources/MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 1 条字符串）。
++  - 与条目 1、5、6、8、10、13、14 一致：不修改核心（Haskell）与网络协议，不修改 `AppSettings` 跨设备导入/导出结构，不新增偏好或持久化状态，纯客户端拼接文本。
++  - 文档：`product/rules.md`（RULE-26）、`product/concepts.md`（PC41）、`product/README.md`、`product/views/chat.md`（多选工具栏与右键菜单表格）、`spec/client/chat-view.md`（§3 消息列表与源文件表）、`spec/impact.md`、`plans/2026-10-28-copy-selected-messages.md`。
++  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt`（12 个用例：群消息用备注、群消息无备注用昵称、私聊用备注/无备注、自己的消息无名称、用的是发送时间而不是收到时间、多条消息按对话顺序并用空行分隔、已删除项被跳过、文件消息复制文件名、空选择得空文本、`canCopyChatItem` 判断、本地笔记无发送者名称），`./gradlew :common:desktopTest` 全部通过（12/12，全部 20 个测试类共 127 个用例无失败）。差异补丁见 `diff/`。
++
+ ## mod:
+ 
+ none
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
+index 74812e4a2..138e96551 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
+@@ -3834,6 +3834,44 @@ fun localDate(t: Instant): String {
+   return ts.toJavaLocalDateTime().format(dateFormatter)
+ }
+ 
++/**
++ * The name of whoever sent a received message: the group member for a group chat, the contact for a
++ * direct chat. The local alias ("note") takes precedence over the profile name, and own messages
++ * have no sender name, so that a copied conversation reads the same way as the chat itself.
++ */
++internal fun ciSenderName(ci: ChatItem, chatInfo: ChatInfo): String? = when (val dir = ci.chatDir) {
++  // GroupMember.displayName already prefers the local alias
++  is CIDirection.GroupRcv -> dir.groupMember.displayName
++  is CIDirection.DirectRcv -> (chatInfo as? ChatInfo.Direct)?.contact?.let { it.localAlias.ifEmpty { it.displayName } }
++  else -> null
++}
++
++/**
++ * Whether a chat item can be copied as text. Any message with text can be copied, as long as it is
++ * not a live (voice) dummy or a report, whose contents are not the user's messages.
++ */
++internal fun canCopyChatItem(ci: ChatItem): Boolean =
++  ci.content.msgContent != null && ci.meta.itemDeleted == null && !ci.isLiveDummy && !ci.isReport
++
++/**
++ * One copied message: the sender name (when there is one), the time the message was SENT and the
++ * text of its latest version. [timeText] is passed in so that the formatting stays testable and the
++ * caller decides how the timestamp is presented.
++ */
++internal fun chatItemToText(ci: ChatItem, chatInfo: ChatInfo, timeText: (Instant) -> String): String {
++  val time = timeText(ci.meta.itemTs)
++  val name = ciSenderName(ci, chatInfo)
++  val header = if (name != null) "$name, $time" else time
++  return "$header\n${ci.text}"
++}
++
++/**
++ * The text copied for several messages, in the order they are shown in the chat, separated by an
++ * empty line. Items that cannot be copied are skipped.
++ */
++internal fun chatItemsToText(items: List<ChatItem>, chatInfo: ChatInfo, timeText: (Instant) -> String): String =
++  items.filter { canCopyChatItem(it) }.joinToString("\n\n") { chatItemToText(it, chatInfo, timeText) }
++
+ @Serializable
+ sealed class CIStatus {
+   @Serializable @SerialName("sndNew") class SndNew: CIStatus()
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
+index 82aca524c..b13533b1c 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
+@@ -344,6 +344,15 @@ fun ChatView(
+                       }
+                     }
+                   },
++                  copyItems = {
++                    val itemIds = selectedChatItems.value
++                    if (itemIds != null) {
++                      // chatItems are stored newest first, the copy follows the order of the conversation
++                      val items = chatsCtx.chatItems.value.filter { itemIds.contains(it.id) }.asReversed()
++                      clipboard.setText(AnnotatedString(chatItemsToText(items, chatInfo) { getTimestampText(it) }))
++                      showToast(generalGetString(MR.strings.copied))
++                    }
++                  },
+                   forwardItems = {
+                     val itemIds = selectedChatItems.value
+ 
+@@ -1070,7 +1079,8 @@ fun ChatLayout(
+                     },
+                     archiveItems = { archiveItems(remoteHostId, chatInfo, selectedChatItems) },
+                     moderateItems = {},
+-                    forwardItems = {}
++                    forwardItems = {},
++                    copyItems = {}
+                   )
+                 }
+               }
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/SelectableChatItemToolbars.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/SelectableChatItemToolbars.kt
+index 03d0b9985..69d4896f0 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/SelectableChatItemToolbars.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/SelectableChatItemToolbars.kt
+@@ -66,6 +66,7 @@ fun SelectedItemsButtonsToolbar(
+   archiveItems: () -> Unit,
+   moderateItems: () -> Unit,
+   forwardItems: () -> Unit,
++  copyItems: () -> Unit,
+ ) {
+   val deleteEnabled = remember { mutableStateOf(false) }
+   val deleteForEveryoneEnabled = remember { mutableStateOf(false) }
+@@ -73,6 +74,7 @@ fun SelectedItemsButtonsToolbar(
+   val canModerate = remember { mutableStateOf(false) }
+   val moderateEnabled = remember { mutableStateOf(false) }
+   val forwardEnabled = remember { mutableStateOf(false) }
++  val copyEnabled = remember { mutableStateOf(false) }
+   val deleteCountProhibited = remember { mutableStateOf(false) }
+   val forwardCountProhibited = remember { mutableStateOf(false) }
+   Box {
+@@ -118,12 +120,21 @@ fun SelectedItemsButtonsToolbar(
+           tint = if (!forwardEnabled.value || forwardCountProhibited.value || chatsCtx.secondaryContextFilter != null) MaterialTheme.colors.secondary else MaterialTheme.colors.primary
+         )
+       }
++
++      IconButton({ copyItems() }, enabled = copyEnabled.value && !deleteCountProhibited.value) {
++        Icon(
++          painterResource(MR.images.ic_content_copy),
++          stringResource(MR.strings.copy_selected_messages),
++          Modifier.size(22.dp),
++          tint = if (!copyEnabled.value || deleteCountProhibited.value) MaterialTheme.colors.secondary else MaterialTheme.colors.primary
++        )
++      }
+     }
+     Divider(Modifier.align(Alignment.TopStart))
+   }
+   val chatItems = remember { derivedStateOf { chatsCtx.chatItems.value } }
+   LaunchedEffect(chatInfo, chatItems.value, selectedChatItems.value) {
+-    recheckItems(chatInfo, chatItems.value, selectedChatItems, deleteEnabled, deleteForEveryoneEnabled, canArchiveReports, canModerate, moderateEnabled, forwardEnabled, deleteCountProhibited, forwardCountProhibited)
++    recheckItems(chatInfo, chatItems.value, selectedChatItems, deleteEnabled, deleteForEveryoneEnabled, canArchiveReports, canModerate, moderateEnabled, forwardEnabled, copyEnabled, deleteCountProhibited, forwardCountProhibited)
+   }
+ }
+ 
+@@ -136,6 +147,7 @@ private fun recheckItems(chatInfo: ChatInfo,
+   canModerate: MutableState<Boolean>,
+   moderateEnabled: MutableState<Boolean>,
+   forwardEnabled: MutableState<Boolean>,
++  copyEnabled: MutableState<Boolean>,
+   deleteCountProhibited: MutableState<Boolean>,
+   forwardCountProhibited: MutableState<Boolean>
+ ) {
+@@ -150,6 +162,7 @@ private fun recheckItems(chatInfo: ChatInfo,
+   var rModerateEnabled = true
+   var rOnlyOwnGroupItems = true
+   var rForwardEnabled = true
++  var rCopyEnabled = true
+   val rSelectedChatItems = mutableSetOf<Long>()
+   for (ci in chatItems) {
+     if (selected.contains(ci.id)) {
+@@ -159,6 +172,7 @@ private fun recheckItems(chatInfo: ChatInfo,
+       rOnlyOwnGroupItems = rOnlyOwnGroupItems && ci.chatDir is CIDirection.GroupSnd && !ci.isReport
+       rModerateEnabled = rModerateEnabled && ci.content.msgContent != null && ci.memberToModerate(chatInfo) != null && !ci.isReport
+       rForwardEnabled = rForwardEnabled && ci.content.msgContent != null && ci.meta.itemDeleted == null && !ci.isLiveDummy && !ci.isReport
++      rCopyEnabled = rCopyEnabled && canCopyChatItem(ci)
+       rSelectedChatItems.add(ci.id) // we are collecting new selected items here to account for any changes in chat items list
+     }
+   }
+@@ -168,6 +182,7 @@ private fun recheckItems(chatInfo: ChatInfo,
+   canArchiveReports.value = rCanArchiveReports
+   moderateEnabled.value = rModerateEnabled
+   forwardEnabled.value = rForwardEnabled
++  copyEnabled.value = rCopyEnabled
+   selectedChatItems.value = rSelectedChatItems
+ }
+ 
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+index 6f3be11b8..3e19f92ae 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/base/strings.xml
+@@ -793,6 +793,7 @@
+   <string name="no_details">no details</string>
+   <string name="add_contact">One-time invitation link</string>
+   <string name="copied">Copied to clipboard</string>
++  <string name="copy_selected_messages">Copy selected messages</string>
+   <string name="copy_image">Copy image</string>
+   <string name="image_copied">Image copied to clipboard</string>
+   <string name="image_copy_failed">Couldn\'t copy image</string>
+diff --git a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+index 9cde8d376..6cc797293 100644
+--- a/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/resources/MR/zh-rCN/strings.xml
+@@ -322,6 +322,7 @@
+     <string name="alert_title_contact_connection_pending">联系人尚未连接！</string>
+     <string name="icon_descr_context">上下文图标</string>
+     <string name="copied">已复制到剪贴板</string>
++    <string name="copy_selected_messages">复制选中消息</string>
+     <string name="copy_image">复制图片</string>
+     <string name="image_copied">图片已复制到剪贴板</string>
+     <string name="image_copy_failed">无法复制图片</string>
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt
+new file mode 100644
+index 000000000..dd4695cb4
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt
+@@ -0,0 +1,131 @@
++package chat.simplex.app
++
++import chat.simplex.common.model.*
++import kotlinx.datetime.Instant
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertFalse
++import kotlin.test.assertNull
++import kotlin.test.assertTrue
++
++// use this command for testing:
++// ./gradlew desktopTest
++class SelectedMessagesCopyTest {
++  private val ts = Instant.parse("2026-10-28T02:30:00Z")
++
++  // a deterministic timestamp renderer, the real one is localized and time-zone dependent
++  private val timeText: (Instant) -> String = { "T(${it.toEpochMilliseconds()})" }
++
++  private val renderedTs = "T(${ts.toEpochMilliseconds()})"
++
++  private fun member(displayName: String, alias: String = ""): GroupMember =
++    GroupMember.sampleData.copy(
++      memberProfile = GroupMember.sampleData.memberProfile.copy(displayName = displayName, localAlias = alias)
++    )
++
++  private fun directInfo(alias: String = "", displayName: String = "Alice"): ChatInfo.Direct =
++    ChatInfo.Direct(
++      Contact.sampleData.copy(
++        profile = Contact.sampleData.profile.copy(displayName = displayName, localAlias = alias)
++      )
++    )
++
++  private fun groupInfo(): ChatInfo.Group = ChatInfo.Group(GroupInfo.sampleData, groupChatScope = null)
++
++  private fun groupRcv(text: String, sender: GroupMember, ts: Instant = this.ts): ChatItem =
++    ChatItem.getSampleData(id = 1, dir = CIDirection.GroupRcv(sender), ts = ts, text = text)
++
++  private fun directRcv(text: String, ts: Instant = this.ts): ChatItem =
++    ChatItem.getSampleData(id = 1, dir = CIDirection.DirectRcv(), ts = ts, text = text)
++
++  private fun snd(text: String, ts: Instant = this.ts): ChatItem =
++    ChatItem.getSampleData(id = 1, dir = CIDirection.DirectSnd(), ts = ts, text = text)
++
++  @Test
++  fun testGroupMessageUsesLocalAlias() {
++    val ci = groupRcv("hello", member("Alice", alias = "Ali"))
++    assertEquals("Ali, $renderedTs\nhello", chatItemToText(ci, groupInfo(), timeText))
++  }
++
++  @Test
++  fun testGroupMessageWithoutAliasUsesProfileName() {
++    val ci = groupRcv("hello", member("Alice"))
++    assertEquals("Alice, $renderedTs\nhello", chatItemToText(ci, groupInfo(), timeText))
++  }
++
++  @Test
++  fun testDirectMessageUsesContactAlias() {
++    val ci = directRcv("hi")
++    assertEquals("Ali, $renderedTs\nhi", chatItemToText(ci, directInfo(alias = "Ali"), timeText))
++  }
++
++  @Test
++  fun testDirectMessageWithoutAliasUsesContactName() {
++    val ci = directRcv("hi")
++    assertEquals("Alice, $renderedTs\nhi", chatItemToText(ci, directInfo(), timeText))
++  }
++
++  @Test
++  fun testOwnMessageHasNoSenderName() {
++    assertEquals("$renderedTs\nhi", chatItemToText(snd("hi"), directInfo(), timeText))
++  }
++
++  @Test
++  fun testSendTimeIsUsedNotReceiveTime() {
++    // createdAt is the receive time, itemTs is the send time
++    val ci = groupRcv("hello", member("Alice", alias = "Ali")).copy(
++      meta = groupRcv("hello", member("Alice")).meta.copy(
++        itemTs = ts,
++        createdAt = Instant.parse("2027-01-01T00:00:00Z")
++      )
++    )
++    assertTrue(chatItemToText(ci, groupInfo(), timeText).contains(renderedTs))
++    assertFalse(chatItemToText(ci, groupInfo(), timeText).contains("T(1798761600000)"))
++  }
++
++  @Test
++  fun testSeveralMessagesAreSeparatedByABlankLineInConversationOrder() {
++    val first = ChatItem.getSampleData(id = 1, dir = CIDirection.GroupRcv(member("Alice")), ts = ts, text = "one")
++    val second = ChatItem.getSampleData(id = 2, dir = CIDirection.GroupRcv(member("Bob")), ts = ts, text = "two")
++    val third = sndFor(3, "three")
++    val text = chatItemsToText(listOf(first, second, third), groupInfo(), timeText)
++    assertEquals("Alice, $renderedTs\none\n\nBob, $renderedTs\ntwo\n\n$renderedTs\nthree", text)
++  }
++
++  private fun sndFor(id: Long, text: String): ChatItem =
++    ChatItem.getSampleData(id = id, dir = CIDirection.GroupSnd(), ts = ts, text = text)
++
++  @Test
++  fun testDeletedMessageIsSkipped() {
++    val alive = ChatItem.getSampleData(id = 1, dir = CIDirection.GroupRcv(member("Alice")), ts = ts, text = "alive")
++    val deleted = ChatItem.getSampleData(id = 2, dir = CIDirection.GroupRcv(member("Alice")), ts = ts, text = "dead", itemDeleted = CIDeleted.Deleted(null))
++    assertEquals("Alice, $renderedTs\nalive", chatItemsToText(listOf(alive, deleted), groupInfo(), timeText))
++  }
++
++  @Test
++  fun testFileMessageIsCopiedAsItsName() {
++    val ci = ChatItem.getFileMsgContentSample(id = 1, fileName = "report.pdf")
++    assertEquals("Alice, ${getTimestampTextOf(ci)}\nreport.pdf", chatItemToText(ci, directInfo(), { getTimestampTextOf(ci) }))
++  }
++
++  private fun getTimestampTextOf(ci: ChatItem): String = "T(${ci.meta.itemTs.toEpochMilliseconds()})"
++
++  @Test
++  fun testEmptySelectionIsEmptyText() {
++    assertEquals("", chatItemsToText(emptyList(), groupInfo(), timeText))
++  }
++
++  @Test
++  fun testCanCopyChatItem() {
++    assertTrue(canCopyChatItem(ChatItem.getSampleData(dir = CIDirection.DirectRcv())))
++    assertFalse(canCopyChatItem(ChatItem.getSampleData(dir = CIDirection.DirectRcv(), itemDeleted = CIDeleted.Deleted(null))))
++  }
++
++  @Test
++  fun testSenderNameIsNullForOwnAndNotedItems() {
++    val chatInfo = directInfo(alias = "Ali")
++    assertNull(ciSenderName(snd("hi"), chatInfo))
++    assertNull(ciSenderName(ChatItem.getSampleData(dir = CIDirection.LocalSnd(), text = "note"), chatInfo))
++    assertEquals("Ali", ciSenderName(directRcv("hi"), chatInfo))
++  }
++}
+diff --git a/apps/multiplatform/product/README.md b/apps/multiplatform/product/README.md
+index 55eb5909f..55ab611a0 100644
+--- a/apps/multiplatform/product/README.md
++++ b/apps/multiplatform/product/README.md
+@@ -70,6 +70,7 @@ Core message composition, delivery, and interaction features.
+ | Message reports | Report messages to group moderators | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupReportsView.kt` |
+ | Send message bar | Composable message input with attachments, voice, send button | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt` |
+ | Profile image viewer | Tap a contact / group / member avatar to view it full size and copy it to the clipboard | `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/ChatInfoImage.kt` |
++| Copy selected messages | Multi-select toolbar copies the selected messages as text, each with the sender name (local alias first), the send time and the latest version of the text | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SelectableChatItemToolbars.kt` |
+ 
+ ### 2. Contacts
+ 
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index 1db4a02d1..4d9fe47e1 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -59,6 +59,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC38 | Servers Import and Export | [views/settings.md](views/settings.md) | [spec/api.md](../spec/api.md), [spec/state.md](../spec/state.md) | `common/.../views/usersettings/networkAndServers/ServersBackup.kt` (`ServersBackup`, `ServersBackupItem`, `serversBackupOf`, `exportServersBackup`, `parseServersBackup`, `mergeServersBackup`, `importedServerMetadata`), `common/.../views/usersettings/networkAndServers/NetworkAndServers.kt` (`ServersImportExportSection`), `common/.../platform/Files.kt` (`rememberFileChooserLauncher`, `copyBytesToFile`) | N/A (client-only) |
+ | PC39 | Chat List Group Connection Rate | [views/chat-list.md](views/chat-list.md), [views/group-info.md](views/group-info.md) | [spec/client/chat-list.md](../spec/client/chat-list.md), [spec/state.md](../spec/state.md) | `common/.../views/chatlist/ChatPreviewView.kt` (`chatPreviewTitle` group branch dot), `common/.../views/chatlist/ChatListView.kt` (background member prefetch), `common/.../views/chat/group/GroupChatInfoView.kt` (`GroupMembersConnectionRateDot`, `groupMembersConnection`, `groupMembersConnectionRate`, `groupMembersSectionVisible`), `common/.../model/ChatModel.kt` (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`), `common/.../model/SimpleXAPI.kt` (`CR.GroupMemberUpdated` cache refresh) | N/A (client-only) |
+ | PC40 | Favorites Pinned First | [views/chat-list.md](views/chat-list.md), [views/settings.md](views/settings.md) | [spec/client/chat-list.md](../spec/client/chat-list.md), [spec/state.md](../spec/state.md) | `common/.../model/SimpleXAPI.kt` (`AppPreferences.favoritesAsPinned`), `common/.../model/ChatModel.kt` (`isFavoriteChat`, `favoritesPinnedFirst`), `common/.../views/chatlist/ChatListView.kt` (ordering), `common/.../views/usersettings/SettingsView.kt` (toggle) | N/A (client-only) |
++| PC41 | Selected Messages Copy | [README.md](README.md) (Messaging) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../model/ChatModel.kt` (`ciSenderName`, `canCopyChatItem`, `chatItemToText`, `chatItemsToText`), `common/.../views/chat/SelectableChatItemToolbars.kt` (copy button), `common/.../views/chat/ChatView.kt` (`copyItems` lambda) | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
+ - `common/.../` expands to `common/src/commonMain/kotlin/chat/simplex/common/`
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index b3c98e976..ea87bdd2e 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -19,6 +19,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
+ 11. [Servers Import and Export (RULE-23)](#11-servers-import-and-export)
+ 12. [Group Connection Rate in the Chat List (RULE-24)](#12-group-connection-rate-in-the-chat-list)
+ 13. [Chat List Order (RULE-25)](#13-chat-list-order)
++14. [Copy Selected Messages (RULE-26)](#14-copy-selected-messages)
+ 
+ ---
+ 
+@@ -514,3 +515,41 @@ Enforcement:
+   the filtered list)
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt` (the toggle)
+ - Test: `common/src/commonTest/kotlin/chat/simplex/app/FavoritesPinnedFirstTest.kt`
++
++---
++
++## 14. Copy Selected Messages
++
++### RULE-26: The Copied Text Describes What the Chat Shows
++
++Copying a selection of messages produces a single text block built only from the `ChatItem`s already in
++the model — no API call, no core change, no new stored state:
++
++1. **The send time, never the receive time.** The timestamp comes from `meta.itemTs` through
++   `getTimestampText`, which is the value the chat renders; `meta.createdAt` (the receive time) MUST NOT
++   be used, because for a delayed or forwarded message it differs from the time the author sent it.
++
++2. **The latest version of the text.** The body is `content.text` of the current `ChatItem`, which the
++   core replaces on every edit. Older versions live only in `ChatItemInfo.itemVersions` and MUST NOT be
++   fetched or copied, so copying a selection never depends on a network round trip.
++
++3. **The sender uses the local alias.** `ciSenderName` returns `GroupMember.displayName` for a received
++   group message and the contact's `localAlias.ifEmpty { displayName }` for a received direct message, so
++   an alias always wins over the profile name. Own messages have no sender name, exactly as in the chat;
++   local notes have none either.
++
++4. **Only copyable items are copied.** `canCopyChatItem` excludes live (voice) dummy items and reports,
++   and `chatItemsToText` skips deleted items, so a selection never yields empty paragraphs. The action is
++   capped at 200 items — the delete limit — and is disabled when nothing copyable is selected.
++
++5. **Conversation order.** `ChatModel.chatItems` is stored newest first, so the copy reverses the filtered
++   list to follow the order of the conversation; the order of `selectedChatItems` (a `Set`) MUST NOT be
++   used.
++
++Enforcement:
++- `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt` (`ciSenderName`,
++  `canCopyChatItem`, `chatItemToText`, `chatItemsToText`)
++- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SelectableChatItemToolbars.kt` (the copy
++  button and its enablement in `recheckItems`)
++- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt` (the `copyItems` lambda)
++- Test: `common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt`
+diff --git a/apps/multiplatform/product/views/chat.md b/apps/multiplatform/product/views/chat.md
+index 81fbaa795..cdf9d31ef 100644
+--- a/apps/multiplatform/product/views/chat.md
++++ b/apps/multiplatform/product/views/chat.md
+@@ -84,7 +84,7 @@ Long-press context menu on any message:
+ | Moderate | Group moderators can delete messages for all members (`moderateMessagesAlertDialog`) |
+ | React | Emoji reaction picker |
+ | Report | Report message to group moderators (`ComposeContextItem.ReportedItem` with `ReportReason`) |
+-| Select multiple | Enters multi-select mode (`selectedChatItems`) with bulk delete/forward/archive toolbar |
++| Select multiple | Enters multi-select mode (`selectedChatItems`) with bulk delete/forward/archive/copy toolbar |
+ | Archive | Archive selected reports (moderators) |
+ 
+ ### Compose Bar (`ComposeView` + `SendMsgView`)
+@@ -120,6 +120,7 @@ Shown when `selectedChatItems != null`:
+ | Delete / Archive | Delete selected messages (for self, or for everyone if allowed by `fullDeleteAllowed`); shown as Archive for report items (group moderators only) |
+ | Forward | Forward selected messages to another chat |
+ | Moderate | Delete selected messages for all members (group moderators only) |
++| Copy | Copies the whole selection as one text block: per message the sender name (the local alias when set; nothing for own messages), the send time (`meta.itemTs`, not the receive time) and the text of the latest version, ordered as in the conversation and separated by an empty line. Disabled when nothing copyable is selected; capped at 200 items like delete |
+ 
+ ### Timed/Disappearing Messages
+ 
+diff --git a/apps/multiplatform/spec/client/chat-view.md b/apps/multiplatform/spec/client/chat-view.md
+index 6a644668a..a1aa682ba 100644
+--- a/apps/multiplatform/spec/client/chat-view.md
++++ b/apps/multiplatform/spec/client/chat-view.md
+@@ -121,6 +121,7 @@ The message list is a `LazyColumnWithScrollBar` with `reverseLayout = true`, mea
+ - **Date Separators:** `DateSeparator` composable renders between messages when the date changes (via `ItemSeparation.date`).
+ - **Swipe to Reply:** `SwipeToDismiss` modifier on each item (EndToStart direction, 30dp threshold) sets `ComposeContextItem.QuotedItem`.
+ - **Selection Mode:** When `selectedChatItems` is non-null, a checkbox overlay appears on each item; a full-width clickable overlay toggles selection.
++- **Copying a selection:** the multi-select toolbar copies all selected messages as one text block (`chatItemsToText` in `ChatModel.kt`), each message rendered as the sender name (the local alias when one is set, nothing for own messages), the SEND time (`meta.itemTs`, never `createdAt`) and the text of the latest version (`content.text`, which the core updates on every edit). Messages are ordered as in the conversation and separated by an empty line. The action is capped at 200 items, like delete, and is disabled when nothing copyable is selected.
+ 
+ ### Item Layout (ChatViewListItem)
+ 
+@@ -335,7 +336,7 @@ Wired sites: `ChatInfoView.kt` `ChatInfoHeader`, `group/GroupChatInfoView.kt` `G
+ | `ContactPreferences.kt` | Per-contact feature preferences |
+ | `ContextItemView.kt` | Reply/edit/forward context indicator |
+ | `ScanCodeView.kt` | QR code scanner |
+-| `SelectableChatItemToolbars.kt` | Multi-select toolbar (delete, forward, moderate) |
++| `SelectableChatItemToolbars.kt` | Multi-select toolbar (delete, forward, moderate, copy) |
+ | `SendMsgView.kt` | Text input field, send button, voice record button |
+ | `VerifyCodeView.kt` | Contact/member encryption verification |
+ 
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index bdeaf2b0a..198f0a0e0 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -50,6 +50,7 @@
+ | PC38 | Servers Import and Export |
+ | PC39 | Chat List Group Connection Rate |
+ | PC40 | Favorites Pinned First |
++| PC41 | Selected Messages Copy |
+ 
+ ---
+ 
+@@ -63,8 +64,8 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ |-------------|--------------------------|------------|-------|
+ | `App.kt` | PC1 through PC31 | High | Root composable — navigation scaffold for all features |
+ | `AppLock.kt` | PC22 | Medium | App lock state and authorization lifecycle |
+-| `model/ChatModel.kt` | PC1 through PC40 | High | Central state object — every feature reads or writes here; also holds the session-local per-connection status map (`connectionSubStatuses`) with its resolvers (`connectionSubStatus`, `ChatModel.connectionStatus`), the set of connections whose stats were already requested (`connectionStatusRequested`) and its selector (`chatsForConnectionStatus`), and the session-local chat-list cache of group member lists (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`), and the favorites-first ordering helpers (`isFavoriteChat`, `favoritesPinnedFirst`) |
+-| `model/SimpleXAPI.kt` | PC1 through PC40 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` and the chat-list member cache from `CR.GroupMemberUpdated` |
++| `model/ChatModel.kt` | PC1 through PC41 | High | Central state object — every feature reads or writes here; also holds the session-local per-connection status map (`connectionSubStatuses`) with its resolvers (`connectionSubStatus`, `ChatModel.connectionStatus`), the set of connections whose stats were already requested (`connectionStatusRequested`) and its selector (`chatsForConnectionStatus`), and the session-local chat-list cache of group member lists (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`), and the favorites-first ordering helpers (`isFavoriteChat`, `favoritesPinnedFirst`) plus the selected-messages copy formatters (`ciSenderName`, `canCopyChatItem`, `chatItemToText`, `chatItemsToText`) |
++| `model/SimpleXAPI.kt` | PC1 through PC41 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` and the chat-list member cache from `CR.GroupMemberUpdated` |
+ | `model/CryptoFile.kt` | PC10, PC23 | Medium | Encrypted file read/write helpers |
+ | `platform/Core.kt` | PC1 through PC31 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
+ | `platform/AppCommon.kt` | PC1 through PC31 | Medium | Shared app initialization logic |
+@@ -124,7 +125,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `views/chat/ComposeFileView.kt` | PC10 | Low | File attachment preview in compose area |
+ | `views/chat/ComposeImageView.kt` | PC10 | Low | Image attachment preview in compose area |
+ | `views/chat/ContextItemView.kt` | PC6 | Low | Reply/edit quote preview |
+-| `views/chat/SelectableChatItemToolbars.kt` | PC7, PC10 | Medium | Multi-select toolbar (delete, forward) |
++| `views/chat/SelectableChatItemToolbars.kt` | PC7, PC10 | Medium | Multi-select toolbar (delete, forward, moderate, copy of the selection) |
+ | `views/chat/ChatInfoView.kt` | PC2, PC13, PC20, PC33, PC35, PC37 | Medium | Contact details, verification, receiving-address switch, the shared switch alerts, the clickable contact avatar, and the servers-section status dot (shared `SubscriptionStatusDot`) |
+ | `views/chat/ContactPreferences.kt` | PC2, PC8 | Medium | Per-contact feature preferences |
+ | `views/chat/ChatItemInfoView.kt` | PC2, PC3 | Low | Message delivery detail |
+diff --git a/plans/2026-10-28-copy-selected-messages.md b/plans/2026-10-28-copy-selected-messages.md
+new file mode 100644
+index 000000000..5d4611b47
+--- /dev/null
++++ b/plans/2026-10-28-copy-selected-messages.md
+@@ -0,0 +1,89 @@
++# Batch copy of selected messages
++
++## Problem
++
++The multi-select toolbar (`SelectedItemsButtonsToolbar`) can delete, moderate, archive and forward
++selected messages, but not copy them. Copying one message at a time is only possible from the
++single message menu, and it copies the bare text without saying who sent it or when.
++
++A user who wants to keep a part of a conversation (for a support case, a quote in another app, a
++backup of a discussion) has to copy messages one by one and re-add the authors and timestamps by
++hand.
++
++## Solution
++
++Add a copy button to the multi-select toolbar that puts all selected messages on the clipboard as a
++single piece of text, each message rendered as:
++
++```
++<name of the sender>, <time the message was sent>
++<the message text>
++```
++
++with messages separated by a blank line.
++
++Requirements from the request:
++
++* the sender name, using the local alias ("备注") when one is set;
++* the send time, not the receive time;
++* the current (latest) version of the text, i.e. the text after edits.
++
++## Design decisions
++
++* **Client-side only.** The text is composed from the `ChatItem`s already in the model, so no API
++  call, no core change and no new stored state are needed.
++* **The three required pieces already exist on `ChatItem`:**
++  * `meta.itemTs` is the send timestamp - `meta.createdAt`, which is the receive timestamp, is
++    deliberately not used. `CIMeta.timestampText` renders `itemTs` too, so the copy matches what the
++    chat shows.
++  * `content.text` is the text of the current version: `ChatItem.meta.itemText` and
++    `ChatItem.content` are replaced by the core on every edit, while older versions live only in
++    `ChatItemInfo.itemVersions`, which is fetched on demand.
++  * the sender name comes from `ciSenderProfile(ci, chatInfo)` - the group member's profile for a
++    received group message, the contact's profile for a received direct message. `LocalProfile`
++    resolves the name with `localAlias.ifEmpty { displayName }` (`NamedChat.chatViewName`), so an
++    alias wins over the profile name.
++* **Own messages have no sender name.** The item is shown in the chat with its timestamp alone, so it
++  is copied the same way: no name, just the time. This also keeps the copy of a chat with yourself
++  readable.
++* **The time format is the existing one.** `getTimestampText(itemTs)` is reused, so the copied line
++  matches the timestamp in the chat and stays localized without new strings (only the separator and
++  the toast need a string).
++* **Files and voice messages** are copied as their description rather than as a path: the single item
++  copy action on desktop saves/loads the file and copies the path, which cannot be done for a whole
++  selection without long API calls per item. `ChatItem.text` already yields the file name or the
++  voice message duration description.
++* **Which items can be copied:** any selected item that has text - the same condition the forward
++  action uses minus the states that cannot be rendered (`itemDeleted`, `isLiveDummy`, reports).
++  The button is disabled when nothing copyable is selected, and the copy is capped at 200 items, the
++  same limit as delete, so that a huge selection cannot freeze the UI or blow the clipboard.
++
++## Steps
++
++1. `model/ChatModel.kt`: a pure formatter
++   `internal fun chatItemsToText(items: List<ChatItem>, chatInfo: ChatInfo, timeText: (Instant) -> String): String`
++   with helpers `internal fun chatItemSenderName(ci: ChatItem, chatInfo: ChatInfo): String?` and
++   `internal fun chatItemToText(ci: ChatItem, chatInfo: ChatInfo, timeText: (Instant) -> String): String`.
++   Keep them pure (the time formatter is injected) so they can be unit tested without a UI.
++2. `views/chat/SelectableChatItemToolbars.kt`: a copy `IconButton` (`MR.images.ic_content_copy`,
++   primary tint) in `SelectedItemsButtonsToolbar`, next to delete/moderate/forward; enablement computed
++   in `recheckItems` like the other buttons.
++3. `ChatView.kt`: pass the `copyItems` lambda to both toolbar call sites (the report-content one is
++   `{}` like `moderateItems` there, since reports are not copyable).
++4. Strings: `copy_selected_messages` (content description) in `MR/base/strings.xml` and
++   `MR/zh-rCN/strings.xml`.
++5. Tests in `common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt` covering the
++   formatter: group message with alias, group message without alias, direct message, own message,
++   several messages separated by a blank line, order, file message, deleted item skipped.
++6. Docs: `product/`, `spec/`, `product/concepts.md`, `spec/impact.md`, this plan, `TODO.md` note.
++
++## Adversarial review
++
++* A selection can contain items the user cannot see (merged, hidden, deleted): `recheckItems` filters
++  them the same way for every other action, and the formatter skips empty renderings, so no empty
++  lines are produced.
++* The selection order in `selectedChatItems` is a `Set`, so the formatter must sort by the chat items
++  list, not by the set, to keep the conversation order.
++* Copying a very large selection must not block: the cap is 200 items, the same as delete.
++* `content.text` for a deleted message is a placeholder line; nothing should be copied for it, but it
++  is kept if the user selected it explicitly (it is what the chat shows).

@@ -121,6 +121,7 @@ The message list is a `LazyColumnWithScrollBar` with `reverseLayout = true`, mea
 - **Date Separators:** `DateSeparator` composable renders between messages when the date changes (via `ItemSeparation.date`).
 - **Swipe to Reply:** `SwipeToDismiss` modifier on each item (EndToStart direction, 30dp threshold) sets `ComposeContextItem.QuotedItem`.
 - **Selection Mode:** When `selectedChatItems` is non-null, a checkbox overlay appears on each item; a full-width clickable overlay toggles selection.
+- **Copying a selection:** the multi-select toolbar copies all selected messages as one text block (`chatItemsToText` in `ChatModel.kt`), each message rendered as the sender name (the local alias when one is set, nothing for own messages), the SEND time (`meta.itemTs`, never `createdAt`) and the text of the latest version (`content.text`, which the core updates on every edit). Messages are ordered as in the conversation and separated by an empty line. The action is capped at 200 items, like delete, and is disabled when nothing copyable is selected.
 
 ### Item Layout (ChatViewListItem)
 
@@ -335,7 +336,7 @@ Wired sites: `ChatInfoView.kt` `ChatInfoHeader`, `group/GroupChatInfoView.kt` `G
 | `ContactPreferences.kt` | Per-contact feature preferences |
 | `ContextItemView.kt` | Reply/edit/forward context indicator |
 | `ScanCodeView.kt` | QR code scanner |
-| `SelectableChatItemToolbars.kt` | Multi-select toolbar (delete, forward, moderate) |
+| `SelectableChatItemToolbars.kt` | Multi-select toolbar (delete, forward, moderate, copy) |
 | `SendMsgView.kt` | Text input field, send button, voice record button |
 | `VerifyCodeView.kt` | Contact/member encryption verification |
 

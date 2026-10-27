@@ -322,6 +322,7 @@
     <string name="alert_title_contact_connection_pending">联系人尚未连接！</string>
     <string name="icon_descr_context">上下文图标</string>
     <string name="copied">已复制到剪贴板</string>
+    <string name="copy_selected_messages">复制选中消息</string>
     <string name="copy_image">复制图片</string>
     <string name="image_copied">图片已复制到剪贴板</string>
     <string name="image_copy_failed">无法复制图片</string>

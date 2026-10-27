@@ -66,6 +66,7 @@ fun SelectedItemsButtonsToolbar(
   archiveItems: () -> Unit,
   moderateItems: () -> Unit,
   forwardItems: () -> Unit,
+  copyItems: () -> Unit,
 ) {
   val deleteEnabled = remember { mutableStateOf(false) }
   val deleteForEveryoneEnabled = remember { mutableStateOf(false) }
@@ -73,6 +74,7 @@ fun SelectedItemsButtonsToolbar(
   val canModerate = remember { mutableStateOf(false) }
   val moderateEnabled = remember { mutableStateOf(false) }
   val forwardEnabled = remember { mutableStateOf(false) }
+  val copyEnabled = remember { mutableStateOf(false) }
   val deleteCountProhibited = remember { mutableStateOf(false) }
   val forwardCountProhibited = remember { mutableStateOf(false) }
   Box {
@@ -118,12 +120,21 @@ fun SelectedItemsButtonsToolbar(
           tint = if (!forwardEnabled.value || forwardCountProhibited.value || chatsCtx.secondaryContextFilter != null) MaterialTheme.colors.secondary else MaterialTheme.colors.primary
         )
       }
+
+      IconButton({ copyItems() }, enabled = copyEnabled.value && !deleteCountProhibited.value) {
+        Icon(
+          painterResource(MR.images.ic_content_copy),
+          stringResource(MR.strings.copy_selected_messages),
+          Modifier.size(22.dp),
+          tint = if (!copyEnabled.value || deleteCountProhibited.value) MaterialTheme.colors.secondary else MaterialTheme.colors.primary
+        )
+      }
     }
     Divider(Modifier.align(Alignment.TopStart))
   }
   val chatItems = remember { derivedStateOf { chatsCtx.chatItems.value } }
   LaunchedEffect(chatInfo, chatItems.value, selectedChatItems.value) {
-    recheckItems(chatInfo, chatItems.value, selectedChatItems, deleteEnabled, deleteForEveryoneEnabled, canArchiveReports, canModerate, moderateEnabled, forwardEnabled, deleteCountProhibited, forwardCountProhibited)
+    recheckItems(chatInfo, chatItems.value, selectedChatItems, deleteEnabled, deleteForEveryoneEnabled, canArchiveReports, canModerate, moderateEnabled, forwardEnabled, copyEnabled, deleteCountProhibited, forwardCountProhibited)
   }
 }
 
@@ -136,6 +147,7 @@ private fun recheckItems(chatInfo: ChatInfo,
   canModerate: MutableState<Boolean>,
   moderateEnabled: MutableState<Boolean>,
   forwardEnabled: MutableState<Boolean>,
+  copyEnabled: MutableState<Boolean>,
   deleteCountProhibited: MutableState<Boolean>,
   forwardCountProhibited: MutableState<Boolean>
 ) {
@@ -150,6 +162,7 @@ private fun recheckItems(chatInfo: ChatInfo,
   var rModerateEnabled = true
   var rOnlyOwnGroupItems = true
   var rForwardEnabled = true
+  var rCopyEnabled = true
   val rSelectedChatItems = mutableSetOf<Long>()
   for (ci in chatItems) {
     if (selected.contains(ci.id)) {
@@ -159,6 +172,7 @@ private fun recheckItems(chatInfo: ChatInfo,
       rOnlyOwnGroupItems = rOnlyOwnGroupItems && ci.chatDir is CIDirection.GroupSnd && !ci.isReport
       rModerateEnabled = rModerateEnabled && ci.content.msgContent != null && ci.memberToModerate(chatInfo) != null && !ci.isReport
       rForwardEnabled = rForwardEnabled && ci.content.msgContent != null && ci.meta.itemDeleted == null && !ci.isLiveDummy && !ci.isReport
+      rCopyEnabled = rCopyEnabled && canCopyChatItem(ci)
       rSelectedChatItems.add(ci.id) // we are collecting new selected items here to account for any changes in chat items list
     }
   }
@@ -168,6 +182,7 @@ private fun recheckItems(chatInfo: ChatInfo,
   canArchiveReports.value = rCanArchiveReports
   moderateEnabled.value = rModerateEnabled
   forwardEnabled.value = rForwardEnabled
+  copyEnabled.value = rCopyEnabled
   selectedChatItems.value = rSelectedChatItems
 }
 

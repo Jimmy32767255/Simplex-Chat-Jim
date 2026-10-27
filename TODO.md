@@ -114,6 +114,15 @@
   - 文档：`product/rules.md`（RULE-25）、`product/concepts.md`（PC40）、`product/README.md`、`product/views/chat-list.md`（Chat List Order）、`product/views/settings.md`（Chat List Section）、`spec/client/chat-list.md`（Chat List Order）、`spec/state.md`（`favoritesAsPinned`）、`spec/impact.md`、`plans/2026-10-22-favorites-pinned-first.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/FavoritesPinnedFirstTest.kt`（8 个用例：关闭时顺序不变、收藏移到最上方、两组内部顺序保持、没有收藏/全是收藏时不变、空列表、无聊天设置的对话不算收藏、联系人与群都被识别），`./gradlew :common:desktopTest` 全部通过（8/8，全部 19 个测试类共 115 个用例无失败），`:common:compileDebugKotlinAndroid` 也通过。差异补丁见 `diff/`。
 
+- [x] 添加选中消息后批量复制到剪贴板的功能（包含发送者名称（如果有备注先用备注）、发送时间（不是收到时间）和正文内容（最新版本））
+  - 已实现（基于 7.0.4）：多选工具栏（删除/举报/转发那一行）最右侧新增「复制选中消息」按钮，一键把选中的消息复制为一整段文本，说明文字为内容描述（`copy_selected_messages`），使用现有的 `ic_content_copy` 图标，无可复制内容时置灰。每条消息的格式为 `发送者, 发送时间` 换行 `正文`，消息之间用一个空行分隔，顺序与聊天中的对话顺序一致（`ChatModel.chatItems` 是最新在前，复制时反向）。
+  - 三处要求的取值：① 发送者名称为收件消息的发送者——群聊取群成员、私聊取联系人，并按 `localAlias.ifEmpty { displayName }` 优先使用「备注」（`ciSenderName`）；自己发送的消息与本地笔记没有发送者名称，只复制时间，与聊天里的显示一致。② 时间用 `meta.itemTs`（发送时间）经现有的 `getTimestampText` 格式化，绝不使用 `meta.createdAt`（收到时间），也不需要新增时间格式字符串。③ 正文用 `ChatItem.content.text`，即内核在每次编辑后替换成的最新版本；历史版本只存在 `ChatItemInfo.itemVersions` 里，需要额外请求，因此批量复制不拉取它、不产生网络往返。
+  - 边界：只复制可复制的项（`canCopyChatItem` 排除墓碑/实时的语音占位（`isLiveDummy`）与举报内容），已删除项会被跳过，不会产生空段落；文件与语音按 `ChatItem.text` 复制成文件名或「语音消息（时长）」的描述，而不是像单选复制那样在桌面端先下载再复制路径（批量下载不可行）；复制上限 200 条（与删除一致），避免超大选择卡住界面或撑爆剪贴板。
+  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`（新增纯函数 `ciSenderName`、`canCopyChatItem`、`chatItemToText`、`chatItemsToText`，时间格式化由调用方注入以便测试）、`.../views/chat/SelectableChatItemToolbars.kt`（复制按钮 + `recheckItems` 里的可用性计算）、`.../views/chat/ChatView.kt`（两处工具栏调用点的 `copyItems` 回调；举报内容那一处传空实现）、`common/src/commonMain/resources/MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 1 条字符串）。
+  - 与条目 1、5、6、8、10、13、14 一致：不修改核心（Haskell）与网络协议，不修改 `AppSettings` 跨设备导入/导出结构，不新增偏好或持久化状态，纯客户端拼接文本。
+  - 文档：`product/rules.md`（RULE-26）、`product/concepts.md`（PC41）、`product/README.md`、`product/views/chat.md`（多选工具栏与右键菜单表格）、`spec/client/chat-view.md`（§3 消息列表与源文件表）、`spec/impact.md`、`plans/2026-10-28-copy-selected-messages.md`。
+  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt`（12 个用例：群消息用备注、群消息无备注用昵称、私聊用备注/无备注、自己的消息无名称、用的是发送时间而不是收到时间、多条消息按对话顺序并用空行分隔、已删除项被跳过、文件消息复制文件名、空选择得空文本、`canCopyChatItem` 判断、本地笔记无发送者名称），`./gradlew :common:desktopTest` 全部通过（12/12，全部 20 个测试类共 127 个用例无失败）。差异补丁见 `diff/`。
+
 ## mod:
 
 none

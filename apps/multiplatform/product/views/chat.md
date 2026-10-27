@@ -84,7 +84,7 @@ Long-press context menu on any message:
 | Moderate | Group moderators can delete messages for all members (`moderateMessagesAlertDialog`) |
 | React | Emoji reaction picker |
 | Report | Report message to group moderators (`ComposeContextItem.ReportedItem` with `ReportReason`) |
-| Select multiple | Enters multi-select mode (`selectedChatItems`) with bulk delete/forward/archive toolbar |
+| Select multiple | Enters multi-select mode (`selectedChatItems`) with bulk delete/forward/archive/copy toolbar |
 | Archive | Archive selected reports (moderators) |
 
 ### Compose Bar (`ComposeView` + `SendMsgView`)
@@ -120,6 +120,7 @@ Shown when `selectedChatItems != null`:
 | Delete / Archive | Delete selected messages (for self, or for everyone if allowed by `fullDeleteAllowed`); shown as Archive for report items (group moderators only) |
 | Forward | Forward selected messages to another chat |
 | Moderate | Delete selected messages for all members (group moderators only) |
+| Copy | Copies the whole selection as one text block: per message the sender name (the local alias when set; nothing for own messages), the send time (`meta.itemTs`, not the receive time) and the text of the latest version, ordered as in the conversation and separated by an empty line. Disabled when nothing copyable is selected; capped at 200 items like delete |
 
 ### Timed/Disappearing Messages
 

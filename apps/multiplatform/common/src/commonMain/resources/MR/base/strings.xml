@@ -793,6 +793,7 @@
   <string name="no_details">no details</string>
   <string name="add_contact">One-time invitation link</string>
   <string name="copied">Copied to clipboard</string>
+  <string name="copy_selected_messages">Copy selected messages</string>
   <string name="copy_image">Copy image</string>
   <string name="image_copied">Image copied to clipboard</string>
   <string name="image_copy_failed">Couldn\'t copy image</string>

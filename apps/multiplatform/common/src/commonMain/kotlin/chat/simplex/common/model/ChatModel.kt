@@ -3834,6 +3834,44 @@ fun localDate(t: Instant): String {
   return ts.toJavaLocalDateTime().format(dateFormatter)
 }
 
+/**
+ * The name of whoever sent a received message: the group member for a group chat, the contact for a
+ * direct chat. The local alias ("note") takes precedence over the profile name, and own messages
+ * have no sender name, so that a copied conversation reads the same way as the chat itself.
+ */
+internal fun ciSenderName(ci: ChatItem, chatInfo: ChatInfo): String? = when (val dir = ci.chatDir) {
+  // GroupMember.displayName already prefers the local alias
+  is CIDirection.GroupRcv -> dir.groupMember.displayName
+  is CIDirection.DirectRcv -> (chatInfo as? ChatInfo.Direct)?.contact?.let { it.localAlias.ifEmpty { it.displayName } }
+  else -> null
+}
+
+/**
+ * Whether a chat item can be copied as text. Any message with text can be copied, as long as it is
+ * not a live (voice) dummy or a report, whose contents are not the user's messages.
+ */
+internal fun canCopyChatItem(ci: ChatItem): Boolean =
+  ci.content.msgContent != null && ci.meta.itemDeleted == null && !ci.isLiveDummy && !ci.isReport
+
+/**
+ * One copied message: the sender name (when there is one), the time the message was SENT and the
+ * text of its latest version. [timeText] is passed in so that the formatting stays testable and the
+ * caller decides how the timestamp is presented.
+ */
+internal fun chatItemToText(ci: ChatItem, chatInfo: ChatInfo, timeText: (Instant) -> String): String {
+  val time = timeText(ci.meta.itemTs)
+  val name = ciSenderName(ci, chatInfo)
+  val header = if (name != null) "$name, $time" else time
+  return "$header\n${ci.text}"
+}
+
+/**
+ * The text copied for several messages, in the order they are shown in the chat, separated by an
+ * empty line. Items that cannot be copied are skipped.
+ */
+internal fun chatItemsToText(items: List<ChatItem>, chatInfo: ChatInfo, timeText: (Instant) -> String): String =
+  items.filter { canCopyChatItem(it) }.joinToString("\n\n") { chatItemToText(it, chatInfo, timeText) }
+
 @Serializable
 sealed class CIStatus {
   @Serializable @SerialName("sndNew") class SndNew: CIStatus()
