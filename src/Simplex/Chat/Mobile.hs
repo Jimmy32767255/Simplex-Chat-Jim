@@ -328,7 +328,7 @@ defaultMobileConfig =
           M.mapKeys fromIntegral entitlementIssuerKeys,
       badgeServiceAddress =
         Just . either (Prelude.error . ("bad badge service address: " <>)) id . strDecode $
-          B.pack "https://smp5.simplex.im/a#7iVmT7DNh0yMEJgFvIJCLrazgQhmgY8ScAmUOW_uBT0",
+          B.pack "https://smp6.simplex.im/a#T6ED7FZdfUfYxF9ILKk8pvVcKSbeXuiIhBkn2ZPgc9g",
       badgeDevRequests = True,
       badgeDevRequestInterval = Just 120
     }
