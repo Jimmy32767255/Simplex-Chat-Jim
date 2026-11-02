@@ -122,6 +122,28 @@ class SelectedMessagesCopyTest {
   }
 
   @Test
+  fun testSelectionKeepsTheOldestFirstOrderOfChatItems() {
+    // ChatsContext.chatItems is stored oldest first, the selection must not reorder it
+    val first = ChatItem.getSampleData(id = 1, dir = CIDirection.GroupRcv(member("Alice")), ts = ts, text = "one")
+    val second = ChatItem.getSampleData(id = 2, dir = CIDirection.GroupRcv(member("Bob")), ts = ts, text = "two")
+    val third = ChatItem.getSampleData(id = 3, dir = CIDirection.GroupRcv(member("Carol")), ts = ts, text = "three")
+    val selected = setOf(1L, 2L, 3L)
+    val ordered = selectedChatItemsInOrder(listOf(first, second, third), selected)
+    assertEquals(listOf(1L, 2L, 3L), ordered.map { it.id })
+    assertEquals("Alice, $renderedTs\none\n\nBob, $renderedTs\ntwo\n\nCarol, $renderedTs\nthree", chatItemsToText(ordered, groupInfo(), timeText))
+  }
+
+  @Test
+  fun testSelectionSkipsUnselectedItemsAndKeepsOrder() {
+    val first = ChatItem.getSampleData(id = 1, dir = CIDirection.GroupRcv(member("Alice")), ts = ts, text = "one")
+    val second = ChatItem.getSampleData(id = 2, dir = CIDirection.GroupRcv(member("Bob")), ts = ts, text = "two")
+    val third = ChatItem.getSampleData(id = 3, dir = CIDirection.GroupRcv(member("Carol")), ts = ts, text = "three")
+    // a Set has no order of its own, the result follows the list, so the oldest selected message comes first
+    assertEquals(listOf(1L, 3L), selectedChatItemsInOrder(listOf(first, second, third), setOf(3L, 1L)).map { it.id })
+    assertEquals(emptyList(), selectedChatItemsInOrder(listOf(first, second, third), emptySet()))
+  }
+
+  @Test
   fun testSenderNameIsNullForOwnAndNotedItems() {
     val chatInfo = directInfo(alias = "Ali")
     assertNull(ciSenderName(snd("hi"), chatInfo))

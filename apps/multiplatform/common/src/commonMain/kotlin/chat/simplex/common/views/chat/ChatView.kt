@@ -365,8 +365,7 @@ fun ChatView(
                   copyItems = {
                     val itemIds = selectedChatItems.value
                     if (itemIds != null) {
-                      // chatItems are stored newest first, the copy follows the order of the conversation
-                      val items = chatsCtx.chatItems.value.filter { itemIds.contains(it.id) }.asReversed()
+                      val items = selectedChatItemsInOrder(chatsCtx.chatItems.value, itemIds)
                       clipboard.setText(AnnotatedString(chatItemsToText(items, chatInfo) { getTimestampText(it) }))
                       showToast(generalGetString(MR.strings.copied))
                     }

@@ -84,6 +84,10 @@ Requirements from the request:
   lines are produced.
 * The selection order in `selectedChatItems` is a `Set`, so the formatter must sort by the chat items
   list, not by the set, to keep the conversation order.
+* `ChatsContext.chatItems` is stored OLDEST first — the chat view calls `asReversed()` only because the
+  list renders with `reverseLayout = true`. The first version of this change reversed the filtered list
+  as well and therefore produced newest-first output; the fix keeps the list order, now pinned by
+  `selectedChatItemsInOrder` and two tests.
 * Copying a very large selection must not block: the cap is 200 items, the same as delete.
 * `content.text` for a deleted message is a placeholder line; nothing should be copied for it, but it
   is kept if the user selected it explicitly (it is what the chat shows).

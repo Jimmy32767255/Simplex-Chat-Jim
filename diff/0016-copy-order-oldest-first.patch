@@ -1,0 +1,162 @@
+diff --git a/TODO.md b/TODO.md
+index ae67aacc9..2e3dce197 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -115,13 +115,14 @@
+   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/FavoritesPinnedFirstTest.kt`（8 个用例：关闭时顺序不变、收藏移到最上方、两组内部顺序保持、没有收藏/全是收藏时不变、空列表、无聊天设置的对话不算收藏、联系人与群都被识别），`./gradlew :common:desktopTest` 全部通过（8/8，全部 19 个测试类共 115 个用例无失败），`:common:compileDebugKotlinAndroid` 也通过。差异补丁见 `diff/`。
+ 
+ - [x] 添加选中消息后批量复制到剪贴板的功能（包含发送者名称（如果有备注先用备注）、发送时间（不是收到时间）和正文内容（最新版本））
+-  - 已实现（基于 7.0.4）：多选工具栏（删除/举报/转发那一行）最右侧新增「复制选中消息」按钮，一键把选中的消息复制为一整段文本，说明文字为内容描述（`copy_selected_messages`），使用现有的 `ic_content_copy` 图标，无可复制内容时置灰。每条消息的格式为 `发送者, 发送时间` 换行 `正文`，消息之间用一个空行分隔，顺序与聊天中的对话顺序一致（`ChatModel.chatItems` 是最新在前，复制时反向）。
++  - 已实现（基于 7.0.4）：多选工具栏（删除/举报/转发那一行）最右侧新增「复制选中消息」按钮，一键把选中的消息复制为一整段文本，说明文字为内容描述（`copy_selected_messages`），使用现有的 `ic_content_copy` 图标，无可复制内容时置灰。每条消息的格式为 `发送者, 发送时间` 换行 `正文`，消息之间用一个空行分隔，顺序与聊天中的对话顺序一致，最旧的消息在最前面（`ChatModel.chatItems` 本身就是最旧在前，界面只是用 `reverseLayout` 反向渲染；复制时由 `selectedChatItemsInOrder` 原样保留这个顺序，不做反转）。
+   - 三处要求的取值：① 发送者名称为收件消息的发送者——群聊取群成员、私聊取联系人，并按 `localAlias.ifEmpty { displayName }` 优先使用「备注」（`ciSenderName`）；自己发送的消息与本地笔记没有发送者名称，只复制时间，与聊天里的显示一致。② 时间用 `meta.itemTs`（发送时间）经现有的 `getTimestampText` 格式化，绝不使用 `meta.createdAt`（收到时间），也不需要新增时间格式字符串。③ 正文用 `ChatItem.content.text`，即内核在每次编辑后替换成的最新版本；历史版本只存在 `ChatItemInfo.itemVersions` 里，需要额外请求，因此批量复制不拉取它、不产生网络往返。
+   - 边界：只复制可复制的项（`canCopyChatItem` 排除墓碑/实时的语音占位（`isLiveDummy`）与举报内容），已删除项会被跳过，不会产生空段落；文件与语音按 `ChatItem.text` 复制成文件名或「语音消息（时长）」的描述，而不是像单选复制那样在桌面端先下载再复制路径（批量下载不可行）；复制上限 200 条（与删除一致），避免超大选择卡住界面或撑爆剪贴板。
+-  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`（新增纯函数 `ciSenderName`、`canCopyChatItem`、`chatItemToText`、`chatItemsToText`，时间格式化由调用方注入以便测试）、`.../views/chat/SelectableChatItemToolbars.kt`（复制按钮 + `recheckItems` 里的可用性计算）、`.../views/chat/ChatView.kt`（两处工具栏调用点的 `copyItems` 回调；举报内容那一处传空实现）、`common/src/commonMain/resources/MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 1 条字符串）。
++  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`（新增纯函数 `ciSenderName`、`canCopyChatItem`、`chatItemToText`、`chatItemsToText`、`selectedChatItemsInOrder`，时间格式化由调用方注入以便测试）、`.../views/chat/SelectableChatItemToolbars.kt`（复制按钮 + `recheckItems` 里的可用性计算）、`.../views/chat/ChatView.kt`（两处工具栏调用点的 `copyItems` 回调；举报内容那一处传空实现）、`common/src/commonMain/resources/MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 1 条字符串）。
+   - 与条目 1、5、6、8、10、13、14 一致：不修改核心（Haskell）与网络协议，不修改 `AppSettings` 跨设备导入/导出结构，不新增偏好或持久化状态，纯客户端拼接文本。
+   - 文档：`product/rules.md`（RULE-26）、`product/concepts.md`（PC41）、`product/README.md`、`product/views/chat.md`（多选工具栏与右键菜单表格）、`spec/client/chat-view.md`（§3 消息列表与源文件表）、`spec/impact.md`、`plans/2026-10-28-copy-selected-messages.md`。
+-  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt`（12 个用例：群消息用备注、群消息无备注用昵称、私聊用备注/无备注、自己的消息无名称、用的是发送时间而不是收到时间、多条消息按对话顺序并用空行分隔、已删除项被跳过、文件消息复制文件名、空选择得空文本、`canCopyChatItem` 判断、本地笔记无发送者名称），`./gradlew :common:desktopTest` 全部通过（12/12，全部 20 个测试类共 127 个用例无失败）。差异补丁见 `diff/`。
++  - 修复记录：初次提交（`19a6203e2`）里复制顺序反了——误以为 `ChatsContext.chatItems` 是最新在前，于是多做了一次 `asReversed()`，导致最新的消息跑到文本开头。实际上该列表是最旧在前（界面靠 `reverseLayout` + `asReversed()` 渲染），已去掉多余的反转，并抽出 `selectedChatItemsInOrder` 把「原样保留列表顺序」这件事固定下来（附两个用例）。
++  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt`（14 个用例：群消息用备注、群消息无备注用昵称、私聊用备注/无备注、自己的消息无名称、用的是发送时间而不是收到时间、多条消息按对话顺序并用空行分隔、已删除项被跳过、文件消息复制文件名、空选择得空文本、`canCopyChatItem` 判断、本地笔记无发送者名称、选择顺序保留最旧在前、选择忽略未选中项并保持顺序），`./gradlew :common:desktopTest` 全部通过（14/14，全部 20 个测试类共 129 个用例无失败）。差异补丁见 `diff/`。
+ 
+ ## mod:
+ 
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
+index b745a60f5..6a9a13364 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
+@@ -4314,6 +4314,11 @@ internal fun chatItemToText(ci: ChatItem, chatInfo: ChatInfo, timeText: (Instant
+ internal fun chatItemsToText(items: List<ChatItem>, chatInfo: ChatInfo, timeText: (Instant) -> String): String =
+   items.filter { canCopyChatItem(it) }.joinToString("\n\n") { chatItemToText(it, chatInfo, timeText) }
+ 
++// `ChatsContext.chatItems` is stored oldest first (the chat view reverses it for rendering), so keeping the
++// list order is what puts the oldest message first in the copied text.
++internal fun selectedChatItemsInOrder(chatItems: List<ChatItem>, selected: Set<Long>): List<ChatItem> =
++  chatItems.filter { selected.contains(it.id) }
++
+ @Serializable
+ sealed class CIStatus {
+   @Serializable @SerialName("sndNew") class SndNew: CIStatus()
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
+index 826019489..afe50f70b 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
+@@ -365,8 +365,7 @@ fun ChatView(
+                   copyItems = {
+                     val itemIds = selectedChatItems.value
+                     if (itemIds != null) {
+-                      // chatItems are stored newest first, the copy follows the order of the conversation
+-                      val items = chatsCtx.chatItems.value.filter { itemIds.contains(it.id) }.asReversed()
++                      val items = selectedChatItemsInOrder(chatsCtx.chatItems.value, itemIds)
+                       clipboard.setText(AnnotatedString(chatItemsToText(items, chatInfo) { getTimestampText(it) }))
+                       showToast(generalGetString(MR.strings.copied))
+                     }
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt
+index dd4695cb4..99a2478de 100644
+--- a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt
+@@ -121,6 +121,28 @@ class SelectedMessagesCopyTest {
+     assertFalse(canCopyChatItem(ChatItem.getSampleData(dir = CIDirection.DirectRcv(), itemDeleted = CIDeleted.Deleted(null))))
+   }
+ 
++  @Test
++  fun testSelectionKeepsTheOldestFirstOrderOfChatItems() {
++    // ChatsContext.chatItems is stored oldest first, the selection must not reorder it
++    val first = ChatItem.getSampleData(id = 1, dir = CIDirection.GroupRcv(member("Alice")), ts = ts, text = "one")
++    val second = ChatItem.getSampleData(id = 2, dir = CIDirection.GroupRcv(member("Bob")), ts = ts, text = "two")
++    val third = ChatItem.getSampleData(id = 3, dir = CIDirection.GroupRcv(member("Carol")), ts = ts, text = "three")
++    val selected = setOf(1L, 2L, 3L)
++    val ordered = selectedChatItemsInOrder(listOf(first, second, third), selected)
++    assertEquals(listOf(1L, 2L, 3L), ordered.map { it.id })
++    assertEquals("Alice, $renderedTs\none\n\nBob, $renderedTs\ntwo\n\nCarol, $renderedTs\nthree", chatItemsToText(ordered, groupInfo(), timeText))
++  }
++
++  @Test
++  fun testSelectionSkipsUnselectedItemsAndKeepsOrder() {
++    val first = ChatItem.getSampleData(id = 1, dir = CIDirection.GroupRcv(member("Alice")), ts = ts, text = "one")
++    val second = ChatItem.getSampleData(id = 2, dir = CIDirection.GroupRcv(member("Bob")), ts = ts, text = "two")
++    val third = ChatItem.getSampleData(id = 3, dir = CIDirection.GroupRcv(member("Carol")), ts = ts, text = "three")
++    // a Set has no order of its own, the result follows the list, so the oldest selected message comes first
++    assertEquals(listOf(1L, 3L), selectedChatItemsInOrder(listOf(first, second, third), setOf(3L, 1L)).map { it.id })
++    assertEquals(emptyList(), selectedChatItemsInOrder(listOf(first, second, third), emptySet()))
++  }
++
+   @Test
+   fun testSenderNameIsNullForOwnAndNotedItems() {
+     val chatInfo = directInfo(alias = "Ali")
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index 1393bd625..18b619693 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -60,7 +60,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC38 | Servers Import and Export | [views/settings.md](views/settings.md) | [spec/api.md](../spec/api.md), [spec/state.md](../spec/state.md) | `common/.../views/usersettings/networkAndServers/ServersBackup.kt` (`ServersBackup`, `ServersBackupItem`, `serversBackupOf`, `exportServersBackup`, `parseServersBackup`, `mergeServersBackup`, `importedServerMetadata`), `common/.../views/usersettings/networkAndServers/NetworkAndServers.kt` (`ServersImportExportSection`), `common/.../platform/Files.kt` (`rememberFileChooserLauncher`, `copyBytesToFile`) | N/A (client-only) |
+ | PC39 | Chat List Group Connection Rate | [views/chat-list.md](views/chat-list.md), [views/group-info.md](views/group-info.md) | [spec/client/chat-list.md](../spec/client/chat-list.md), [spec/state.md](../spec/state.md) | `common/.../views/chatlist/ChatPreviewView.kt` (`chatPreviewTitle` group branch dot), `common/.../views/chatlist/ChatListView.kt` (background member prefetch), `common/.../views/chat/group/GroupChatInfoView.kt` (`GroupMembersConnectionRateDot`, `groupMembersConnection`, `groupMembersConnectionRate`, `groupMembersSectionVisible`), `common/.../model/ChatModel.kt` (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`), `common/.../model/SimpleXAPI.kt` (`CR.GroupMemberUpdated` cache refresh) | N/A (client-only) |
+ | PC40 | Favorites Pinned First | [views/chat-list.md](views/chat-list.md), [views/settings.md](views/settings.md) | [spec/client/chat-list.md](../spec/client/chat-list.md), [spec/state.md](../spec/state.md) | `common/.../model/SimpleXAPI.kt` (`AppPreferences.favoritesAsPinned`), `common/.../model/ChatModel.kt` (`isFavoriteChat`, `favoritesPinnedFirst`), `common/.../views/chatlist/ChatListView.kt` (ordering), `common/.../views/usersettings/SettingsView.kt` (toggle) | N/A (client-only) |
+-| PC41 | Selected Messages Copy | [README.md](README.md) (Messaging) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../model/ChatModel.kt` (`ciSenderName`, `canCopyChatItem`, `chatItemToText`, `chatItemsToText`), `common/.../views/chat/SelectableChatItemToolbars.kt` (copy button), `common/.../views/chat/ChatView.kt` (`copyItems` lambda) | N/A (client-only) |
++| PC41 | Selected Messages Copy | [README.md](README.md) (Messaging) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../model/ChatModel.kt` (`ciSenderName`, `canCopyChatItem`, `chatItemToText`, `chatItemsToText`, `selectedChatItemsInOrder`), `common/.../views/chat/SelectableChatItemToolbars.kt` (copy button), `common/.../views/chat/ChatView.kt` (`copyItems` lambda) | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
+ - `common/.../` expands to `common/src/commonMain/kotlin/chat/simplex/common/`
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index ea87bdd2e..792635405 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -542,13 +542,14 @@ the model — no API call, no core change, no new stored state:
+    and `chatItemsToText` skips deleted items, so a selection never yields empty paragraphs. The action is
+    capped at 200 items — the delete limit — and is disabled when nothing copyable is selected.
+ 
+-5. **Conversation order.** `ChatModel.chatItems` is stored newest first, so the copy reverses the filtered
+-   list to follow the order of the conversation; the order of `selectedChatItems` (a `Set`) MUST NOT be
+-   used.
++5. **Conversation order, oldest first.** `ChatModel.chatItems` is stored oldest first (the chat view
++   reverses it only for rendering with `reverseLayout`), so `selectedChatItemsInOrder` filters that list
++   and keeps its order: the oldest selected message starts the copied text. The order of
++   `selectedChatItems` (a `Set`) MUST NOT be used, and the list MUST NOT be reversed a second time.
+ 
+ Enforcement:
+ - `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt` (`ciSenderName`,
+-  `canCopyChatItem`, `chatItemToText`, `chatItemsToText`)
++  `canCopyChatItem`, `chatItemToText`, `chatItemsToText`, `selectedChatItemsInOrder`)
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SelectableChatItemToolbars.kt` (the copy
+   button and its enablement in `recheckItems`)
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt` (the `copyItems` lambda)
+diff --git a/apps/multiplatform/product/views/chat.md b/apps/multiplatform/product/views/chat.md
+index 4d3bc122f..d0e045cc3 100644
+--- a/apps/multiplatform/product/views/chat.md
++++ b/apps/multiplatform/product/views/chat.md
+@@ -121,7 +121,7 @@ Shown when `selectedChatItems != null`:
+ | Delete / Archive | Delete selected messages (for self, or for everyone if allowed by `fullDeleteAllowed`); shown as Archive for report items (group moderators only) |
+ | Forward | Forward selected messages to another chat |
+ | Moderate | Delete selected messages for all members (group moderators only) |
+-| Copy | Copies the whole selection as one text block: per message the sender name (the local alias when set; nothing for own messages), the send time (`meta.itemTs`, not the receive time) and the text of the latest version, ordered as in the conversation and separated by an empty line. Disabled when nothing copyable is selected; capped at 200 items like delete |
++| Copy | Copies the whole selection as one text block: per message the sender name (the local alias when set; nothing for own messages), the send time (`meta.itemTs`, not the receive time) and the text of the latest version, ordered from the oldest to the newest as in the conversation and separated by an empty line. Disabled when nothing copyable is selected; capped at 200 items like delete |
+ 
+ ### Timed/Disappearing Messages
+ 
+diff --git a/apps/multiplatform/spec/client/chat-view.md b/apps/multiplatform/spec/client/chat-view.md
+index 44c39b580..4cdaf3acd 100644
+--- a/apps/multiplatform/spec/client/chat-view.md
++++ b/apps/multiplatform/spec/client/chat-view.md
+@@ -125,7 +125,7 @@ The message list is a `LazyColumnWithScrollBar` with `reverseLayout = true`, mea
+ - **Date Separators:** `DateSeparator` composable renders between messages when the date changes (via `ItemSeparation.date`).
+ - **Swipe to Reply:** `SwipeToDismiss` modifier on each item (EndToStart direction, 30dp threshold) sets `ComposeContextItem.QuotedItem`.
+ - **Selection Mode:** When `selectedChatItems` is non-null, a checkbox overlay appears on each item; a full-width clickable overlay toggles selection.
+-- **Copying a selection:** the multi-select toolbar copies all selected messages as one text block (`chatItemsToText` in `ChatModel.kt`), each message rendered as the sender name (the local alias when one is set, nothing for own messages), the SEND time (`meta.itemTs`, never `createdAt`) and the text of the latest version (`content.text`, which the core updates on every edit). Messages are ordered as in the conversation and separated by an empty line. The action is capped at 200 items, like delete, and is disabled when nothing copyable is selected.
++- **Copying a selection:** the multi-select toolbar copies all selected messages as one text block (`chatItemsToText` in `ChatModel.kt`), each message rendered as the sender name (the local alias when one is set, nothing for own messages), the SEND time (`meta.itemTs`, never `createdAt`) and the text of the latest version (`content.text`, which the core updates on every edit). Messages follow the order of the conversation with the oldest first (`ChatModel.chatItems` is stored oldest first — `selectedChatItemsInOrder` keeps that order, the chat view reverses it only for rendering) and are separated by an empty line. The action is capped at 200 items, like delete, and is disabled when nothing copyable is selected.
+ 
+ ### Item Layout (ChatViewListItem)
+ 
+diff --git a/plans/2026-10-28-copy-selected-messages.md b/plans/2026-10-28-copy-selected-messages.md
+index 5d4611b47..7338e241d 100644
+--- a/plans/2026-10-28-copy-selected-messages.md
++++ b/plans/2026-10-28-copy-selected-messages.md
+@@ -84,6 +84,10 @@ Requirements from the request:
+   lines are produced.
+ * The selection order in `selectedChatItems` is a `Set`, so the formatter must sort by the chat items
+   list, not by the set, to keep the conversation order.
++* `ChatsContext.chatItems` is stored OLDEST first — the chat view calls `asReversed()` only because the
++  list renders with `reverseLayout = true`. The first version of this change reversed the filtered list
++  as well and therefore produced newest-first output; the fix keeps the list order, now pinned by
++  `selectedChatItemsInOrder` and two tests.
+ * Copying a very large selection must not block: the cap is 200 items, the same as delete.
+ * `content.text` for a deleted message is a placeholder line; nothing should be copied for it, but it
+   is kept if the user selected it explicitly (it is what the chat shows).

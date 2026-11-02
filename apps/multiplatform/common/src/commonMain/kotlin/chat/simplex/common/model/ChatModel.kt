@@ -4314,6 +4314,11 @@ internal fun chatItemToText(ci: ChatItem, chatInfo: ChatInfo, timeText: (Instant
 internal fun chatItemsToText(items: List<ChatItem>, chatInfo: ChatInfo, timeText: (Instant) -> String): String =
   items.filter { canCopyChatItem(it) }.joinToString("\n\n") { chatItemToText(it, chatInfo, timeText) }
 
+// `ChatsContext.chatItems` is stored oldest first (the chat view reverses it for rendering), so keeping the
+// list order is what puts the oldest message first in the copied text.
+internal fun selectedChatItemsInOrder(chatItems: List<ChatItem>, selected: Set<Long>): List<ChatItem> =
+  chatItems.filter { selected.contains(it.id) }
+
 @Serializable
 sealed class CIStatus {
   @Serializable @SerialName("sndNew") class SndNew: CIStatus()

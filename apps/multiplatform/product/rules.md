@@ -542,13 +542,14 @@ the model — no API call, no core change, no new stored state:
    and `chatItemsToText` skips deleted items, so a selection never yields empty paragraphs. The action is
    capped at 200 items — the delete limit — and is disabled when nothing copyable is selected.
 
-5. **Conversation order.** `ChatModel.chatItems` is stored newest first, so the copy reverses the filtered
-   list to follow the order of the conversation; the order of `selectedChatItems` (a `Set`) MUST NOT be
-   used.
+5. **Conversation order, oldest first.** `ChatModel.chatItems` is stored oldest first (the chat view
+   reverses it only for rendering with `reverseLayout`), so `selectedChatItemsInOrder` filters that list
+   and keeps its order: the oldest selected message starts the copied text. The order of
+   `selectedChatItems` (a `Set`) MUST NOT be used, and the list MUST NOT be reversed a second time.
 
 Enforcement:
 - `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt` (`ciSenderName`,
-  `canCopyChatItem`, `chatItemToText`, `chatItemsToText`)
+  `canCopyChatItem`, `chatItemToText`, `chatItemsToText`, `selectedChatItemsInOrder`)
 - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SelectableChatItemToolbars.kt` (the copy
   button and its enablement in `recheckItems`)
 - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt` (the `copyItems` lambda)
