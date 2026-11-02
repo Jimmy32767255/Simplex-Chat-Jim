@@ -354,7 +354,7 @@ Four built-in color palettes, each consisting of a Material `Colors` and an `App
 
 ## 6. SimpleXTheme Composable
 
-[`Theme.kt` line 773](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt#L773):
+[`Theme.kt` line 802](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt#L802):
 
 ```kotlin
 @Composable
@@ -363,17 +363,17 @@ fun SimpleXTheme(darkTheme: Boolean? = null, content: @Composable () -> Unit)
 
 The root theme composable that wraps all app content:
 
-1. **System dark mode tracking** ([line 781](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt#L781)): Uses `snapshotFlow` on `isSystemInDarkTheme()` to call `reactOnDarkThemeChanges()` when the system theme changes. This triggers `ThemeManager.applyTheme(SYSTEM)` if the app is in system theme mode.
+1. **System dark mode tracking** ([line 811](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt#L811)): Uses `snapshotFlow` on `isSystemInDarkTheme()` to call `reactOnDarkThemeChanges()` when the system theme changes. This triggers `ThemeManager.applyTheme(SYSTEM)` if the app is in system theme mode.
 
-2. **User theme tracking** ([line 790](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt#L790)): Monitors `chatModel.currentUser.value?.uiThemes` and re-applies the theme when the active user changes.
+2. **User theme tracking** ([line 819](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt#L819)): Monitors `chatModel.currentUser.value?.uiThemes` and re-applies the theme when the active user changes.
 
-3. **MaterialTheme wrapping** ([line 797](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt#L797)): Provides `theme.colors` to `MaterialTheme`, plus custom `CompositionLocal` providers:
+3. **MaterialTheme wrapping** ([line 830](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt#L830)): Provides `displayedColors` (the theme colors, hue-rotated when [rainbow mode](#rainbow-mode) is on) to `MaterialTheme`, plus custom `CompositionLocal` providers:
    - `LocalContentColor` -- set to `MaterialTheme.colors.onBackground`
    - `LocalAppColors` -- the `AppColors` instance (remembered and updated)
    - `LocalAppWallpaper` -- the `AppWallpaper` instance (remembered and updated)
    - `LocalDensity` -- scaled by `desktopDensityScaleMultiplier` and `fontSizeMultiplier`
 
-4. **`SimpleXThemeOverride`** ([line 825](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt#L825)): A variant that accepts an explicit `ActiveTheme` for per-chat theme previews and overlays.
+4. **`SimpleXThemeOverride`** ([line 857](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt#L857)): A variant that accepts an explicit `ActiveTheme` for per-chat theme previews and overlays.
 
 ### CompositionLocal access
 
@@ -389,6 +389,35 @@ val MaterialTheme.wallpaper: AppWallpaper // via LocalAppWallpaper
 `CurrentColors` ([line 727](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt#L727)): A `MutableStateFlow<ActiveTheme>` that holds the current resolved theme. Updated by `ThemeManager.applyTheme()` and collected by `SimpleXTheme`.
 
 `systemInDarkThemeCurrently` ([line 724](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt#L724)): Tracks the current system dark mode state.
+
+---
+
+<a id="rainbow-mode"></a>
+
+### Rainbow mode
+
+[`Rainbow.kt`](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt) rotates the hue of the
+theme colors over time. It is display-only: `CurrentColors` and the saved `ThemeOverrides` are never
+touched, so turning the mode off restores the exact colors the user picked.
+
+| Piece | Purpose |
+|---|---|
+| `RAINBOW_CYCLE_MILLIS` (`16_000`) | Duration of one full 360° hue cycle |
+| `RAINBOW_UPDATE_MILLIS` (`50`) | How often the hue offset changes; 20 steps per second look continuous for a cycle this slow and cost far less than recomposing on every frame |
+| `nextRainbowPhase(phase)` | Advances the phase by `rainbowHueStep()` and wraps it into `0..360` |
+| `rgbToHsv` / `hsvToRgb` | Platform-independent conversions (no `java.awt`, works on Android too) |
+| `shiftHue(color, degrees)` | Rotates one color, keeping saturation, brightness and alpha. Achromatic colors (greys, black, white) are returned unchanged, which keeps backgrounds and text readable |
+| `rainbowColors(colors, phase)` | `MaterialTheme` palette with every field shifted by the shared phase |
+| `rainbowAppColors(appColors, phase)` | `AppColors` (title, `primaryVariant2`, sent/received message and quote colors) shifted by the same phase |
+| `rememberRainbowPhase(): Float` | The current offset, or `0` when `appPrefs.rainbowThemeColors` is off |
+
+The same phase is used for every color, so the interface moves through the spectrum as a whole and a
+color swatch in the settings list always shows the same hue as the color it stands for. The swatches in
+`CustomizeThemeColorsSection` (`views/usersettings/Appearance.kt`) call `shiftHue` with that phase, and
+`SimpleXTheme` feeds `rainbowColors` / `rainbowAppColors` into `MaterialTheme` and `LocalAppColors`.
+
+`SimpleXThemeOverride`, used for per-chat theme previews and the color editor preview, deliberately does
+not apply the phase: it shows the colors that are being edited.
 
 ---
 
@@ -498,7 +527,8 @@ Uses the [kaml](https://github.com/charleskorn/kaml) YAML library for serializat
 | File | Path | Lines | Description |
 |---|---|---|---|
 | `ThemeManager.kt` | [`common/src/commonMain/.../ui/theme/ThemeManager.kt`](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/ThemeManager.kt) | 241 | Theme resolution, persistence, color/wallpaper management |
-| `Theme.kt` | [`common/src/commonMain/.../ui/theme/Theme.kt`](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt) | 848 | Type definitions, color palettes, `SimpleXTheme` composable |
+| `Theme.kt` | [`common/src/commonMain/.../ui/theme/Theme.kt`](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt) | 881 | Type definitions, color palettes, `SimpleXTheme` composable |
+| `Rainbow.kt` | [`common/src/commonMain/.../ui/theme/Rainbow.kt`](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt) | 131 | Rainbow mode: hue rotation of `Colors` and `AppColors`, `rememberRainbowPhase()` |
 | `Theme.android.kt` | [`common/src/androidMain/.../ui/theme/Theme.android.kt`](../../common/src/androidMain/kotlin/chat/simplex/common/ui/theme/Theme.android.kt) | 6 | Android `isSystemInDarkTheme` |
 | `Theme.desktop.kt` | [`common/src/desktopMain/.../ui/theme/Theme.desktop.kt`](../../common/src/desktopMain/kotlin/chat/simplex/common/ui/theme/Theme.desktop.kt) | 25 | Desktop `isSystemInDarkTheme` via OsThemeDetector |
 | `Files.kt` | [`common/src/commonMain/.../platform/Files.kt`](../../common/src/commonMain/kotlin/chat/simplex/common/platform/Files.kt) | 191 | `readThemeOverrides()` (L125), `writeThemeOverrides()` (L151) |

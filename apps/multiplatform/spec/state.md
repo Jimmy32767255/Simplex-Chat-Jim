@@ -462,7 +462,7 @@ val appPrefs: AppPreferences by lazy { AppPreferences() }
 | `selfDestruct` | `Boolean` | `false` | Self-destruct enabled |
 | `selfDestructDisplayName` | `String?` | null | Display name for self-destruct profile |
 
-#### UI Preferences (lines 324-329)
+#### UI Preferences (lines 324-332)
 
 | Key | Type | Default | Purpose |
 |---|---|---|---|
@@ -471,12 +471,17 @@ val appPrefs: AppPreferences by lazy { AppPreferences() }
 | `chatLayout` | `ChatLayoutMode` | `Classic` | App chat layout (`activeChatLayout`) |
 | `favoritesAsPinned` | `Boolean` | `false` | Show favorite contacts and groups at the top of the home chat list (`favoritesPinnedFirst`); a display preference, the chat order itself is unchanged |
 | `timeFormat` | `TimeFormat` (`SYSTEM`, `HOUR_12`, `HOUR_24`) | `SYSTEM` | 12/24-hour convention for every time of day (`uses24HourFormat`), `SYSTEM` defers to `systemUses24HourFormat()`; a local display preference |
+| `rainbowThemeColors` | `Boolean` | `false` | Cycle the hue of every interface color while the app is open (`rememberRainbowPhase`, `rainbowColors`); display-only, the saved theme is untouched |
 
 `TimeFormat` (SimpleXAPI.kt line 127) models the 12/24-hour convention: `SYSTEM`, `HOUR_12`, `HOUR_24`.
 `uses24HourFormat(format, systemUses24Hour)` in `ChatModel.kt` resolves it (an explicit choice wins,
 `SYSTEM` uses `systemUses24HourFormat()`), and `getTimestampText` / `localTimestamp` build their time
 part from `timeOfDayPattern(use24Hour)`. The `text` extension returns the localized label
 (`time_format_system`, `time_format_12h`, `time_format_24h`); `default` is `SYSTEM`.
+
+`rainbowThemeColors` (`"RainbowThemeColors"`) is a display-only switch for [rainbow mode](../services/theme.md#rainbow-mode):
+`SimpleXTheme` hands `rainbowColors` / `rainbowAppColors` to `MaterialTheme` and `LocalAppColors`, but
+`CurrentColors` and the stored `ThemeOverrides` keep the user's colors.
 
 #### Desktop Chat Input (lines 153-154)
 

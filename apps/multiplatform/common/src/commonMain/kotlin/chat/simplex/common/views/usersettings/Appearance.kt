@@ -8,6 +8,7 @@ import SectionItemView
 import itemHPadding
 import SectionItemViewSpaceBetween
 import SectionItemViewWithoutMinPadding
+import SectionTextFooter
 import SectionView
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -1037,47 +1038,57 @@ object AppearanceScope {
 
   @Composable
   fun CustomizeThemeColorsSection(currentTheme: ThemeManager.ActiveTheme, editColor: (ThemeColor) -> Unit) {
+    // Rainbow mode is display-only: the swatches show the hue the interface currently uses, while the
+    // saved colors (what `editColor` edits) are untouched.
+    val rainbowPhase = rememberRainbowPhase()
+    fun displayed(color: Color): Color = shiftHue(color, rainbowPhase)
     SectionView(stringResource(MR.strings.theme_colors_section_title)) {
+      SettingsPreferenceItem(
+        painterResource(MR.images.ic_palette),
+        stringResource(MR.strings.rainbow_mode),
+        appPrefs.rainbowThemeColors
+      )
       SectionItemViewSpaceBetween({ editColor(ThemeColor.PRIMARY) }) {
         val title = generalGetString(MR.strings.color_primary)
         Text(title)
-        Icon(painterResource(MR.images.ic_circle_filled), title, tint = currentTheme.colors.primary)
+        Icon(painterResource(MR.images.ic_circle_filled), title, tint = displayed(currentTheme.colors.primary))
       }
       SectionItemViewSpaceBetween({ editColor(ThemeColor.PRIMARY_VARIANT) }) {
         val title = generalGetString(MR.strings.color_primary_variant)
         Text(title)
-        Icon(painterResource(MR.images.ic_circle_filled), title, tint = currentTheme.colors.primaryVariant)
+        Icon(painterResource(MR.images.ic_circle_filled), title, tint = displayed(currentTheme.colors.primaryVariant))
       }
       SectionItemViewSpaceBetween({ editColor(ThemeColor.PRIMARY_VARIANT2) }) {
         val title = generalGetString(MR.strings.color_primary_variant2)
         Text(title)
-        Icon(painterResource(MR.images.ic_circle_filled), title, tint = currentTheme.appColors.primaryVariant2)
+        Icon(painterResource(MR.images.ic_circle_filled), title, tint = displayed(currentTheme.appColors.primaryVariant2))
       }
       SectionItemViewSpaceBetween({ editColor(ThemeColor.SECONDARY) }) {
         val title = generalGetString(MR.strings.color_secondary)
         Text(title)
-        Icon(painterResource(MR.images.ic_circle_filled), title, tint = currentTheme.colors.secondary)
+        Icon(painterResource(MR.images.ic_circle_filled), title, tint = displayed(currentTheme.colors.secondary))
       }
       SectionItemViewSpaceBetween({ editColor(ThemeColor.SECONDARY_VARIANT) }) {
         val title = generalGetString(MR.strings.color_secondary_variant)
         Text(title)
-        Icon(painterResource(MR.images.ic_circle_filled), title, tint = currentTheme.colors.secondaryVariant)
+        Icon(painterResource(MR.images.ic_circle_filled), title, tint = displayed(currentTheme.colors.secondaryVariant))
       }
       SectionItemViewSpaceBetween({ editColor(ThemeColor.BACKGROUND) }) {
         val title = generalGetString(MR.strings.color_background)
         Text(title)
-        Icon(painterResource(MR.images.ic_circle_filled), title, tint = currentTheme.colors.background)
+        Icon(painterResource(MR.images.ic_circle_filled), title, tint = displayed(currentTheme.colors.background))
       }
       SectionItemViewSpaceBetween({ editColor(ThemeColor.SURFACE) }) {
         val title = generalGetString(MR.strings.color_surface)
         Text(title)
-        Icon(painterResource(MR.images.ic_circle_filled), title, tint = currentTheme.colors.surface)
+        Icon(painterResource(MR.images.ic_circle_filled), title, tint = displayed(currentTheme.colors.surface))
       }
       SectionItemViewSpaceBetween({ editColor(ThemeColor.TITLE) }) {
         val title = generalGetString(MR.strings.color_title)
         Text(title)
-        Icon(painterResource(MR.images.ic_circle_filled), title, tint = currentTheme.appColors.title)
+        Icon(painterResource(MR.images.ic_circle_filled), title, tint = displayed(currentTheme.appColors.title))
       }
+      SectionTextFooter(stringResource(MR.strings.rainbow_mode_footer))
     }
   }
 

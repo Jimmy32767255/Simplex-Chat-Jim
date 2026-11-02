@@ -823,6 +823,10 @@ fun SimpleXTheme(darkTheme: Boolean? = null, content: @Composable () -> Unit) {
       }
   }
   val theme by CurrentColors.collectAsState()
+  // Rainbow mode only changes what is displayed: `theme` keeps the saved colors.
+  val rainbowPhase = rememberRainbowPhase()
+  val displayedColors = remember(theme, rainbowPhase) { rainbowColors(theme.colors, rainbowPhase) }
+  val displayedAppColors = remember(theme, rainbowPhase) { rainbowAppColors(theme.appColors, rainbowPhase) }
   LaunchedEffect(Unit) {
     // snapshotFlow vs LaunchedEffect reduce number of recomposes when user is changed or it's themes
     snapshotFlow { chatModel.currentUser.value?.uiThemes }
@@ -831,7 +835,7 @@ fun SimpleXTheme(darkTheme: Boolean? = null, content: @Composable () -> Unit) {
       }
   }
   MaterialTheme(
-    colors = theme.colors,
+    colors = displayedColors,
     typography = Typography,
     shapes = Shapes,
     content = {
@@ -839,8 +843,8 @@ fun SimpleXTheme(darkTheme: Boolean? = null, content: @Composable () -> Unit) {
       val rememberedAppColors = remember {
         // Explicitly creating a new object here so we don't mutate the initial [appColors]
         // provided, and overwrite the values set in it.
-        theme.appColors.copy()
-      }.apply { updateColorsFrom(theme.appColors) }
+        displayedAppColors.copy()
+      }.apply { updateColorsFrom(displayedAppColors) }
       val rememberedWallpaper = remember {
         // Explicitly creating a new object here so we don't mutate the initial [wallpaper]
         // provided, and overwrite the values set in it.

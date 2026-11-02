@@ -22,6 +22,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
 14. [Copy Selected Messages (RULE-26)](#14-copy-selected-messages)
 15. [Time Format (RULE-27)](#15-time-format)
 16. [Range Selection (RULE-28)](#16-range-selection)
+17. [Rainbow Mode (RULE-29)](#17-rainbow-mode)
 
 ---
 
@@ -641,3 +642,37 @@ Enforcement:
 - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt` (`selectionAnchor`,
   `SelectToHereButton`, `selectUnselectChatItem` call sites)
 - Test: `common/src/commonTest/kotlin/chat/simplex/app/ChatSelectionRangeTest.kt`
+
+---
+
+## 17. Rainbow Mode
+
+### RULE-29: Rainbow Mode Only Changes What Is Displayed
+
+1. **The saved theme is the source of truth.** The palette comes from `CurrentColors` (and the
+   `AppPreferences.themeOverrides` stored in it). Rainbow mode is applied on top of that palette when
+   it is handed to `MaterialTheme` / `LocalAppColors`; it MUST NOT write back to `CurrentColors`, to
+   the theme overrides, or to the user's `uiThemes`.
+
+2. **One phase for the whole interface.** Every color is shifted by the same hue offset
+   (`rememberRainbowPhase()`), so the interface cycles as a whole and a swatch in the settings list
+   shows the same hue as the color it stands for (the swatches call `shiftHue` with the same phase).
+
+3. **Achromatic colors keep their hue.** `shiftHue` returns greys, black and white unchanged
+   (saturation `0`), so backgrounds, surfaces and text stay readable while the accents cycle.
+
+4. **Off means zero.** When `appPreferences.rainbowThemeColors` is `false` the phase is `0`,
+   `rainbowColors` / `rainbowAppColors` return their input untouched, and no timer runs.
+
+5. **Display-only and local.** The mode is a client-side preference (`rainbowThemeColors`,
+   `"RainbowThemeColors"`); it is not stored in the database, not sent to the core, and not part of the
+   exported `AppSettings`. Starting or stopping it never re-saves a theme.
+
+Enforcement:
+- `common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt` (`shiftHue`, `rainbowColors`,
+  `rainbowAppColors`, `rememberRainbowPhase`, `nextRainbowPhase`)
+- `common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt` (`SimpleXTheme` passes the
+  displayed colors; `SimpleXThemeOverride` deliberately does not)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/Appearance.kt`
+  (`CustomizeThemeColorsSection` toggle and swatches)
+- Test: `common/src/commonTest/kotlin/chat/simplex/app/RainbowTest.kt`

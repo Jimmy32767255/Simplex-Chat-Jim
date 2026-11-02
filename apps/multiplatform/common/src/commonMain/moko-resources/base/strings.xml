@@ -1174,6 +1174,8 @@
   <string name="appearance_settings">Appearance</string>
   <string name="customize_theme_title">Customize theme</string>
   <string name="theme_colors_section_title">Interface colors</string>
+  <string name="rainbow_mode">Rainbow mode</string>
+  <string name="rainbow_mode_footer">Interface colors keep cycling through the rainbow while the app is open. Your saved colors are not changed.</string>
   <string name="app_version_title">App version</string>
   <string name="app_version_name">App version: v%s</string>
   <string name="app_version_code">App build: %s</string>

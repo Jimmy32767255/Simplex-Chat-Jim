@@ -341,6 +341,9 @@ class AppPreferences {
   // Client-side display preference only: the chat order itself is not changed or persisted.
   val favoritesAsPinned = mkBoolPreference(SHARED_PREFS_FAVORITES_AS_PINNED, false)
   val timeFormat: SharedPreference<TimeFormat> = mkSafeEnumPreference(SHARED_PREFS_TIME_FORMAT, TimeFormat.default)
+  // Cycle the hue of the theme colors while the app is open. Display-only: the saved theme is never
+  // modified, and the mode is a client-side preference (not part of the exported AppSettings).
+  val rainbowThemeColors = mkBoolPreference(SHARED_PREFS_RAINBOW_THEME_COLORS, false)
 
   val hintPreferences: List<HintPref> = listOf(
     hintPref(laNoticeShown, false),
@@ -566,6 +569,7 @@ class AppPreferences {
     private const val SHARED_PREFS_CHAT_LAYOUT = "ChatLayout"
     private const val SHARED_PREFS_FAVORITES_AS_PINNED = "FavoritesAsPinned"
     private const val SHARED_PREFS_TIME_FORMAT = "TimeFormat"
+    private const val SHARED_PREFS_RAINBOW_THEME_COLORS = "RainbowThemeColors"
     private const val SHARED_PREFS_SELF_DESTRUCT = "LocalAuthenticationSelfDestruct"
     private const val SHARED_PREFS_SELF_DESTRUCT_DISPLAY_NAME = "LocalAuthenticationSelfDestructDisplayName"
     private const val SHARED_PREFS_PQ_EXPERIMENTAL_ENABLED = "PQExperimentalEnabled" // no longer used

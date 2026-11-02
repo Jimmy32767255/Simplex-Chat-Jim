@@ -149,6 +149,15 @@
   - 文档：`product/views/chat.md`（多选工具栏表新增 Select to here 行与锚点说明）、`spec/client/chat-view.md`（Selection Mode / Select to here 条目）、`product/rules.md`（新增第 16 节 RULE-28）、`product/concepts.md`（PC43）、`spec/impact.md`（PC43 与 `views/chat/ChatSelectionRange.kt` 行）、`plans/2026-11-02-select-to-here-range.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ChatSelectionRangeTest.kt`（9 个用例：单条消息的行只含一个 id、折叠组整组展开、锚点向上／向下的范围行、锚点行等于边缘行、没有锚点或边缘行未知时返回空、范围展开为合并行的全部 id、只补未选中的 id、反向列表的可见边缘行），`./gradlew :common:desktopTest` 全部通过（22 个测试类、146 个用例无失败）。差异补丁见 `diff/`。
 
+- [x] 在 设置→外观→自定义主题→颜色调整 里加入「彩虹模式」开关（开启后界面颜色会一直循环彩虹变色，RGB 效果），颜色色块本身也跟着循环
+  - 实现方法：新增 `ui/theme/Rainbow.kt`，用纯 Kotlin 的 HSV 转换实现 `shiftHue`（只改色相，保留饱和度、明度和透明度；灰、黑、白因为饱和度为 0 会被原样返回，保证背景和文字始终可读），再用同一个相位驱动 `rainbowColors`（`MaterialTheme` 调色板）与 `rainbowAppColors`（标题、`primaryVariant2`、发送／接收消息与引用颜色）。相位由 `rememberRainbowPhase()` 提供：开关关闭时返回 0、不启动计时器；打开时每 50ms 前进一次，16 秒走完一整圈（20 次/秒对这种慢速循环已经足够平滑，比逐帧重组便宜得多）。
+  - 只影响显示：`SimpleXTheme` 把偏移后的颜色交给 `MaterialTheme` 和 `LocalAppColors`，`CurrentColors` 与已保存的 `ThemeOverrides` 一律不改，关掉开关就完全恢复用户自己挑的颜色；`SimpleXThemeOverride`（单人聊天主题预览、颜色编辑器预览）故意不参与，方便用户看到正在编辑的真实颜色。
+  - 颜色调整里的 8 个色块也用同一相位着色，所以列表里的色块和界面颜色始终一致。
+  - 改动文件：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt`；`.../ui/theme/Theme.kt`（`SimpleXTheme` 改用 `displayedColors` / `displayedAppColors`）；`.../views/usersettings/Appearance.kt`（`CustomizeThemeColorsSection` 新增开关行、说明页脚与动画色块）；`.../model/SimpleXAPI.kt`（新增 `rainbowThemeColors` 偏好，键 `"RainbowThemeColors"`，默认关闭）；`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 `rainbow_mode`、`rainbow_mode_footer`）。
+  - 兼容性：纯客户端显示开关，未改核心、未新增数据库写入、未加入 `AppSettings` 导出字段（核心会丢弃未知字段，且这种本机视觉效果不该被带到别的设备）。
+  - 文档：`spec/services/theme.md`（新增 Rainbow mode 小节与源文件表行）、`spec/state.md`（UI 偏好表新增 `rainbowThemeColors`）、`product/rules.md`（新增第 17 节 RULE-29）、`product/concepts.md`（PC44）、`spec/impact.md`（PC44 与 `ui/theme/Rainbow.kt`、`Theme.kt`、`Appearance.kt` 行）、`product/views/settings.md`（外观表新增 Rainbow mode 行）、`plans/2026-11-02-rainbow-theme-mode.md`。
+  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/RainbowTest.kt`（13 个用例：RGB→HSV 的三原色与灰色、HSV→RGB 往返、`shiftHue` 保持饱和度／明度／透明度、色相按度数移动、360° 为一圈且可逆、无彩色不变、相位整圈回到起点、步长与周期一致、相位 0 时调色板不变、只偏移有彩色、`AppColors` 六个字段全部偏移且原对象不变、默认关闭），`./gradlew :common:desktopTest` 通过（23 个测试类、159 个用例无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
+
 ## mod:
 
 none

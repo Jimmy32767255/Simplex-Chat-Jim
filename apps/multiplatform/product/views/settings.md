@@ -159,6 +159,7 @@ Platform-specific composable (`expect fun AppearanceView`):
 | Chat bubbles | Message bubble appearance configuration |
 | Toolbar opacity | App bar transparency settings (`inAppBarsAlpha`) |
 | Color picker | `ClassicColorPicker` for custom theme colors |
+| Rainbow mode | `rainbowThemeColors` -- cycles the hue of every interface color while the app is open; display-only, the saved colors are not changed (RULE-29). The toggle sits in *Customize theme > Interface colors*, and the color swatches there animate with the interface |
 
 ### Chat Database Section
 

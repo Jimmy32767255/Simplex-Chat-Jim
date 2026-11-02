@@ -1137,6 +1137,8 @@
     <string name="you_wont_lose_your_contacts_if_delete_address">如果你以后删除你的地址，你不会丢失你的联系人。</string>
     <string name="read_more_in_user_guide_with_link"><![CDATA[在<font color="#0088ff">用户指南</font>中阅读更多。]]></string>
     <string name="theme_colors_section_title">界面颜色</string>
+    <string name="rainbow_mode">彩虹模式</string>
+    <string name="rainbow_mode_footer">开启后界面颜色会一直循环变色（RGB 效果）。你保存的颜色不会被修改。</string>
     <string name="your_contacts_will_remain_connected">与你的联系人保持连接。</string>
     <string name="share_with_contacts">与联系人分享</string>
     <string name="invite_friends">邀请朋友</string>
