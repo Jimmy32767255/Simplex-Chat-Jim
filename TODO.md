@@ -141,6 +141,14 @@
   - 文档：`product/rules.md`（RULE-27）、`product/concepts.md`（PC42）、`product/README.md`、`product/views/settings.md`（Time Format Section）、`spec/state.md`（`timeFormat`）、`spec/architecture.md`（expect/actual 表）、`spec/impact.md`、`spec/client/chat-view.md`、`plans/2026-11-02-own-name-and-time-format.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TimeFormatTest.kt`（4 个用例：`SYSTEM` 跟随系统、显式选项覆盖系统、两种时间模式、默认值为 `SYSTEM`），`./gradlew :common:desktopTest` 全部通过（21 个测试类、137 个用例无失败），`:common:compileDebugKotlinAndroid` 也通过。差异补丁见 `diff/`。
 
+- [x] 在聊天记录多选模式下加入像 QQ / 微信一样的「选择到此处」按钮，放在视图的顶端和底端
+  - 实现方法：多选激活时，在消息列表的顶端（`FloatingDate` 下面）和底端（输入框上方）各显示一个圆角悬浮按钮（带向上／向下箭头 + `select_to_here` 文案）。点击后把「锚点消息 → 该边缘所在行」之间的所有消息加入当前选择；锚点就是用户最后一次手动选中的那条（`selectionAnchor`，按聊天 id 记忆，复选框遮罩和整行点击两条路径都会更新它），所以可以连续按多次逐步扩大范围；范围只增不减，误触再点一次同一条消息即可取消。
+  - 行与消息的对应：列表渲染的是 `MergedItems`（同一发送者连续消息合并成一行、可折叠），范围以「行」为单位整行选取（`mergedItemChatItemIds`），因此折叠的群组会和手动点它一样被整组选中；行号取 `MergedItems.indexInParentItems`（即 LazyColumn 的行号），不是 `chatsContext.chatItems` 的下标。边缘行取自 `listState.layoutInfo.visibleItemsInfo`（列表是 `reverseLayout = true`，所以顶端是最大行号、底端是最小行号），保证选的是屏幕上真正看到的那一行。
+  - 范围说明：没有选中项、没有锚点、或范围没有新增任何消息（`selectionToHereAddsItems`）时两个按钮都不渲染，避免出现空操作；纯客户端视图状态，未改核心、未新增偏好或 `AppSettings` 字段、未新增数据库写入。
+  - 改动文件：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatSelectionRange.kt`（`mergedItemChatItemIds`、`selectionRangeRows`、`selectionToHereIds`、`selectionToHereAddsItems`、`visibleEdgeRows` 纯函数）、`.../views/chat/ChatView.kt`（`selectionAnchor`、两处 `SelectToHereButton` 调用、`SelectToHereButton` 组合函数）、`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 `select_to_here`）。
+  - 文档：`product/views/chat.md`（多选工具栏表新增 Select to here 行与锚点说明）、`spec/client/chat-view.md`（Selection Mode / Select to here 条目）、`product/rules.md`（新增第 16 节 RULE-28）、`product/concepts.md`（PC43）、`spec/impact.md`（PC43 与 `views/chat/ChatSelectionRange.kt` 行）、`plans/2026-11-02-select-to-here-range.md`。
+  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ChatSelectionRangeTest.kt`（9 个用例：单条消息的行只含一个 id、折叠组整组展开、锚点向上／向下的范围行、锚点行等于边缘行、没有锚点或边缘行未知时返回空、范围展开为合并行的全部 id、只补未选中的 id、反向列表的可见边缘行），`./gradlew :common:desktopTest` 全部通过（22 个测试类、146 个用例无失败）。差异补丁见 `diff/`。
+
 ## mod:
 
 none

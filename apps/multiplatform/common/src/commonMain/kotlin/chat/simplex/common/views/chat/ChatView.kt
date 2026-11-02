@@ -1863,6 +1863,8 @@ fun BoxScope.ChatItemsList(
     }
   })
   SaveReportsStateOnDispose(chatsCtx, listState)
+  // the item that the "select to here" action counts the range from: the last item selected by the user
+  val selectionAnchor = rememberSaveable(chatInfo.id) { mutableStateOf(null as Long?) }
   val maxHeight = remember { derivedStateOf { listState.value.layoutInfo.viewportEndOffset - topPaddingToContentPx.value } }
   val loadingMoreItems = remember { mutableStateOf(false) }
   val animatedScrollingInProgress = remember { mutableStateOf(false) }
@@ -1959,7 +1961,7 @@ fun BoxScope.ChatItemsList(
                 highlightedItems.value = setOf()
               }
           }
-          ChatItemView(chatsCtx, remoteHostId, chat, cItem, composeState, provider, useLinkPreviews = useLinkPreviews, linkMode = linkMode, revealed = revealed, highlighted = highlighted, hoveredItemId = hoveredItemId, range = range, searchIsNotBlank = searchValueIsNotBlank, fillMaxWidth = fillMaxWidth, selectedChatItems = selectedChatItems, selectChatItem = { selectUnselectChatItem(true, cItem, revealed, selectedChatItems, reversedChatItems) }, deleteMessage = deleteMessage, deleteMessages = deleteMessages, archiveReports = archiveReports, receiveFile = receiveFile, cancelFile = cancelFile, joinGroup = joinGroup, acceptCall = acceptCall, acceptFeature = acceptFeature, openDirectChat = openDirectChat, forwardItem = forwardItem, updateContactStats = updateContactStats, updateMemberStats = updateMemberStats, syncContactConnection = syncContactConnection, syncMemberConnection = syncMemberConnection, findModelChat = findModelChat, findModelMember = findModelMember, scrollToItem = scrollToItem, scrollToItemId = scrollToItemId, scrollToQuotedItemFromItem = scrollToQuotedItemFromItem, setReaction = setReaction, showItemDetails = showItemDetails, reveal = reveal, showMemberInfo = showMemberInfo, showChatInfo = showChatInfo, developerTools = developerTools, showViaProxy = showViaProxy, itemSeparation = itemSeparation, showTimestamp = itemSeparation.timestamp, swipeOffset = swipeOffset, bubbleInteractionSource = bubbleInteractionSource)
+          ChatItemView(chatsCtx, remoteHostId, chat, cItem, composeState, provider, useLinkPreviews = useLinkPreviews, linkMode = linkMode, revealed = revealed, highlighted = highlighted, hoveredItemId = hoveredItemId, range = range, searchIsNotBlank = searchValueIsNotBlank, fillMaxWidth = fillMaxWidth, selectedChatItems = selectedChatItems, selectChatItem = { selectUnselectChatItem(true, cItem, revealed, selectedChatItems, reversedChatItems); selectionAnchor.value = cItem.id }, deleteMessage = deleteMessage, deleteMessages = deleteMessages, archiveReports = archiveReports, receiveFile = receiveFile, cancelFile = cancelFile, joinGroup = joinGroup, acceptCall = acceptCall, acceptFeature = acceptFeature, openDirectChat = openDirectChat, forwardItem = forwardItem, updateContactStats = updateContactStats, updateMemberStats = updateMemberStats, syncContactConnection = syncContactConnection, syncMemberConnection = syncMemberConnection, findModelChat = findModelChat, findModelMember = findModelMember, scrollToItem = scrollToItem, scrollToItemId = scrollToItemId, scrollToQuotedItemFromItem = scrollToQuotedItemFromItem, setReaction = setReaction, showItemDetails = showItemDetails, reveal = reveal, showMemberInfo = showMemberInfo, showChatInfo = showChatInfo, developerTools = developerTools, showViaProxy = showViaProxy, itemSeparation = itemSeparation, showTimestamp = itemSeparation.timestamp, swipeOffset = swipeOffset, bubbleInteractionSource = bubbleInteractionSource)
         }
       }
 
@@ -2250,6 +2252,7 @@ fun BoxScope.ChatItemsList(
             Box(Modifier.matchParentSize().clickable {
               val checked = selectedChatItems.value?.contains(cItem.id) == true
               selectUnselectChatItem(select = !checked, cItem, revealed, selectedChatItems, reversedChatItems)
+              if (!checked) selectionAnchor.value = cItem.id
             })
           }
         }
@@ -2500,6 +2503,22 @@ fun BoxScope.ChatItemsList(
     loadMessages
   )
   FloatingDate(Modifier.padding(top = 10.dp + topPaddingToContent).align(Alignment.TopCenter), topPaddingToContentPx, mergedItems, listState)
+  SelectToHereButton(
+    mergedItems,
+    selectedChatItems,
+    selectionAnchor,
+    listState,
+    topEdge = true,
+    modifier = Modifier.padding(top = 10.dp + topPaddingToContent + 36.dp).align(Alignment.TopCenter)
+  )
+  SelectToHereButton(
+    mergedItems,
+    selectedChatItems,
+    selectionAnchor,
+    listState,
+    topEdge = false,
+    modifier = Modifier.padding(bottom = composeViewHeight.value + DEFAULT_PADDING).align(Alignment.BottomCenter)
+  )
 
   LaunchedEffect(Unit) {
     snapshotFlow { listState.value.isScrollInProgress }
@@ -3359,6 +3378,53 @@ private fun LoadingProgressIndicator() {
       color = MaterialTheme.colors.secondary,
       strokeWidth = 2.dp
     )
+  }
+}
+
+/**
+ * A floating "select to here" action shown at the top or the bottom edge of the chat list while items are selected.
+ * It extends the selection from [selectionAnchor] to the edge row of the list, and it is hidden when there is nothing to add.
+ */
+@Composable
+private fun SelectToHereButton(
+  mergedItems: State<MergedItems>,
+  selectedChatItems: MutableState<Set<Long>?>,
+  selectionAnchor: MutableState<Long?>,
+  listState: State<LazyListState>,
+  topEdge: Boolean,
+  modifier: Modifier
+) {
+  val selected = selectedChatItems.value ?: return
+  val anchorId = selectionAnchor.value ?: return
+  val edges = visibleEdgeRows(listState.value.layoutInfo.visibleItemsInfo.map { it.index }) ?: return
+  val edgeRow = if (topEdge) edges.first else edges.second
+  if (!selectionToHereAddsItems(mergedItems.value, anchorId, edgeRow, selected)) return
+  Surface(
+    modifier.clip(RoundedCornerShape(50)).clickable {
+      val ids = selectionToHereIds(mergedItems.value, anchorId, edgeRow)
+      if (ids.isNotEmpty()) selectedChatItems.value = (selectedChatItems.value ?: setOf()) + ids
+    }.then(modifier),
+    shape = RoundedCornerShape(50),
+    color = MaterialTheme.colors.background,
+    elevation = 4.dp
+  ) {
+    Row(
+      verticalAlignment = Alignment.CenterVertically,
+      modifier = Modifier.padding(horizontal = DEFAULT_PADDING, vertical = DEFAULT_PADDING_HALF)
+    ) {
+      Icon(
+        painterResource(if (topEdge) MR.images.ic_chevron_up else MR.images.ic_chevron_down),
+        contentDescription = null,
+        tint = MaterialTheme.colors.primary,
+        modifier = Modifier.size(18.dp)
+      )
+      Text(
+        generalGetString(MR.strings.select_to_here),
+        style = MaterialTheme.typography.caption,
+        color = MaterialTheme.colors.primary,
+        modifier = Modifier.padding(start = DEFAULT_PADDING_HALF)
+      )
+    }
   }
 }
 

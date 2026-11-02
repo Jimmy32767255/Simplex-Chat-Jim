@@ -1,0 +1,500 @@
+diff --git a/TODO.md b/TODO.md
+index 43d62e643..38c832c63 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -141,6 +141,14 @@
+   - 文档：`product/rules.md`（RULE-27）、`product/concepts.md`（PC42）、`product/README.md`、`product/views/settings.md`（Time Format Section）、`spec/state.md`（`timeFormat`）、`spec/architecture.md`（expect/actual 表）、`spec/impact.md`、`spec/client/chat-view.md`、`plans/2026-11-02-own-name-and-time-format.md`。
+   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TimeFormatTest.kt`（4 个用例：`SYSTEM` 跟随系统、显式选项覆盖系统、两种时间模式、默认值为 `SYSTEM`），`./gradlew :common:desktopTest` 全部通过（21 个测试类、137 个用例无失败），`:common:compileDebugKotlinAndroid` 也通过。差异补丁见 `diff/`。
+ 
++- [x] 在聊天记录多选模式下加入像 QQ / 微信一样的「选择到此处」按钮，放在视图的顶端和底端
++  - 实现方法：多选激活时，在消息列表的顶端（`FloatingDate` 下面）和底端（输入框上方）各显示一个圆角悬浮按钮（带向上／向下箭头 + `select_to_here` 文案）。点击后把「锚点消息 → 该边缘所在行」之间的所有消息加入当前选择；锚点就是用户最后一次手动选中的那条（`selectionAnchor`，按聊天 id 记忆，复选框遮罩和整行点击两条路径都会更新它），所以可以连续按多次逐步扩大范围；范围只增不减，误触再点一次同一条消息即可取消。
++  - 行与消息的对应：列表渲染的是 `MergedItems`（同一发送者连续消息合并成一行、可折叠），范围以「行」为单位整行选取（`mergedItemChatItemIds`），因此折叠的群组会和手动点它一样被整组选中；行号取 `MergedItems.indexInParentItems`（即 LazyColumn 的行号），不是 `chatsContext.chatItems` 的下标。边缘行取自 `listState.layoutInfo.visibleItemsInfo`（列表是 `reverseLayout = true`，所以顶端是最大行号、底端是最小行号），保证选的是屏幕上真正看到的那一行。
++  - 范围说明：没有选中项、没有锚点、或范围没有新增任何消息（`selectionToHereAddsItems`）时两个按钮都不渲染，避免出现空操作；纯客户端视图状态，未改核心、未新增偏好或 `AppSettings` 字段、未新增数据库写入。
++  - 改动文件：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatSelectionRange.kt`（`mergedItemChatItemIds`、`selectionRangeRows`、`selectionToHereIds`、`selectionToHereAddsItems`、`visibleEdgeRows` 纯函数）、`.../views/chat/ChatView.kt`（`selectionAnchor`、两处 `SelectToHereButton` 调用、`SelectToHereButton` 组合函数）、`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 `select_to_here`）。
++  - 文档：`product/views/chat.md`（多选工具栏表新增 Select to here 行与锚点说明）、`spec/client/chat-view.md`（Selection Mode / Select to here 条目）、`product/rules.md`（新增第 16 节 RULE-28）、`product/concepts.md`（PC43）、`spec/impact.md`（PC43 与 `views/chat/ChatSelectionRange.kt` 行）、`plans/2026-11-02-select-to-here-range.md`。
++  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ChatSelectionRangeTest.kt`（9 个用例：单条消息的行只含一个 id、折叠组整组展开、锚点向上／向下的范围行、锚点行等于边缘行、没有锚点或边缘行未知时返回空、范围展开为合并行的全部 id、只补未选中的 id、反向列表的可见边缘行），`./gradlew :common:desktopTest` 全部通过（22 个测试类、146 个用例无失败）。差异补丁见 `diff/`。
++
+ ## mod:
+ 
+ none
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatSelectionRange.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatSelectionRange.kt
+new file mode 100644
+index 000000000..5f9f16fc9
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatSelectionRange.kt
+@@ -0,0 +1,50 @@
++package chat.simplex.common.views.chat
++
++/**
++ * "Select to here" support for the multi-select mode of the chat view.
++ *
++ * The chat list renders one row per [MergedItem], and a row can contain several chat items
++ * when consecutive items are merged (or when a group of items is collapsed).
++ * Selecting a range therefore works with row indexes and expands every row to all its chat item ids.
++ */
++
++/**
++ * Chat item ids of the row rendered by this merged item, in the order they are stored in the merged item.
++ */
++internal fun mergedItemChatItemIds(merged: MergedItem): List<Long> = when (merged) {
++  is MergedItem.Single -> listOf(merged.item.item.id)
++  is MergedItem.Grouped -> merged.items.map { it.item.id }
++}
++
++/**
++ * Rows between the row of the anchor chat item and [edgeRow], inclusive, or null when either of them is unknown.
++ */
++internal fun selectionRangeRows(mergedItems: MergedItems, anchorId: Long?, edgeRow: Int): IntRange? {
++  if (anchorId == null) return null
++  val anchorRow = mergedItems.indexInParentItems[anchorId] ?: return null
++  if (edgeRow !in mergedItems.items.indices) return null
++  return if (anchorRow <= edgeRow) anchorRow..edgeRow else edgeRow..anchorRow
++}
++
++/**
++ * Chat item ids added by "select to here": every item of every row between the anchor item and [edgeRow].
++ */
++internal fun selectionToHereIds(mergedItems: MergedItems, anchorId: Long?, edgeRow: Int): List<Long> {
++  val rows = selectionRangeRows(mergedItems, anchorId, edgeRow) ?: return emptyList()
++  return rows.flatMap { mergedItemChatItemIds(mergedItems.items[it]) }
++}
++
++/**
++ * Whether "select to here" would add anything on top of the [selected] items,
++ * so that the button is only shown when it has an effect.
++ */
++internal fun selectionToHereAddsItems(mergedItems: MergedItems, anchorId: Long?, edgeRow: Int, selected: Set<Long>): Boolean =
++  selectionToHereIds(mergedItems, anchorId, edgeRow).any { it !in selected }
++
++/**
++ * Indexes of the topmost and of the bottommost visible rows of the chat list
++ * (the list is reversed, so index 0 is at the bottom, i.e. the newest message).
++ * The top edge is the larger index and the bottom edge is the smaller one.
++ */
++internal fun visibleEdgeRows(visibleRowIndexes: List<Int>): Pair<Int, Int>? =
++  if (visibleRowIndexes.isEmpty()) null else visibleRowIndexes.max() to visibleRowIndexes.min()
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
+index a6be77cef..7379d94ea 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
+@@ -1863,6 +1863,8 @@ fun BoxScope.ChatItemsList(
+     }
+   })
+   SaveReportsStateOnDispose(chatsCtx, listState)
++  // the item that the "select to here" action counts the range from: the last item selected by the user
++  val selectionAnchor = rememberSaveable(chatInfo.id) { mutableStateOf(null as Long?) }
+   val maxHeight = remember { derivedStateOf { listState.value.layoutInfo.viewportEndOffset - topPaddingToContentPx.value } }
+   val loadingMoreItems = remember { mutableStateOf(false) }
+   val animatedScrollingInProgress = remember { mutableStateOf(false) }
+@@ -1959,7 +1961,7 @@ fun BoxScope.ChatItemsList(
+                 highlightedItems.value = setOf()
+               }
+           }
+-          ChatItemView(chatsCtx, remoteHostId, chat, cItem, composeState, provider, useLinkPreviews = useLinkPreviews, linkMode = linkMode, revealed = revealed, highlighted = highlighted, hoveredItemId = hoveredItemId, range = range, searchIsNotBlank = searchValueIsNotBlank, fillMaxWidth = fillMaxWidth, selectedChatItems = selectedChatItems, selectChatItem = { selectUnselectChatItem(true, cItem, revealed, selectedChatItems, reversedChatItems) }, deleteMessage = deleteMessage, deleteMessages = deleteMessages, archiveReports = archiveReports, receiveFile = receiveFile, cancelFile = cancelFile, joinGroup = joinGroup, acceptCall = acceptCall, acceptFeature = acceptFeature, openDirectChat = openDirectChat, forwardItem = forwardItem, updateContactStats = updateContactStats, updateMemberStats = updateMemberStats, syncContactConnection = syncContactConnection, syncMemberConnection = syncMemberConnection, findModelChat = findModelChat, findModelMember = findModelMember, scrollToItem = scrollToItem, scrollToItemId = scrollToItemId, scrollToQuotedItemFromItem = scrollToQuotedItemFromItem, setReaction = setReaction, showItemDetails = showItemDetails, reveal = reveal, showMemberInfo = showMemberInfo, showChatInfo = showChatInfo, developerTools = developerTools, showViaProxy = showViaProxy, itemSeparation = itemSeparation, showTimestamp = itemSeparation.timestamp, swipeOffset = swipeOffset, bubbleInteractionSource = bubbleInteractionSource)
++          ChatItemView(chatsCtx, remoteHostId, chat, cItem, composeState, provider, useLinkPreviews = useLinkPreviews, linkMode = linkMode, revealed = revealed, highlighted = highlighted, hoveredItemId = hoveredItemId, range = range, searchIsNotBlank = searchValueIsNotBlank, fillMaxWidth = fillMaxWidth, selectedChatItems = selectedChatItems, selectChatItem = { selectUnselectChatItem(true, cItem, revealed, selectedChatItems, reversedChatItems); selectionAnchor.value = cItem.id }, deleteMessage = deleteMessage, deleteMessages = deleteMessages, archiveReports = archiveReports, receiveFile = receiveFile, cancelFile = cancelFile, joinGroup = joinGroup, acceptCall = acceptCall, acceptFeature = acceptFeature, openDirectChat = openDirectChat, forwardItem = forwardItem, updateContactStats = updateContactStats, updateMemberStats = updateMemberStats, syncContactConnection = syncContactConnection, syncMemberConnection = syncMemberConnection, findModelChat = findModelChat, findModelMember = findModelMember, scrollToItem = scrollToItem, scrollToItemId = scrollToItemId, scrollToQuotedItemFromItem = scrollToQuotedItemFromItem, setReaction = setReaction, showItemDetails = showItemDetails, reveal = reveal, showMemberInfo = showMemberInfo, showChatInfo = showChatInfo, developerTools = developerTools, showViaProxy = showViaProxy, itemSeparation = itemSeparation, showTimestamp = itemSeparation.timestamp, swipeOffset = swipeOffset, bubbleInteractionSource = bubbleInteractionSource)
+         }
+       }
+ 
+@@ -2250,6 +2252,7 @@ fun BoxScope.ChatItemsList(
+             Box(Modifier.matchParentSize().clickable {
+               val checked = selectedChatItems.value?.contains(cItem.id) == true
+               selectUnselectChatItem(select = !checked, cItem, revealed, selectedChatItems, reversedChatItems)
++              if (!checked) selectionAnchor.value = cItem.id
+             })
+           }
+         }
+@@ -2500,6 +2503,22 @@ fun BoxScope.ChatItemsList(
+     loadMessages
+   )
+   FloatingDate(Modifier.padding(top = 10.dp + topPaddingToContent).align(Alignment.TopCenter), topPaddingToContentPx, mergedItems, listState)
++  SelectToHereButton(
++    mergedItems,
++    selectedChatItems,
++    selectionAnchor,
++    listState,
++    topEdge = true,
++    modifier = Modifier.padding(top = 10.dp + topPaddingToContent + 36.dp).align(Alignment.TopCenter)
++  )
++  SelectToHereButton(
++    mergedItems,
++    selectedChatItems,
++    selectionAnchor,
++    listState,
++    topEdge = false,
++    modifier = Modifier.padding(bottom = composeViewHeight.value + DEFAULT_PADDING).align(Alignment.BottomCenter)
++  )
+ 
+   LaunchedEffect(Unit) {
+     snapshotFlow { listState.value.isScrollInProgress }
+@@ -3362,6 +3381,53 @@ private fun LoadingProgressIndicator() {
+   }
+ }
+ 
++/**
++ * A floating "select to here" action shown at the top or the bottom edge of the chat list while items are selected.
++ * It extends the selection from [selectionAnchor] to the edge row of the list, and it is hidden when there is nothing to add.
++ */
++@Composable
++private fun SelectToHereButton(
++  mergedItems: State<MergedItems>,
++  selectedChatItems: MutableState<Set<Long>?>,
++  selectionAnchor: MutableState<Long?>,
++  listState: State<LazyListState>,
++  topEdge: Boolean,
++  modifier: Modifier
++) {
++  val selected = selectedChatItems.value ?: return
++  val anchorId = selectionAnchor.value ?: return
++  val edges = visibleEdgeRows(listState.value.layoutInfo.visibleItemsInfo.map { it.index }) ?: return
++  val edgeRow = if (topEdge) edges.first else edges.second
++  if (!selectionToHereAddsItems(mergedItems.value, anchorId, edgeRow, selected)) return
++  Surface(
++    modifier.clip(RoundedCornerShape(50)).clickable {
++      val ids = selectionToHereIds(mergedItems.value, anchorId, edgeRow)
++      if (ids.isNotEmpty()) selectedChatItems.value = (selectedChatItems.value ?: setOf()) + ids
++    }.then(modifier),
++    shape = RoundedCornerShape(50),
++    color = MaterialTheme.colors.background,
++    elevation = 4.dp
++  ) {
++    Row(
++      verticalAlignment = Alignment.CenterVertically,
++      modifier = Modifier.padding(horizontal = DEFAULT_PADDING, vertical = DEFAULT_PADDING_HALF)
++    ) {
++      Icon(
++        painterResource(if (topEdge) MR.images.ic_chevron_up else MR.images.ic_chevron_down),
++        contentDescription = null,
++        tint = MaterialTheme.colors.primary,
++        modifier = Modifier.size(18.dp)
++      )
++      Text(
++        generalGetString(MR.strings.select_to_here),
++        style = MaterialTheme.typography.caption,
++        color = MaterialTheme.colors.primary,
++        modifier = Modifier.padding(start = DEFAULT_PADDING_HALF)
++      )
++    }
++  }
++}
++
+ private fun selectUnselectChatItem(
+   select: Boolean,
+   ci: ChatItem,
+diff --git a/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml b/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml
+index 1269f2c47..d3c5648aa 100644
+--- a/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml
+@@ -437,6 +437,7 @@
+   <string name="moderate_verb">Moderate</string>
+   <string name="report_verb">Report</string>
+   <string name="select_verb">Select</string>
++  <string name="select_to_here">Select to here</string>
+   <string name="expand_verb">Expand</string>
+   <string name="collapse_verb">Collapse</string>
+   <string name="delete_message__question">Delete message?</string>
+diff --git a/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml b/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml
+index 969f1f284..020a03ad6 100644
+--- a/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml
+@@ -1944,6 +1944,7 @@
+     <string name="delete_messages_mark_deleted_warning">消息将被标记为删除。收信人将可以揭示这些消息。</string>
+     <string name="delete_members_messages__question">删除成员的 %d 条消息吗？</string>
+     <string name="select_verb">选择</string>
++    <string name="select_to_here">选择到此处</string>
+     <string name="compose_message_placeholder">写消息</string>
+     <string name="selected_chat_items_nothing_selected">什么也没选中</string>
+     <string name="selected_chat_items_selected_n">已选中 %d</string>
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ChatSelectionRangeTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ChatSelectionRangeTest.kt
+new file mode 100644
+index 000000000..0c23db785
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ChatSelectionRangeTest.kt
+@@ -0,0 +1,94 @@
++package chat.simplex.app
++
++import chat.simplex.common.model.ChatItem
++import chat.simplex.common.views.chat.*
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlin.test.*
++
++class ChatSelectionRangeTest {
++  private fun single(id: Long): MergedItem.Single =
++    MergedItem.Single(ListItem(ChatItem.getSampleData(id = id), null, null, 0), 0)
++
++  private fun grouped(ids: List<Long>): MergedItem.Grouped = MergedItem.Grouped(
++    items = ArrayList(ids.map { ListItem(ChatItem.getSampleData(id = it), null, null, 0) }),
++    revealed = false,
++    revealedIdsWithinGroup = mutableListOf(),
++    rangeInReversed = MutableStateFlow(0..0),
++    mergeCategory = null,
++    unreadIds = mutableSetOf(),
++    startIndexInReversedItems = 0
++  )
++
++  // rows are numbered from the bottom: row 0 is the newest message
++  private fun mergedItems(rows: List<MergedItem>): MergedItems {
++    val indexInParentItems = mutableMapOf<Long, Int>()
++    rows.forEachIndexed { row, merged ->
++      mergedItemChatItemIds(merged).forEach { indexInParentItems[it] = row }
++    }
++    return MergedItems(rows, emptyList(), indexInParentItems)
++  }
++
++  @Test
++  fun testRowOfSingleItemHasOneId() {
++    assertEquals(listOf(7L), mergedItemChatItemIds(single(7L)))
++  }
++
++  @Test
++  fun testRowOfCollapsedGroupHasAllIds() {
++    assertEquals(listOf(3L, 2L, 1L), mergedItemChatItemIds(grouped(listOf(3L, 2L, 1L))))
++  }
++
++  @Test
++  fun testRangeRowsFromAnchorTowardsTopOfList() {
++    val items = mergedItems(listOf(single(10L), single(9L), single(8L), single(7L)))
++    // anchor is in row 1, the top edge of the list is row 3
++    assertEquals(1..3, selectionRangeRows(items, anchorId = 9L, edgeRow = 3))
++  }
++
++  @Test
++  fun testRangeRowsFromAnchorTowardsBottomOfList() {
++    val items = mergedItems(listOf(single(10L), single(9L), single(8L), single(7L)))
++    assertEquals(0..2, selectionRangeRows(items, anchorId = 8L, edgeRow = 0))
++  }
++
++  @Test
++  fun testRangeRowsOfSingleRowIsThatRow() {
++    val items = mergedItems(listOf(single(10L), single(9L)))
++    assertEquals(1..1, selectionRangeRows(items, anchorId = 9L, edgeRow = 1))
++  }
++
++  @Test
++  fun testNoRangeWithoutAnchorOrWithUnknownEdge() {
++    val items = mergedItems(listOf(single(10L), single(9L)))
++    assertNull(selectionRangeRows(items, anchorId = null, edgeRow = 1))
++    assertNull(selectionRangeRows(items, anchorId = 11L, edgeRow = 1))
++    assertNull(selectionRangeRows(items, anchorId = 10L, edgeRow = 2))
++    assertNull(selectionRangeRows(items, anchorId = 10L, edgeRow = -1))
++    assertTrue(selectionToHereIds(items, null, 1).isEmpty())
++  }
++
++  @Test
++  fun testSelectToHereExpandsMergedRowsToAllTheirItems() {
++    val items = mergedItems(listOf(single(10L), grouped(listOf(9L, 8L)), single(7L), single(6L)))
++    // from the anchored newest-of-group item in row 1 to the top edge row 3
++    assertEquals(listOf(9L, 8L, 7L, 6L), selectionToHereIds(items, anchorId = 9L, edgeRow = 3))
++    // and towards the bottom edge, covering that group again
++    assertEquals(listOf(10L, 9L, 8L), selectionToHereIds(items, anchorId = 8L, edgeRow = 0))
++  }
++
++  @Test
++  fun testSelectToHereAddsOnlyUnselectedItems() {
++    val items = mergedItems(listOf(single(10L), single(9L), single(8L)))
++    assertTrue(selectionToHereAddsItems(items, anchorId = 10L, edgeRow = 2, selected = setOf(10L)))
++    assertTrue(selectionToHereAddsItems(items, anchorId = 10L, edgeRow = 2, selected = setOf(10L, 9L)))
++    assertFalse(selectionToHereAddsItems(items, anchorId = 10L, edgeRow = 2, selected = setOf(10L, 9L, 8L)))
++    assertFalse(selectionToHereAddsItems(items, anchorId = 10L, edgeRow = 0, selected = setOf(10L)))
++  }
++
++  @Test
++  fun testVisibleEdgeRows() {
++    assertNull(visibleEdgeRows(emptyList()))
++    assertEquals(3 to 1, visibleEdgeRows(listOf(1, 2, 3)))
++    assertEquals(4 to 4, visibleEdgeRows(listOf(4)))
++  }
++}
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index e248d5181..c4c156880 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -62,8 +62,10 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC40 | Favorites Pinned First | [views/chat-list.md](views/chat-list.md), [views/settings.md](views/settings.md) | [spec/client/chat-list.md](../spec/client/chat-list.md), [spec/state.md](../spec/state.md) | `common/.../model/SimpleXAPI.kt` (`AppPreferences.favoritesAsPinned`), `common/.../model/ChatModel.kt` (`isFavoriteChat`, `favoritesPinnedFirst`), `common/.../views/chatlist/ChatListView.kt` (ordering), `common/.../views/usersettings/SettingsView.kt` (toggle) | N/A (client-only) |
+ | PC41 | Selected Messages Copy | [README.md](README.md) (Messaging) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../model/ChatModel.kt` (`ciSenderName`, `canCopyChatItem`, `chatItemToText`, `chatItemsToText`, `selectedChatItemsInOrder`), `common/.../views/chat/SelectableChatItemToolbars.kt` (copy button), `common/.../views/chat/ChatView.kt` (`copyItems` lambda) | N/A (client-only) |
+ | PC42 | Time Format | [views/settings.md](views/settings.md) | [spec/client/chat-view.md](../spec/client/chat-view.md), [spec/state.md](../spec/state.md), [spec/architecture.md](../spec/architecture.md) | `common/.../model/SimpleXAPI.kt` (`TimeFormat`, `AppPreferences.timeFormat`), `common/.../model/ChatModel.kt` (`uses24HourFormat`, `timeOfDayPattern`, `getTimestampText`, `localTimestamp`), `common/.../platform/TimeFormat.kt` (+ `.android.kt`, `.desktop.kt`) (`systemUses24HourFormat`), `common/.../views/usersettings/SettingsView.kt` (dropdown) | N/A (client-only) |
++| PC43 | Range Selection | [views/chat.md](views/chat.md) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../views/chat/ChatSelectionRange.kt` (`mergedItemChatItemIds`, `selectionRangeRows`, `selectionToHereIds`, `selectionToHereAddsItems`, `visibleEdgeRows`), `common/.../views/chat/ChatView.kt` (`selectionAnchor`, `SelectToHereButton`) | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
++
+ - `common/.../` expands to `common/src/commonMain/kotlin/chat/simplex/common/`
+ - `android/.../` expands to `android/src/main/java/chat/simplex/app/`
+ - Haskell files are in `../../src/Simplex/Chat/` (relative to `apps/multiplatform/`)
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index f28d40089..fffd04e3f 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -21,6 +21,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
+ 13. [Chat List Order (RULE-25)](#13-chat-list-order)
+ 14. [Copy Selected Messages (RULE-26)](#14-copy-selected-messages)
+ 15. [Time Format (RULE-27)](#15-time-format)
++16. [Range Selection (RULE-28)](#16-range-selection)
+ 
+ ---
+ 
+@@ -601,3 +602,42 @@ Enforcement:
+   `.desktop.kt`) — `systemUses24HourFormat`
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt` (the dropdown)
+ - Test: `common/src/commonTest/kotlin/chat/simplex/app/TimeFormatTest.kt`
++
++## 16. Range Selection
++
++### RULE-28: "Select to Here" Extends From One Anchor Over Whole Rows
++
++The chat view offers two "select to here" actions while messages are selected — one at the top edge of
++the list and one at the bottom edge:
++
++1. **One anchor, updated by every selection.** The anchor is the id of the last message the user
++   selected (`selectionAnchor`, a `rememberSaveable` per chat id). Both the checkbox overlay and the
++   item's own select action update it, so the range always grows from the item the user touched last.
++
++2. **Ranges are rows, not raw items.** `selectionRangeRows` works on `MergedItems`, and a range takes
++   every id of every merged row it covers (`selectionToHereIds` → `mergedItemChatItemIds`). A collapsed
++   group therefore behaves like it does on a tap: the whole group is selected at once. Row indexes are
++   the `MergedItems.indexInParentItems` values (the LazyColumn rows), not the indexes of
++   `chatsContext.chatItems`, which is a different, reversed list.
++
++3. **The edge is what the user sees.** The top edge row is the largest visible row index and the bottom
++   edge row is the smallest (`visibleEdgeRows`), because the list is rendered with `reverseLayout =
++   true`. The actions MUST NOT compute edges from the data list, only from
++   `listState.layoutInfo.visibleItemsInfo`.
++
++4. **Adding only, never removing.** A range action unions the range into the current selection; it
++   never deselects anything, so repeated presses are harmless and a mistaken press can be undone by
++   tapping the same item again.
++
++5. **Hidden when useless.** The pills are not rendered when nothing is selected, when there is no
++   anchor, or when the range adds nothing new (`selectionToHereAddsItems`). They are pure client-side
++   view state: no message is marked, moved or deleted before the toolbar action runs, and nothing is
++   sent to the core.
++
++Enforcement:
++- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatSelectionRange.kt`
++  (`mergedItemChatItemIds`, `selectionRangeRows`, `selectionToHereIds`, `selectionToHereAddsItems`,
++  `visibleEdgeRows`)
++- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt` (`selectionAnchor`,
++  `SelectToHereButton`, `selectUnselectChatItem` call sites)
++- Test: `common/src/commonTest/kotlin/chat/simplex/app/ChatSelectionRangeTest.kt`
+diff --git a/apps/multiplatform/product/views/chat.md b/apps/multiplatform/product/views/chat.md
+index b81890d35..cde427117 100644
+--- a/apps/multiplatform/product/views/chat.md
++++ b/apps/multiplatform/product/views/chat.md
+@@ -121,8 +121,11 @@ Shown when `selectedChatItems != null`:
+ | Delete / Archive | Delete selected messages (for self, or for everyone if allowed by `fullDeleteAllowed`); shown as Archive for report items (group moderators only) |
+ | Forward | Forward selected messages to another chat |
+ | Moderate | Delete selected messages for all members (group moderators only) |
++| Select to here | Floating pill at the top edge and at the bottom edge of the list, shown only while messages are selected: extends the selection from the anchor message (the last message the user selected) to that edge row of the visible list, taking every message of the merged rows in between. Hidden when the range would add nothing new |
+ | Copy | Copies the whole selection as one text block: per message the sender name (the local alias when set; own messages carry the user's own name in that chat), the send time (`meta.itemTs`, not the receive time) and the text of the latest version, ordered from the oldest to the newest as in the conversation and separated by an empty line. Disabled when nothing copyable is selected; capped at 200 items like delete |
+ 
++Selecting a message also sets the selection anchor (`selectionAnchor`, remembered per chat), so a range can be extended repeatedly: select the first message by hand, scroll, then use the edge button instead of tapping every row. A merged group of messages counts as one row and is taken whole, the same way the collapsed group is taken by a tap.
++
+ ### Timed/Disappearing Messages
+ 
+ When `timedMessageAllowed` is true, compose bar includes a timer icon for setting message disappear time via `customDisappearingMessageTimePref`.
+diff --git a/apps/multiplatform/spec/client/chat-view.md b/apps/multiplatform/spec/client/chat-view.md
+index 5b98c0516..4068e8aea 100644
+--- a/apps/multiplatform/spec/client/chat-view.md
++++ b/apps/multiplatform/spec/client/chat-view.md
+@@ -125,7 +125,8 @@ The message list is a `LazyColumnWithScrollBar` with `reverseLayout = true`, mea
+ - **Date Separators:** `DateSeparator` composable renders between messages when the date changes (via `ItemSeparation.date`).
+ - **Timestamps:** every time of day goes through `getTimestampText` → `timeOfDayPattern(preferredTimeFormatUses24Hour())`, i.e. `HH:mm` or `h:mm a` depending on the `TimeFormat` preference (`SYSTEM` follows `systemUses24HourFormat()`). The date part stays localized (see `product/rules.md` RULE-27).
+ - **Swipe to Reply:** `SwipeToDismiss` modifier on each item (EndToStart direction, 30dp threshold) sets `ComposeContextItem.QuotedItem`.
+-- **Selection Mode:** When `selectedChatItems` is non-null, a checkbox overlay appears on each item; a full-width clickable overlay toggles selection.
++- **Selection Mode:** When `selectedChatItems` is non-null, a checkbox overlay appears on each item; a full-width clickable overlay toggles selection. Each selection also records `selectionAnchor` (a per-chat `rememberSaveable` id of the last item the user selected), which is the starting point of a range.
++- **Select to here:** while the selection is active, `BoxScope.ChatItemsList` renders two `SelectToHereButton` pills — one under `FloatingDate` at the top edge (`topEdge = true`) and one above the compose view at the bottom edge. Each pill maps the visible rows (`listState.layoutInfo.visibleItemsInfo`) to the row range `selectionRangeRows(mergedItems, anchorId, edgeRow)` and adds every id of every `MergedItem` in it (`selectionToHereIds`), so a collapsed group is taken whole. The pills disappear when there is nothing to add (`selectionToHereAddsItems`), when no anchor exists, or when the list is empty. All of this lives in `views/chat/ChatSelectionRange.kt`; the row indexes are the `MergedItems.indexInParentItems` values, i.e. the LazyColumn rows, not the indexes of `chatsContext.chatItems`.
+ - **Copying a selection:** the multi-select toolbar copies all selected messages as one text block (`chatItemsToText` in `ChatModel.kt`), each message rendered as the sender name (the local alias when one is set; for own messages the name the user has in that group, else the profile name), the SEND time (`meta.itemTs`, never `createdAt`) and the text of the latest version (`content.text`, which the core updates on every edit). Messages follow the order of the conversation with the oldest first (`ChatModel.chatItems` is stored oldest first — `selectedChatItemsInOrder` keeps that order, the chat view reverses it only for rendering) and are separated by an empty line. The action is capped at 200 items, like delete, and is disabled when nothing copyable is selected.
+ 
+ ### Item Layout (ChatViewListItem)
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index e2016e9a5..fd2633774 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -53,6 +53,7 @@
+ | PC40 | Favorites Pinned First |
+ | PC41 | Selected Messages Copy |
+ | PC42 | Time Format |
++| PC43 | Range Selection |
+ 
+ ---
+ 
+@@ -121,7 +122,8 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ 
+ | Source File | Product Concepts Affected | Risk Level | Notes |
+ |-------------|--------------------------|------------|-------|
+-| `views/chat/ChatView.kt` | PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC11, PC32, PC37 | High | Core conversation UI — most messaging features; the chat title shows the dot of the open chat's connection |
++| `views/chat/ChatView.kt` | PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC11, PC32, PC37, PC43 | High | Core conversation UI — most messaging features; the chat title shows the dot of the open chat's connection; the multi-select overlay renders the "select to here" pills at both list edges and keeps `selectionAnchor` |
++| `views/chat/ChatSelectionRange.kt` | PC43 | Low | Pure range helpers for "select to here": row-id expansion, range rows, ids to add and the visible top/bottom rows |
+ | `views/chat/ComposeView.kt` | PC4, PC6, PC9, PC10, PC11 | High | Message composition — send path for all messages |
+ | `views/chat/SendMsgView.kt` | PC4, PC9 | Medium | Send button and voice record toggle |
+ | `views/chat/ComposeEmojiPicker.kt` | PC4 | Low | Emoji button expect declaration, emoji insertion |
+diff --git a/plans/2026-11-02-select-to-here-range.md b/plans/2026-11-02-select-to-here-range.md
+new file mode 100644
+index 000000000..ae5d5a3cf
+--- /dev/null
++++ b/plans/2026-11-02-select-to-here-range.md
+@@ -0,0 +1,66 @@
++# "Select to here" in multi-select mode (feature 1 of the 2026-11-02 request)
++
++## Problem
++
++Selecting a long stretch of messages requires one tap per message. QQ and WeChat solve this with a
++"select to here" (`选择到此处`) action: select the first message by hand, scroll, then extend the
++selection to the edge of the screen in one press. SimpleX Chat 7.0.4 has multi-select
++(`selectedChatItems`) but no range action.
++
++## Solution
++
++Two floating pill buttons rendered by `BoxScope.ChatItemsList` in
++`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt`, one at
++the top edge of the list (under `FloatingDate`) and one at the bottom edge (above the compose view).
++Each press unions a range into the current selection, growing from the anchor message to the visible
++row at that edge.
++
++## Design decisions
++
++- **Anchor = last selected message.** A per-chat `rememberSaveable` `selectionAnchor: Long?` is
++  written by both selection paths (the item's own select action and the checkbox overlay). Deriving
++  the anchor from `selectedChatItems` instead would be ambiguous for a `Set<Long>` (no order, and
++  range unions make the set grow), and storing it explicitly keeps repeated range presses stable.
++- **Ranges work on merged rows, not raw items.** The list renders `MergedItems`, where a group of
++  consecutive messages from one sender is a single row that can be collapsed. Taking whole rows means
++  the range selects exactly what the user sees, and a collapsed group is selected entirely — matching
++  what a tap on the group already does (`selectUnselectChatItem` adds all ids of an unrevealed group).
++  Row indexes come from `MergedItems.indexInParentItems`, the same map used for scrolling.
++- **Edge rows come from the layout, not from the data.** `listState.layoutInfo.visibleItemsInfo`
++  gives the rows actually on screen; with `reverseLayout = true` the top edge is the maximum index and
++  the bottom edge the minimum.
++- **Pure helpers, unit-tested.** `views/chat/ChatSelectionRange.kt` holds `mergedItemChatItemIds`,
++  `selectionRangeRows`, `selectionToHereIds`, `selectionToHereAddsItems` and `visibleEdgeRows` as
++  `internal` top-level functions, so the range logic is tested without Compose (9 tests in
++  `ChatSelectionRangeTest.kt`). The composable only reads state and applies the result.
++- **Additive only.** The action never deselects; a mistaken press is undone by tapping the same item
++  again (the existing toggle behavior).
++- **Hidden when useless.** No selection, no anchor, or an empty delta hides both pills, so the UI does
++  not offer a no-op.
++- **Client-side only.** No core command, no database write and no `AppSettings` field: the selection
++  never leaves the device until the user runs delete/forward/copy.
++
++## Rejected alternatives
++
++- A context-menu entry in the item long-press menu: the menu only exists for a specific item, while
++  the feature needs the screen edge, and the item may be scrolled off screen.
++- Selecting everything between the anchor and the *tapped item* instead of the screen edge: that is
++  just a normal tap, no new affordance.
++- Reusing `selectedChatItems` order to find the anchor: a `Set` has no insertion order, and `remember`
++  on a derived value would reset on every recomposition.
++
++## Steps
++
++1. Add the string `select_to_here` (`Select to here` / `选择到此处`).
++2. Add `views/chat/ChatSelectionRange.kt` with the helpers.
++3. Add `selectionAnchor`, wire both selection call sites, add the two `SelectToHereButton` overlays.
++4. Add `ChatSelectionRangeTest.kt` (9 cases), run `./gradlew :common:desktopTest`.
++5. Update `product/views/chat.md`, `spec/client/chat-view.md`, `product/rules.md` (RULE-28),
++   `product/concepts.md` (PC43), `spec/impact.md`, `TODO.md`.
++6. Write `diff/0018-select-to-here.patch` and commit.
++
++## Verification
++
++`./gradlew :common:desktopTest` → `BUILD SUCCESSFUL`, `ChatSelectionRangeTest` 9/9, 22 suites with no
++failures. Android compile verified separately with `:common:compileDebugKotlinAndroid` (no androidMain
++change, so the shared Kotlin compile is the relevant check).

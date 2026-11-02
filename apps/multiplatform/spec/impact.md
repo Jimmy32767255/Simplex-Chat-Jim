@@ -53,6 +53,7 @@
 | PC40 | Favorites Pinned First |
 | PC41 | Selected Messages Copy |
 | PC42 | Time Format |
+| PC43 | Range Selection |
 
 ---
 
@@ -121,7 +122,8 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/chat/ChatView.kt` | PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC11, PC32, PC37 | High | Core conversation UI — most messaging features; the chat title shows the dot of the open chat's connection |
+| `views/chat/ChatView.kt` | PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC11, PC32, PC37, PC43 | High | Core conversation UI — most messaging features; the chat title shows the dot of the open chat's connection; the multi-select overlay renders the "select to here" pills at both list edges and keeps `selectionAnchor` |
+| `views/chat/ChatSelectionRange.kt` | PC43 | Low | Pure range helpers for "select to here": row-id expansion, range rows, ids to add and the visible top/bottom rows |
 | `views/chat/ComposeView.kt` | PC4, PC6, PC9, PC10, PC11 | High | Message composition — send path for all messages |
 | `views/chat/SendMsgView.kt` | PC4, PC9 | Medium | Send button and voice record toggle |
 | `views/chat/ComposeEmojiPicker.kt` | PC4 | Low | Emoji button expect declaration, emoji insertion |

@@ -21,6 +21,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
 13. [Chat List Order (RULE-25)](#13-chat-list-order)
 14. [Copy Selected Messages (RULE-26)](#14-copy-selected-messages)
 15. [Time Format (RULE-27)](#15-time-format)
+16. [Range Selection (RULE-28)](#16-range-selection)
 
 ---
 
@@ -601,3 +602,42 @@ Enforcement:
   `.desktop.kt`) — `systemUses24HourFormat`
 - `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt` (the dropdown)
 - Test: `common/src/commonTest/kotlin/chat/simplex/app/TimeFormatTest.kt`
+
+## 16. Range Selection
+
+### RULE-28: "Select to Here" Extends From One Anchor Over Whole Rows
+
+The chat view offers two "select to here" actions while messages are selected — one at the top edge of
+the list and one at the bottom edge:
+
+1. **One anchor, updated by every selection.** The anchor is the id of the last message the user
+   selected (`selectionAnchor`, a `rememberSaveable` per chat id). Both the checkbox overlay and the
+   item's own select action update it, so the range always grows from the item the user touched last.
+
+2. **Ranges are rows, not raw items.** `selectionRangeRows` works on `MergedItems`, and a range takes
+   every id of every merged row it covers (`selectionToHereIds` → `mergedItemChatItemIds`). A collapsed
+   group therefore behaves like it does on a tap: the whole group is selected at once. Row indexes are
+   the `MergedItems.indexInParentItems` values (the LazyColumn rows), not the indexes of
+   `chatsContext.chatItems`, which is a different, reversed list.
+
+3. **The edge is what the user sees.** The top edge row is the largest visible row index and the bottom
+   edge row is the smallest (`visibleEdgeRows`), because the list is rendered with `reverseLayout =
+   true`. The actions MUST NOT compute edges from the data list, only from
+   `listState.layoutInfo.visibleItemsInfo`.
+
+4. **Adding only, never removing.** A range action unions the range into the current selection; it
+   never deselects anything, so repeated presses are harmless and a mistaken press can be undone by
+   tapping the same item again.
+
+5. **Hidden when useless.** The pills are not rendered when nothing is selected, when there is no
+   anchor, or when the range adds nothing new (`selectionToHereAddsItems`). They are pure client-side
+   view state: no message is marked, moved or deleted before the toolbar action runs, and nothing is
+   sent to the core.
+
+Enforcement:
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatSelectionRange.kt`
+  (`mergedItemChatItemIds`, `selectionRangeRows`, `selectionToHereIds`, `selectionToHereAddsItems`,
+  `visibleEdgeRows`)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt` (`selectionAnchor`,
+  `SelectToHereButton`, `selectUnselectChatItem` call sites)
+- Test: `common/src/commonTest/kotlin/chat/simplex/app/ChatSelectionRangeTest.kt`
