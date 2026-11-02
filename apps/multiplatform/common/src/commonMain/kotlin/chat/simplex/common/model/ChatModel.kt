@@ -4231,6 +4231,22 @@ fun getTimestampDateText(t: Instant): String {
   return "$weekday, $dayMonthYear"
 }
 
+// Whether a time of day is rendered in the 24-hour format: an explicit preference wins, `SYSTEM`
+// defers to the platform setting.
+internal fun uses24HourFormat(format: TimeFormat, systemUses24Hour: Boolean): Boolean = when (format) {
+  TimeFormat.SYSTEM -> systemUses24Hour
+  TimeFormat.HOUR_12 -> false
+  TimeFormat.HOUR_24 -> true
+}
+
+internal fun timeOfDayPattern(use24Hour: Boolean): String = if (use24Hour) "HH:mm" else "h:mm a"
+
+internal fun timeOfDayPatternWithSeconds(use24Hour: Boolean): String = if (use24Hour) "HH:mm:ss" else "h:mm:ss a"
+
+// reads the preference state so that the change recomposes everything that shows a time
+private fun preferredTimeFormatUses24Hour(): Boolean =
+  uses24HourFormat(ChatController.appPrefs.timeFormat.state.value, systemUses24HourFormat())
+
 fun getTimestampText(t: Instant, shortFormat: Boolean = false): String {
   val tz = TimeZone.currentSystemDefault()
   val now: LocalDateTime = Clock.System.now().toLocalDateTime(tz)
@@ -4240,7 +4256,7 @@ fun getTimestampText(t: Instant, shortFormat: Boolean = false): String {
       (period.years == 0 && period.months == 0 && period.days == 1 && now.hour < 12 && time.hour >= 18 )
   val dateFormatter =
     if (recent || shortFormat) {
-      DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)
+      DateTimeFormatter.ofPattern(timeOfDayPattern(preferredTimeFormatUses24Hour()), Locale.getDefault())
     } else {
       val dayMonthFormat = when (Locale.getDefault().country) {
         "US" -> "M/dd"
@@ -4265,8 +4281,9 @@ fun getTimestampText(t: Instant, shortFormat: Boolean = false): String {
 fun localTimestamp(t: Instant): String {
   val tz = TimeZone.currentSystemDefault()
   val ts: LocalDateTime = t.toLocalDateTime(tz)
-  val dateFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
-  return ts.toJavaLocalDateTime().format(dateFormatter)
+  val date = ts.toJavaLocalDateTime().format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
+  val time = ts.toJavaLocalDateTime().format(DateTimeFormatter.ofPattern(timeOfDayPatternWithSeconds(preferredTimeFormatUses24Hour()), Locale.getDefault()))
+  return "$date, $time"
 }
 
 fun localDate(t: Instant): String {
@@ -4277,16 +4294,27 @@ fun localDate(t: Instant): String {
 }
 
 /**
- * The name of whoever sent a received message: the group member for a group chat, the contact for a
- * direct chat. The local alias ("note") takes precedence over the profile name, and own messages
- * have no sender name, so that a copied conversation reads the same way as the chat itself.
+ * The name of whoever sent a message: the group member for a received group message, the contact for
+ * a received direct message, and the user's own name for a sent message. The local alias ("note")
+ * takes precedence over the profile name wherever one can be set.
+ *
+ * [ownName] is the name of the user; for a group chat the member name of the user in that group wins
+ * over it, because that is the name the chat itself shows. Channel posts have no sender name.
  */
-internal fun ciSenderName(ci: ChatItem, chatInfo: ChatInfo): String? = when (val dir = ci.chatDir) {
+internal fun ciSenderName(ci: ChatItem, chatInfo: ChatInfo, ownName: String? = null): String? = when (val dir = ci.chatDir) {
   // GroupMember.displayName already prefers the local alias
   is CIDirection.GroupRcv -> dir.groupMember.displayName
   is CIDirection.DirectRcv -> (chatInfo as? ChatInfo.Direct)?.contact?.let { it.localAlias.ifEmpty { it.displayName } }
+  is CIDirection.GroupSnd -> ownGroupMemberName(chatInfo) ?: ownName
+  // Messages in a chat with oneself, and sent direct messages, are all written by the user
+  is CIDirection.DirectSnd, is CIDirection.LocalSnd, is CIDirection.LocalRcv -> ownName
   else -> null
 }
+
+// The name the user has in this group, if this is a group chat; the per-group profile can differ from
+// the main profile name.
+private fun ownGroupMemberName(chatInfo: ChatInfo): String? =
+  (chatInfo as? ChatInfo.Group)?.groupInfo?.membership?.displayName?.ifEmpty { null }
 
 /**
  * Whether a chat item can be copied as text. Any message with text can be copied, as long as it is
@@ -4300,9 +4328,9 @@ internal fun canCopyChatItem(ci: ChatItem): Boolean =
  * text of its latest version. [timeText] is passed in so that the formatting stays testable and the
  * caller decides how the timestamp is presented.
  */
-internal fun chatItemToText(ci: ChatItem, chatInfo: ChatInfo, timeText: (Instant) -> String): String {
+internal fun chatItemToText(ci: ChatItem, chatInfo: ChatInfo, ownName: String?, timeText: (Instant) -> String): String {
   val time = timeText(ci.meta.itemTs)
-  val name = ciSenderName(ci, chatInfo)
+  val name = ciSenderName(ci, chatInfo, ownName)
   val header = if (name != null) "$name, $time" else time
   return "$header\n${ci.text}"
 }
@@ -4311,8 +4339,8 @@ internal fun chatItemToText(ci: ChatItem, chatInfo: ChatInfo, timeText: (Instant
  * The text copied for several messages, in the order they are shown in the chat, separated by an
  * empty line. Items that cannot be copied are skipped.
  */
-internal fun chatItemsToText(items: List<ChatItem>, chatInfo: ChatInfo, timeText: (Instant) -> String): String =
-  items.filter { canCopyChatItem(it) }.joinToString("\n\n") { chatItemToText(it, chatInfo, timeText) }
+internal fun chatItemsToText(items: List<ChatItem>, chatInfo: ChatInfo, ownName: String?, timeText: (Instant) -> String): String =
+  items.filter { canCopyChatItem(it) }.joinToString("\n\n") { chatItemToText(it, chatInfo, ownName, timeText) }
 
 // `ChatsContext.chatItems` is stored oldest first (the chat view reverses it for rendering), so keeping the
 // list order is what puts the oldest message first in the copied text.

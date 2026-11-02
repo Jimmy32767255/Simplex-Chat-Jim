@@ -127,6 +127,23 @@ enum class ChatEnterKeyCombination(val shift: Boolean, val ctrl: Boolean, val al
   }
 }
 
+// How times of day are rendered. `SYSTEM` asks the platform for its 12/24-hour setting, the other
+// values override it. Spec: spec/state.md#TimeFormat
+enum class TimeFormat {
+  SYSTEM, HOUR_12, HOUR_24;
+
+  val text: String
+    get() = when (this) {
+      SYSTEM -> generalGetString(MR.strings.time_format_system)
+      HOUR_12 -> generalGetString(MR.strings.time_format_12h)
+      HOUR_24 -> generalGetString(MR.strings.time_format_24h)
+    }
+
+  companion object {
+    val default = SYSTEM
+  }
+}
+
 class HintPref(val reset: () -> Unit, val isUnchanged: () -> Boolean)
 
 // Spec: spec/state.md#AppPreferences
@@ -323,6 +340,7 @@ class AppPreferences {
   // Show the favorite contacts and groups at the top of the home chat list, like pinned chats.
   // Client-side display preference only: the chat order itself is not changed or persisted.
   val favoritesAsPinned = mkBoolPreference(SHARED_PREFS_FAVORITES_AS_PINNED, false)
+  val timeFormat: SharedPreference<TimeFormat> = mkSafeEnumPreference(SHARED_PREFS_TIME_FORMAT, TimeFormat.default)
 
   val hintPreferences: List<HintPref> = listOf(
     hintPref(laNoticeShown, false),
@@ -547,6 +565,7 @@ class AppPreferences {
     private const val SHARED_PREFS_CHAT_BOTTOM_BAR = "ChatBottomBar"
     private const val SHARED_PREFS_CHAT_LAYOUT = "ChatLayout"
     private const val SHARED_PREFS_FAVORITES_AS_PINNED = "FavoritesAsPinned"
+    private const val SHARED_PREFS_TIME_FORMAT = "TimeFormat"
     private const val SHARED_PREFS_SELF_DESTRUCT = "LocalAuthenticationSelfDestruct"
     private const val SHARED_PREFS_SELF_DESTRUCT_DISPLAY_NAME = "LocalAuthenticationSelfDestructDisplayName"
     private const val SHARED_PREFS_PQ_EXPERIMENTAL_ENABLED = "PQExperimentalEnabled" // no longer used

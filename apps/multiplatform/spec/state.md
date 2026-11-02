@@ -336,10 +336,11 @@ The `text` extension on the enum returns the localized status string (resource k
 <a id="AppPreferences"></a>
 <a id="appPrefs"></a>
 <a id="ChatEnterKeyCombination"></a>
+<a id="TimeFormat"></a>
 
 ## 5. AppPreferences
 
-Defined at [`SimpleXAPI.kt line 128`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L128) as `class AppPreferences`.
+Defined at [`SimpleXAPI.kt line 145`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L145) as `class AppPreferences`.
 
 Uses the `multiplatform-settings` library (`com.russhwolf.settings.Settings`) for cross-platform key-value storage (Android `SharedPreferences` / Desktop `java.util.prefs.Preferences`).
 
@@ -461,7 +462,7 @@ val appPrefs: AppPreferences by lazy { AppPreferences() }
 | `selfDestruct` | `Boolean` | `false` | Self-destruct enabled |
 | `selfDestructDisplayName` | `String?` | null | Display name for self-destruct profile |
 
-#### UI Preferences (lines 307-311)
+#### UI Preferences (lines 324-329)
 
 | Key | Type | Default | Purpose |
 |---|---|---|---|
@@ -469,8 +470,15 @@ val appPrefs: AppPreferences by lazy { AppPreferences() }
 | `chatBottomBar` | `Boolean` | `true` | Bottom bar in chat |
 | `chatLayout` | `ChatLayoutMode` | `Classic` | App chat layout (`activeChatLayout`) |
 | `favoritesAsPinned` | `Boolean` | `false` | Show favorite contacts and groups at the top of the home chat list (`favoritesPinnedFirst`); a display preference, the chat order itself is unchanged |
+| `timeFormat` | `TimeFormat` (`SYSTEM`, `HOUR_12`, `HOUR_24`) | `SYSTEM` | 12/24-hour convention for every time of day (`uses24HourFormat`), `SYSTEM` defers to `systemUses24HourFormat()`; a local display preference |
 
-#### Desktop Chat Input (lines 136-137)
+`TimeFormat` (SimpleXAPI.kt line 127) models the 12/24-hour convention: `SYSTEM`, `HOUR_12`, `HOUR_24`.
+`uses24HourFormat(format, systemUses24Hour)` in `ChatModel.kt` resolves it (an explicit choice wins,
+`SYSTEM` uses `systemUses24HourFormat()`), and `getTimestampText` / `localTimestamp` build their time
+part from `timeOfDayPattern(use24Hour)`. The `text` extension returns the localized label
+(`time_format_system`, `time_format_12h`, `time_format_24h`); `default` is `SYSTEM`.
+
+#### Desktop Chat Input (lines 153-154)
 
 Desktop-only Enter key bindings for the compose field. Values are `ChatEnterKeyCombination` members (`ENTER`, `SHIFT_ENTER`, `CTRL_ENTER`, `ALT_ENTER`), defined in the same file.
 
@@ -540,7 +548,7 @@ Factory methods: `mkBoolPreference`, `mkIntPreference`, `mkLongPreference`, `mkF
 | File | Path | Key Contents |
 |---|---|---|
 | ChatModel.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt) | `ChatModel` singleton (line 86), `ChatsContext` (line 339), `Chat` (line 1328), `ChatInfo` (line 1391), `ChatStats` (line 1370), helper methods |
-| SimpleXAPI.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt) | `ChatEnterKeyCombination` (line 101), `AppPreferences` (line 128), `serverMetadata` (line 274), `ChatController` (line 567), `startReceiver` (line 731), `sendCmd` (line 881), `recvMsg` (line 906), `processReceivedMsg` (line 2833), `ServerMeta` (line 4859) |
+| SimpleXAPI.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt) | `ChatEnterKeyCombination` (line 101), `TimeFormat` (line 127), `AppPreferences` (line 145), `serverMetadata` (line 291), `ChatController` (line 587), `startReceiver` (line 754), `sendCmd` (line 904), `recvMsg` (line 929), `processReceivedMsg` (line 2856), `ServerMeta` (line 4886) |
 | ChatItemsMerger.kt | [`common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatItemsMerger.kt`](../common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatItemsMerger.kt) | `ActiveChatState` (line 196), chat item merge/diff logic |
 | Core.kt | [`common/src/commonMain/kotlin/chat/simplex/common/platform/Core.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Core.kt) | `initChatController` (line 62), state initialization flow |
 | App.kt | [`common/src/commonMain/kotlin/chat/simplex/common/App.kt`](../common/src/commonMain/kotlin/chat/simplex/common/App.kt) | `AppScreen` (line 47), `MainScreen` (line 84), top-level UI state reads |

@@ -20,6 +20,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
 12. [Group Connection Rate in the Chat List (RULE-24)](#12-group-connection-rate-in-the-chat-list)
 13. [Chat List Order (RULE-25)](#13-chat-list-order)
 14. [Copy Selected Messages (RULE-26)](#14-copy-selected-messages)
+15. [Time Format (RULE-27)](#15-time-format)
 
 ---
 
@@ -533,10 +534,13 @@ the model — no API call, no core change, no new stored state:
    core replaces on every edit. Older versions live only in `ChatItemInfo.itemVersions` and MUST NOT be
    fetched or copied, so copying a selection never depends on a network round trip.
 
-3. **The sender uses the local alias.** `ciSenderName` returns `GroupMember.displayName` for a received
-   group message and the contact's `localAlias.ifEmpty { displayName }` for a received direct message, so
-   an alias always wins over the profile name. Own messages have no sender name, exactly as in the chat;
-   local notes have none either.
+3. **Every message names its sender, the local alias first.** `ciSenderName` returns
+   `GroupMember.displayName` for a received group message and the contact's
+   `localAlias.ifEmpty { displayName }` for a received direct message, so an alias always wins over the
+   profile name. Own messages carry the user's own name: the member name of the user in that group for a
+   sent group message (the per-group profile can differ from the main one), else the profile
+   `displayName` passed in as `ownName` — the same name the chat shows for the message. Only channel
+   posts have no sender name.
 
 4. **Only copyable items are copied.** `canCopyChatItem` excludes live (voice) dummy items and reports,
    and `chatItemsToText` skips deleted items, so a selection never yields empty paragraphs. The action is
@@ -554,3 +558,46 @@ Enforcement:
   button and its enablement in `recheckItems`)
 - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt` (the `copyItems` lambda)
 - Test: `common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt`
+
+---
+
+## 15. Time Format
+
+### RULE-27: One 12/24-Hour Setting for Every Time of Day
+
+The `TimeFormat` preference (`AppPreferences.timeFormat`, values `SYSTEM`, `HOUR_12`, `HOUR_24`, default
+`SYSTEM`) decides how a time of day is rendered:
+
+1. **A single resolver.** `uses24HourFormat(format, systemUses24Hour)` maps the preference to a boolean:
+   `SYSTEM` uses the platform answer, `HOUR_12` and `HOUR_24` override it. Every time-of-day formatter
+   MUST go through it — never read the preference or the platform setting anywhere else.
+
+2. **The platform answer is read, not guessed.** `systemUses24HourFormat()` is an expect/actual pair:
+   Android asks `android.text.format.DateFormat.is24HourFormat(context)` (the OS switch, which is
+   independent from the locale), desktop reads the default locale's short time pattern. Guessing from
+   the locale inside common code would be wrong on Android.
+
+3. **Both the timestamps and the details follow it.** `getTimestampText` (chat list, message bubbles,
+   contact requests) and `localTimestamp` (message info rows, server statistics) build their time part
+   from `timeOfDayPattern(use24Hour)` = `HH:mm` or `h:mm a` (and the `:ss` variants for
+   `localTimestamp`). The date part keeps the localized formatting, so only the 12/24-hour convention
+   changes and nothing else shifts.
+
+4. **Changing the setting applies immediately.** The resolver reads
+   `AppPreferences.timeFormat.state`, so toggling the dropdown recomposes every visible timestamp —
+   no restart and no re-fetch.
+
+5. **Client-side only.** The preference is local device state: it is not sent to the core, not written
+   to the chat database and not part of the `AppSettings` cross-device backup, like the other display
+   preferences.
+
+Enforcement:
+- `common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt` (`TimeFormat`,
+  `AppPreferences.timeFormat`)
+- `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt` (`uses24HourFormat`,
+  `timeOfDayPattern`, `timeOfDayPatternWithSeconds`, `preferredTimeFormatUses24Hour`,
+  `getTimestampText`, `localTimestamp`)
+- `common/src/commonMain/kotlin/chat/simplex/common/platform/TimeFormat.kt` (+ `.android.kt`,
+  `.desktop.kt`) — `systemUses24HourFormat`
+- `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt` (the dropdown)
+- Test: `common/src/commonTest/kotlin/chat/simplex/app/TimeFormatTest.kt`

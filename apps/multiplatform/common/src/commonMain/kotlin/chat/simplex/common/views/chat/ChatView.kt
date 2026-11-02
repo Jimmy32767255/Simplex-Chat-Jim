@@ -366,7 +366,8 @@ fun ChatView(
                     val itemIds = selectedChatItems.value
                     if (itemIds != null) {
                       val items = selectedChatItemsInOrder(chatsCtx.chatItems.value, itemIds)
-                      clipboard.setText(AnnotatedString(chatItemsToText(items, chatInfo) { getTimestampText(it) }))
+                      val ownName = chatModel.currentUser.value?.profile?.displayName
+                      clipboard.setText(AnnotatedString(chatItemsToText(items, chatInfo, ownName) { getTimestampText(it) }))
                       showToast(generalGetString(MR.strings.copied))
                     }
                   },

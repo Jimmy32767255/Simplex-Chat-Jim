@@ -124,6 +124,23 @@
   - 修复记录：初次提交（`19a6203e2`）里复制顺序反了——误以为 `ChatsContext.chatItems` 是最新在前，于是多做了一次 `asReversed()`，导致最新的消息跑到文本开头。实际上该列表是最旧在前（界面靠 `reverseLayout` + `asReversed()` 渲染），已去掉多余的反转，并抽出 `selectedChatItemsInOrder` 把「原样保留列表顺序」这件事固定下来（附两个用例）。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt`（14 个用例：群消息用备注、群消息无备注用昵称、私聊用备注/无备注、自己的消息无名称、用的是发送时间而不是收到时间、多条消息按对话顺序并用空行分隔、已删除项被跳过、文件消息复制文件名、空选择得空文本、`canCopyChatItem` 判断、本地笔记无发送者名称、选择顺序保留最旧在前、选择忽略未选中项并保持顺序），`./gradlew :common:desktopTest` 全部通过（14/14，全部 20 个测试类共 129 个用例无失败）。差异补丁见 `diff/`。
 
+- [x] 复制选中消息时，自己发送的消息前面也带上自己的名字
+  - 已实现（基于 7.0.4）：`ciSenderName` 增加 `ownName` 参数，自己发送的消息不再留空——群聊里用「你在该群的成员名」（`groupInfo.membership.displayName`，与群资料页显示的一致，可与主资料不同名；为空时退回 `ownName`），私聊以及与自己的笔记聊天用个人资料名（`ownName`，`ChatView` 传入 `chatModel.currentUser.value?.profile?.displayName`）。频道消息没有个体发送者，保持无名字。
+  - 这样导出的整段对话里每条消息都带署名，双向对话不会因为自己一侧没有名字而显得断裂；`ChatItem` 里本来就带有群成员信息，因此不需要新增请求或改动核心。
+  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`（`ciSenderName`、`ownGroupMemberName`、`chatItemToText`、`chatItemsToText`）、`.../views/chat/ChatView.kt`（`copyItems` 传入自己的名字）。
+  - 文档：`product/rules.md`（RULE-26 第 3 条改为「每条消息都署名，备注优先」）、`spec/client/chat-view.md`、`product/views/chat.md`、`plans/2026-11-02-own-name-and-time-format.md`。
+  - 测试：`SelectedMessagesCopyTest` 扩充到 18 个用例（新增：自己的私聊消息带名字、群消息用群成员名、群成员名为空时退回个人资料名、笔记聊天也带名字），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
+
+- [x] 时间制式跟随系统的 12/24 小时制设置，并在设置里提供手动选项（跟随系统/12 小时制/24 小时制）
+  - 已实现（基于 7.0.4）：新增客户端枚举偏好 `TimeFormat`（`SYSTEM`、`HOUR_12`、`HOUR_24`，默认 `SYSTEM`，键名 `TimeFormat`），设置页新增一行下拉框「时间制式」（`ic_schedule` 图标，选项文案 `time_format_system`/`12h`/`24h`）并带一行说明文字。
+  - 「跟随系统」通过新增的 `expect fun systemUses24HourFormat()` 读取真实系统设置：Android 用 `android.text.format.DateFormat.is24HourFormat(androidAppContext)`（这是独立于语言的系统开关），桌面端读取默认语言短时间格式中的 `H`/`k`（24 小时）与 `h`（12 小时）。解析统一走纯函数 `uses24HourFormat(format, systemUses24Hour)`：显式选择优先，`SYSTEM` 才看系统。
+  - 生效范围：`getTimestampText`（对话列表、消息时间、联系人请求等）与 `localTimestamp`（消息信息页、服务器统计等）的时间部分改为按 `timeOfDayPattern(use24Hour)` 输出 `HH:mm` 或 `h:mm a`（`localTimestamp` 保留秒，即 `HH:mm:ss` / `h:mm:ss a`）；日期部分仍用本地化格式，因此只有 12/24 制变化，其它排版不动。默认值 `SYSTEM` 与原行为一致，未改设置的用户看不到差别。
+  - 立即生效：解析函数读取 `AppPreferences.timeFormat.state`，切换下拉框会让所有正在显示的时间重新组合，无需重启或重新拉取数据。
+  - 不修改核心（Haskell）与网络协议，不修改 `AppSettings` 跨设备导入/导出结构（时间制式只是本机显示设置）。
+  - 改动文件：`.../model/SimpleXAPI.kt`（`TimeFormat`、`AppPreferences.timeFormat`、`SHARED_PREFS_TIME_FORMAT`）、`.../model/ChatModel.kt`（`uses24HourFormat`、`timeOfDayPattern`、`timeOfDayPatternWithSeconds`、`preferredTimeFormatUses24Hour`、`getTimestampText`、`localTimestamp`）、新增 `.../platform/TimeFormat.kt` 与 `TimeFormat.android.kt`、`TimeFormat.desktop.kt`、`.../views/usersettings/SettingsView.kt`（下拉框）、`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 5 条字符串）。
+  - 文档：`product/rules.md`（RULE-27）、`product/concepts.md`（PC42）、`product/README.md`、`product/views/settings.md`（Time Format Section）、`spec/state.md`（`timeFormat`）、`spec/architecture.md`（expect/actual 表）、`spec/impact.md`、`spec/client/chat-view.md`、`plans/2026-11-02-own-name-and-time-format.md`。
+  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TimeFormatTest.kt`（4 个用例：`SYSTEM` 跟随系统、显式选项覆盖系统、两种时间模式、默认值为 `SYSTEM`），`./gradlew :common:desktopTest` 全部通过（21 个测试类、137 个用例无失败），`:common:compileDebugKotlinAndroid` 也通过。差异补丁见 `diff/`。
+
 ## mod:
 
 none

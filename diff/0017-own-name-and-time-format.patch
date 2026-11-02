@@ -1,0 +1,810 @@
+diff --git a/TODO.md b/TODO.md
+index 2e3dce197..43d62e643 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -124,6 +124,23 @@
+   - 修复记录：初次提交（`19a6203e2`）里复制顺序反了——误以为 `ChatsContext.chatItems` 是最新在前，于是多做了一次 `asReversed()`，导致最新的消息跑到文本开头。实际上该列表是最旧在前（界面靠 `reverseLayout` + `asReversed()` 渲染），已去掉多余的反转，并抽出 `selectedChatItemsInOrder` 把「原样保留列表顺序」这件事固定下来（附两个用例）。
+   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt`（14 个用例：群消息用备注、群消息无备注用昵称、私聊用备注/无备注、自己的消息无名称、用的是发送时间而不是收到时间、多条消息按对话顺序并用空行分隔、已删除项被跳过、文件消息复制文件名、空选择得空文本、`canCopyChatItem` 判断、本地笔记无发送者名称、选择顺序保留最旧在前、选择忽略未选中项并保持顺序），`./gradlew :common:desktopTest` 全部通过（14/14，全部 20 个测试类共 129 个用例无失败）。差异补丁见 `diff/`。
+ 
++- [x] 复制选中消息时，自己发送的消息前面也带上自己的名字
++  - 已实现（基于 7.0.4）：`ciSenderName` 增加 `ownName` 参数，自己发送的消息不再留空——群聊里用「你在该群的成员名」（`groupInfo.membership.displayName`，与群资料页显示的一致，可与主资料不同名；为空时退回 `ownName`），私聊以及与自己的笔记聊天用个人资料名（`ownName`，`ChatView` 传入 `chatModel.currentUser.value?.profile?.displayName`）。频道消息没有个体发送者，保持无名字。
++  - 这样导出的整段对话里每条消息都带署名，双向对话不会因为自己一侧没有名字而显得断裂；`ChatItem` 里本来就带有群成员信息，因此不需要新增请求或改动核心。
++  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`（`ciSenderName`、`ownGroupMemberName`、`chatItemToText`、`chatItemsToText`）、`.../views/chat/ChatView.kt`（`copyItems` 传入自己的名字）。
++  - 文档：`product/rules.md`（RULE-26 第 3 条改为「每条消息都署名，备注优先」）、`spec/client/chat-view.md`、`product/views/chat.md`、`plans/2026-11-02-own-name-and-time-format.md`。
++  - 测试：`SelectedMessagesCopyTest` 扩充到 18 个用例（新增：自己的私聊消息带名字、群消息用群成员名、群成员名为空时退回个人资料名、笔记聊天也带名字），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
++
++- [x] 时间制式跟随系统的 12/24 小时制设置，并在设置里提供手动选项（跟随系统/12 小时制/24 小时制）
++  - 已实现（基于 7.0.4）：新增客户端枚举偏好 `TimeFormat`（`SYSTEM`、`HOUR_12`、`HOUR_24`，默认 `SYSTEM`，键名 `TimeFormat`），设置页新增一行下拉框「时间制式」（`ic_schedule` 图标，选项文案 `time_format_system`/`12h`/`24h`）并带一行说明文字。
++  - 「跟随系统」通过新增的 `expect fun systemUses24HourFormat()` 读取真实系统设置：Android 用 `android.text.format.DateFormat.is24HourFormat(androidAppContext)`（这是独立于语言的系统开关），桌面端读取默认语言短时间格式中的 `H`/`k`（24 小时）与 `h`（12 小时）。解析统一走纯函数 `uses24HourFormat(format, systemUses24Hour)`：显式选择优先，`SYSTEM` 才看系统。
++  - 生效范围：`getTimestampText`（对话列表、消息时间、联系人请求等）与 `localTimestamp`（消息信息页、服务器统计等）的时间部分改为按 `timeOfDayPattern(use24Hour)` 输出 `HH:mm` 或 `h:mm a`（`localTimestamp` 保留秒，即 `HH:mm:ss` / `h:mm:ss a`）；日期部分仍用本地化格式，因此只有 12/24 制变化，其它排版不动。默认值 `SYSTEM` 与原行为一致，未改设置的用户看不到差别。
++  - 立即生效：解析函数读取 `AppPreferences.timeFormat.state`，切换下拉框会让所有正在显示的时间重新组合，无需重启或重新拉取数据。
++  - 不修改核心（Haskell）与网络协议，不修改 `AppSettings` 跨设备导入/导出结构（时间制式只是本机显示设置）。
++  - 改动文件：`.../model/SimpleXAPI.kt`（`TimeFormat`、`AppPreferences.timeFormat`、`SHARED_PREFS_TIME_FORMAT`）、`.../model/ChatModel.kt`（`uses24HourFormat`、`timeOfDayPattern`、`timeOfDayPatternWithSeconds`、`preferredTimeFormatUses24Hour`、`getTimestampText`、`localTimestamp`）、新增 `.../platform/TimeFormat.kt` 与 `TimeFormat.android.kt`、`TimeFormat.desktop.kt`、`.../views/usersettings/SettingsView.kt`（下拉框）、`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 5 条字符串）。
++  - 文档：`product/rules.md`（RULE-27）、`product/concepts.md`（PC42）、`product/README.md`、`product/views/settings.md`（Time Format Section）、`spec/state.md`（`timeFormat`）、`spec/architecture.md`（expect/actual 表）、`spec/impact.md`、`spec/client/chat-view.md`、`plans/2026-11-02-own-name-and-time-format.md`。
++  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TimeFormatTest.kt`（4 个用例：`SYSTEM` 跟随系统、显式选项覆盖系统、两种时间模式、默认值为 `SYSTEM`），`./gradlew :common:desktopTest` 全部通过（21 个测试类、137 个用例无失败），`:common:compileDebugKotlinAndroid` 也通过。差异补丁见 `diff/`。
++
+ ## mod:
+ 
+ none
+diff --git a/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/platform/TimeFormat.android.kt b/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/platform/TimeFormat.android.kt
+new file mode 100644
+index 000000000..abbc24702
+--- /dev/null
++++ b/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/platform/TimeFormat.android.kt
+@@ -0,0 +1,7 @@
++package chat.simplex.common.platform
++
++import android.text.format.DateFormat
++
++// The Android setting is a user preference of its own, it does not always follow the locale.
++actual fun systemUses24HourFormat(): Boolean =
++  DateFormat.is24HourFormat(androidAppContext)
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
+index 6a9a13364..4c9fe2e32 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
+@@ -4231,6 +4231,22 @@ fun getTimestampDateText(t: Instant): String {
+   return "$weekday, $dayMonthYear"
+ }
+ 
++// Whether a time of day is rendered in the 24-hour format: an explicit preference wins, `SYSTEM`
++// defers to the platform setting.
++internal fun uses24HourFormat(format: TimeFormat, systemUses24Hour: Boolean): Boolean = when (format) {
++  TimeFormat.SYSTEM -> systemUses24Hour
++  TimeFormat.HOUR_12 -> false
++  TimeFormat.HOUR_24 -> true
++}
++
++internal fun timeOfDayPattern(use24Hour: Boolean): String = if (use24Hour) "HH:mm" else "h:mm a"
++
++internal fun timeOfDayPatternWithSeconds(use24Hour: Boolean): String = if (use24Hour) "HH:mm:ss" else "h:mm:ss a"
++
++// reads the preference state so that the change recomposes everything that shows a time
++private fun preferredTimeFormatUses24Hour(): Boolean =
++  uses24HourFormat(ChatController.appPrefs.timeFormat.state.value, systemUses24HourFormat())
++
+ fun getTimestampText(t: Instant, shortFormat: Boolean = false): String {
+   val tz = TimeZone.currentSystemDefault()
+   val now: LocalDateTime = Clock.System.now().toLocalDateTime(tz)
+@@ -4240,7 +4256,7 @@ fun getTimestampText(t: Instant, shortFormat: Boolean = false): String {
+       (period.years == 0 && period.months == 0 && period.days == 1 && now.hour < 12 && time.hour >= 18 )
+   val dateFormatter =
+     if (recent || shortFormat) {
+-      DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)
++      DateTimeFormatter.ofPattern(timeOfDayPattern(preferredTimeFormatUses24Hour()), Locale.getDefault())
+     } else {
+       val dayMonthFormat = when (Locale.getDefault().country) {
+         "US" -> "M/dd"
+@@ -4265,8 +4281,9 @@ fun getTimestampText(t: Instant, shortFormat: Boolean = false): String {
+ fun localTimestamp(t: Instant): String {
+   val tz = TimeZone.currentSystemDefault()
+   val ts: LocalDateTime = t.toLocalDateTime(tz)
+-  val dateFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
+-  return ts.toJavaLocalDateTime().format(dateFormatter)
++  val date = ts.toJavaLocalDateTime().format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
++  val time = ts.toJavaLocalDateTime().format(DateTimeFormatter.ofPattern(timeOfDayPatternWithSeconds(preferredTimeFormatUses24Hour()), Locale.getDefault()))
++  return "$date, $time"
+ }
+ 
+ fun localDate(t: Instant): String {
+@@ -4277,17 +4294,28 @@ fun localDate(t: Instant): String {
+ }
+ 
+ /**
+- * The name of whoever sent a received message: the group member for a group chat, the contact for a
+- * direct chat. The local alias ("note") takes precedence over the profile name, and own messages
+- * have no sender name, so that a copied conversation reads the same way as the chat itself.
++ * The name of whoever sent a message: the group member for a received group message, the contact for
++ * a received direct message, and the user's own name for a sent message. The local alias ("note")
++ * takes precedence over the profile name wherever one can be set.
++ *
++ * [ownName] is the name of the user; for a group chat the member name of the user in that group wins
++ * over it, because that is the name the chat itself shows. Channel posts have no sender name.
+  */
+-internal fun ciSenderName(ci: ChatItem, chatInfo: ChatInfo): String? = when (val dir = ci.chatDir) {
++internal fun ciSenderName(ci: ChatItem, chatInfo: ChatInfo, ownName: String? = null): String? = when (val dir = ci.chatDir) {
+   // GroupMember.displayName already prefers the local alias
+   is CIDirection.GroupRcv -> dir.groupMember.displayName
+   is CIDirection.DirectRcv -> (chatInfo as? ChatInfo.Direct)?.contact?.let { it.localAlias.ifEmpty { it.displayName } }
++  is CIDirection.GroupSnd -> ownGroupMemberName(chatInfo) ?: ownName
++  // Messages in a chat with oneself, and sent direct messages, are all written by the user
++  is CIDirection.DirectSnd, is CIDirection.LocalSnd, is CIDirection.LocalRcv -> ownName
+   else -> null
+ }
+ 
++// The name the user has in this group, if this is a group chat; the per-group profile can differ from
++// the main profile name.
++private fun ownGroupMemberName(chatInfo: ChatInfo): String? =
++  (chatInfo as? ChatInfo.Group)?.groupInfo?.membership?.displayName?.ifEmpty { null }
++
+ /**
+  * Whether a chat item can be copied as text. Any message with text can be copied, as long as it is
+  * not a live (voice) dummy or a report, whose contents are not the user's messages.
+@@ -4300,9 +4328,9 @@ internal fun canCopyChatItem(ci: ChatItem): Boolean =
+  * text of its latest version. [timeText] is passed in so that the formatting stays testable and the
+  * caller decides how the timestamp is presented.
+  */
+-internal fun chatItemToText(ci: ChatItem, chatInfo: ChatInfo, timeText: (Instant) -> String): String {
++internal fun chatItemToText(ci: ChatItem, chatInfo: ChatInfo, ownName: String?, timeText: (Instant) -> String): String {
+   val time = timeText(ci.meta.itemTs)
+-  val name = ciSenderName(ci, chatInfo)
++  val name = ciSenderName(ci, chatInfo, ownName)
+   val header = if (name != null) "$name, $time" else time
+   return "$header\n${ci.text}"
+ }
+@@ -4311,8 +4339,8 @@ internal fun chatItemToText(ci: ChatItem, chatInfo: ChatInfo, timeText: (Instant
+  * The text copied for several messages, in the order they are shown in the chat, separated by an
+  * empty line. Items that cannot be copied are skipped.
+  */
+-internal fun chatItemsToText(items: List<ChatItem>, chatInfo: ChatInfo, timeText: (Instant) -> String): String =
+-  items.filter { canCopyChatItem(it) }.joinToString("\n\n") { chatItemToText(it, chatInfo, timeText) }
++internal fun chatItemsToText(items: List<ChatItem>, chatInfo: ChatInfo, ownName: String?, timeText: (Instant) -> String): String =
++  items.filter { canCopyChatItem(it) }.joinToString("\n\n") { chatItemToText(it, chatInfo, ownName, timeText) }
+ 
+ // `ChatsContext.chatItems` is stored oldest first (the chat view reverses it for rendering), so keeping the
+ // list order is what puts the oldest message first in the copied text.
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
+index 9b67b9a2e..2af214856 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
+@@ -127,6 +127,23 @@ enum class ChatEnterKeyCombination(val shift: Boolean, val ctrl: Boolean, val al
+   }
+ }
+ 
++// How times of day are rendered. `SYSTEM` asks the platform for its 12/24-hour setting, the other
++// values override it. Spec: spec/state.md#TimeFormat
++enum class TimeFormat {
++  SYSTEM, HOUR_12, HOUR_24;
++
++  val text: String
++    get() = when (this) {
++      SYSTEM -> generalGetString(MR.strings.time_format_system)
++      HOUR_12 -> generalGetString(MR.strings.time_format_12h)
++      HOUR_24 -> generalGetString(MR.strings.time_format_24h)
++    }
++
++  companion object {
++    val default = SYSTEM
++  }
++}
++
+ class HintPref(val reset: () -> Unit, val isUnchanged: () -> Boolean)
+ 
+ // Spec: spec/state.md#AppPreferences
+@@ -323,6 +340,7 @@ class AppPreferences {
+   // Show the favorite contacts and groups at the top of the home chat list, like pinned chats.
+   // Client-side display preference only: the chat order itself is not changed or persisted.
+   val favoritesAsPinned = mkBoolPreference(SHARED_PREFS_FAVORITES_AS_PINNED, false)
++  val timeFormat: SharedPreference<TimeFormat> = mkSafeEnumPreference(SHARED_PREFS_TIME_FORMAT, TimeFormat.default)
+ 
+   val hintPreferences: List<HintPref> = listOf(
+     hintPref(laNoticeShown, false),
+@@ -547,6 +565,7 @@ class AppPreferences {
+     private const val SHARED_PREFS_CHAT_BOTTOM_BAR = "ChatBottomBar"
+     private const val SHARED_PREFS_CHAT_LAYOUT = "ChatLayout"
+     private const val SHARED_PREFS_FAVORITES_AS_PINNED = "FavoritesAsPinned"
++    private const val SHARED_PREFS_TIME_FORMAT = "TimeFormat"
+     private const val SHARED_PREFS_SELF_DESTRUCT = "LocalAuthenticationSelfDestruct"
+     private const val SHARED_PREFS_SELF_DESTRUCT_DISPLAY_NAME = "LocalAuthenticationSelfDestructDisplayName"
+     private const val SHARED_PREFS_PQ_EXPERIMENTAL_ENABLED = "PQExperimentalEnabled" // no longer used
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/platform/TimeFormat.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/platform/TimeFormat.kt
+new file mode 100644
+index 000000000..6d2c24c2b
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/platform/TimeFormat.kt
+@@ -0,0 +1,10 @@
++package chat.simplex.common.platform
++
++/**
++ * Whether the operating system is configured to display times of day in the 24-hour format.
++ *
++ * Used by the `SYSTEM` value of `TimeFormat`; a user preference can override it. Kept as an
++ * expect/actual pair because only the platform can read the OS setting (it is independent from the
++ * locale on Android and from the locale alone on desktop).
++ */
++expect fun systemUses24HourFormat(): Boolean
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
+index afe50f70b..a6be77cef 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
+@@ -366,7 +366,8 @@ fun ChatView(
+                     val itemIds = selectedChatItems.value
+                     if (itemIds != null) {
+                       val items = selectedChatItemsInOrder(chatsCtx.chatItems.value, itemIds)
+-                      clipboard.setText(AnnotatedString(chatItemsToText(items, chatInfo) { getTimestampText(it) }))
++                      val ownName = chatModel.currentUser.value?.profile?.displayName
++                      clipboard.setText(AnnotatedString(chatItemsToText(items, chatInfo, ownName) { getTimestampText(it) }))
+                       showToast(generalGetString(MR.strings.copied))
+                     }
+                   },
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt
+index acac8495b..110fcfd6c 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt
+@@ -138,6 +138,16 @@ fun SettingsLayout(
+     }
+     SectionDividerSpaced()
+ 
++    SectionView {
++      val timeFormat = remember { appPrefs.timeFormat.state }
++      val formats = remember { TimeFormat.entries.map { it to it.text } }
++      ExposedDropDownSettingRow(stringResource(MR.strings.settings_time_format), formats, timeFormat, icon = painterResource(MR.images.ic_schedule)) {
++        appPrefs.timeFormat.set(it)
++      }
++      SectionTextFooter(stringResource(MR.strings.time_format_footer))
++    }
++    SectionDividerSpaced()
++
+     SectionView(stringResource(MR.strings.advanced_settings)) {
+       SettingsActionItem(painterResource(MR.images.ic_wifi_tethering), stringResource(MR.strings.network_and_servers), showCustomModal { _, close -> NetworkAndServersView(close) }, disabled = stopped)
+       if (appPlatform == AppPlatform.ANDROID) {
+diff --git a/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml b/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml
+index 7c7fecc02..1269f2c47 100644
+--- a/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml
+@@ -3403,6 +3403,11 @@
+   <string name="settings_chat_list">Chat list</string>
+   <string name="favorites_as_pinned">Treat favorites as pinned</string>
+   <string name="favorites_as_pinned_footer">Favorite contacts and groups will always be shown at the top of the chat list, above the other chats.</string>
++  <string name="settings_time_format">Time format</string>
++  <string name="time_format_system">System default</string>
++  <string name="time_format_12h">12-hour</string>
++  <string name="time_format_24h">24-hour</string>
++  <string name="time_format_footer">How times are shown in chats and in message details.</string>
+   <string name="settings_message_sending">Message sending</string>
+   <string name="send_message_with">Send message with</string>
+   <string name="insert_newline_with">Insert newline with</string>
+diff --git a/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml b/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml
+index 80dd592c6..969f1f284 100644
+--- a/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml
+@@ -3048,6 +3048,11 @@
+     <string name="settings_chat_list">对话列表</string>
+     <string name="favorites_as_pinned">将收藏视为置顶</string>
+     <string name="favorites_as_pinned_footer">已收藏的联系人和群组将始终显示在对话列表的最上方，位于其他对话之前。</string>
++    <string name="settings_time_format">时间制式</string>
++    <string name="time_format_system">跟随系统</string>
++    <string name="time_format_12h">12 小时制</string>
++    <string name="time_format_24h">24 小时制</string>
++    <string name="time_format_footer">控制聊天中和消息详情里显示的时间格式。</string>
+     <string name="settings_message_sending">消息发送</string>
+     <string name="send_message_with">发送消息的快捷键</string>
+     <string name="insert_newline_with">换行的快捷键</string>
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt
+index 99a2478de..817b780c8 100644
+--- a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt
+@@ -44,30 +44,51 @@ class SelectedMessagesCopyTest {
+   @Test
+   fun testGroupMessageUsesLocalAlias() {
+     val ci = groupRcv("hello", member("Alice", alias = "Ali"))
+-    assertEquals("Ali, $renderedTs\nhello", chatItemToText(ci, groupInfo(), timeText))
++    assertEquals("Ali, $renderedTs\nhello", chatItemToText(ci, groupInfo(), "Me", timeText))
+   }
+ 
+   @Test
+   fun testGroupMessageWithoutAliasUsesProfileName() {
+     val ci = groupRcv("hello", member("Alice"))
+-    assertEquals("Alice, $renderedTs\nhello", chatItemToText(ci, groupInfo(), timeText))
++    assertEquals("Alice, $renderedTs\nhello", chatItemToText(ci, groupInfo(), "Me", timeText))
+   }
+ 
+   @Test
+   fun testDirectMessageUsesContactAlias() {
+     val ci = directRcv("hi")
+-    assertEquals("Ali, $renderedTs\nhi", chatItemToText(ci, directInfo(alias = "Ali"), timeText))
++    assertEquals("Ali, $renderedTs\nhi", chatItemToText(ci, directInfo(alias = "Ali"), "Me", timeText))
+   }
+ 
+   @Test
+   fun testDirectMessageWithoutAliasUsesContactName() {
+     val ci = directRcv("hi")
+-    assertEquals("Alice, $renderedTs\nhi", chatItemToText(ci, directInfo(), timeText))
++    assertEquals("Alice, $renderedTs\nhi", chatItemToText(ci, directInfo(), "Me", timeText))
+   }
+ 
+   @Test
+-  fun testOwnMessageHasNoSenderName() {
+-    assertEquals("$renderedTs\nhi", chatItemToText(snd("hi"), directInfo(), timeText))
++  fun testOwnDirectMessageUsesOwnName() {
++    assertEquals("Me, $renderedTs\nhi", chatItemToText(snd("hi"), directInfo(), "Me", timeText))
++  }
++
++  @Test
++  fun testOwnGroupMessageUsesOwnMemberNameOfThatGroup() {
++    // the per-group profile name wins over the main profile name, because that is what the chat shows
++    assertEquals("alice, $renderedTs\nhi", chatItemToText(sndFor(1, "hi"), groupInfo(), "Me", timeText))
++  }
++
++  @Test
++  fun testOwnGroupMessageFallsBackToOwnNameWithoutMembership() {
++    val membershipWithoutName = GroupMember.sampleData.copy(
++      memberProfile = GroupMember.sampleData.memberProfile.copy(displayName = "")
++    )
++    val groupWithoutName = ChatInfo.Group(GroupInfo.sampleData.copy(membership = membershipWithoutName), null)
++    assertEquals("Me, $renderedTs\nhi", chatItemToText(sndFor(1, "hi"), groupWithoutName, "Me", timeText))
++  }
++
++  @Test
++  fun testNoteMessageUsesOwnName() {
++    val note = ChatItem.getSampleData(id = 1, dir = CIDirection.LocalSnd(), ts = ts, text = "note")
++    assertEquals("Me, $renderedTs\nnote", chatItemToText(note, ChatInfo.Local.sampleData, "Me", timeText))
+   }
+ 
+   @Test
+@@ -79,8 +100,8 @@ class SelectedMessagesCopyTest {
+         createdAt = Instant.parse("2027-01-01T00:00:00Z")
+       )
+     )
+-    assertTrue(chatItemToText(ci, groupInfo(), timeText).contains(renderedTs))
+-    assertFalse(chatItemToText(ci, groupInfo(), timeText).contains("T(1798761600000)"))
++    assertTrue(chatItemToText(ci, groupInfo(), "Me", timeText).contains(renderedTs))
++    assertFalse(chatItemToText(ci, groupInfo(), "Me", timeText).contains("T(1798761600000)"))
+   }
+ 
+   @Test
+@@ -88,8 +109,8 @@ class SelectedMessagesCopyTest {
+     val first = ChatItem.getSampleData(id = 1, dir = CIDirection.GroupRcv(member("Alice")), ts = ts, text = "one")
+     val second = ChatItem.getSampleData(id = 2, dir = CIDirection.GroupRcv(member("Bob")), ts = ts, text = "two")
+     val third = sndFor(3, "three")
+-    val text = chatItemsToText(listOf(first, second, third), groupInfo(), timeText)
+-    assertEquals("Alice, $renderedTs\none\n\nBob, $renderedTs\ntwo\n\n$renderedTs\nthree", text)
++    val text = chatItemsToText(listOf(first, second, third), groupInfo(), "Me", timeText)
++    assertEquals("Alice, $renderedTs\none\n\nBob, $renderedTs\ntwo\n\nalice, $renderedTs\nthree", text)
+   }
+ 
+   private fun sndFor(id: Long, text: String): ChatItem =
+@@ -99,20 +120,20 @@ class SelectedMessagesCopyTest {
+   fun testDeletedMessageIsSkipped() {
+     val alive = ChatItem.getSampleData(id = 1, dir = CIDirection.GroupRcv(member("Alice")), ts = ts, text = "alive")
+     val deleted = ChatItem.getSampleData(id = 2, dir = CIDirection.GroupRcv(member("Alice")), ts = ts, text = "dead", itemDeleted = CIDeleted.Deleted(null))
+-    assertEquals("Alice, $renderedTs\nalive", chatItemsToText(listOf(alive, deleted), groupInfo(), timeText))
++    assertEquals("Alice, $renderedTs\nalive", chatItemsToText(listOf(alive, deleted), groupInfo(), "Me", timeText))
+   }
+ 
+   @Test
+   fun testFileMessageIsCopiedAsItsName() {
+     val ci = ChatItem.getFileMsgContentSample(id = 1, fileName = "report.pdf")
+-    assertEquals("Alice, ${getTimestampTextOf(ci)}\nreport.pdf", chatItemToText(ci, directInfo(), { getTimestampTextOf(ci) }))
++    assertEquals("Alice, ${getTimestampTextOf(ci)}\nreport.pdf", chatItemToText(ci, directInfo(), "Me", { getTimestampTextOf(ci) }))
+   }
+ 
+   private fun getTimestampTextOf(ci: ChatItem): String = "T(${ci.meta.itemTs.toEpochMilliseconds()})"
+ 
+   @Test
+   fun testEmptySelectionIsEmptyText() {
+-    assertEquals("", chatItemsToText(emptyList(), groupInfo(), timeText))
++    assertEquals("", chatItemsToText(emptyList(), groupInfo(), "Me", timeText))
+   }
+ 
+   @Test
+@@ -130,7 +151,7 @@ class SelectedMessagesCopyTest {
+     val selected = setOf(1L, 2L, 3L)
+     val ordered = selectedChatItemsInOrder(listOf(first, second, third), selected)
+     assertEquals(listOf(1L, 2L, 3L), ordered.map { it.id })
+-    assertEquals("Alice, $renderedTs\none\n\nBob, $renderedTs\ntwo\n\nCarol, $renderedTs\nthree", chatItemsToText(ordered, groupInfo(), timeText))
++    assertEquals("Alice, $renderedTs\none\n\nBob, $renderedTs\ntwo\n\nCarol, $renderedTs\nthree", chatItemsToText(ordered, groupInfo(), "Me", timeText))
+   }
+ 
+   @Test
+@@ -144,10 +165,26 @@ class SelectedMessagesCopyTest {
+   }
+ 
+   @Test
+-  fun testSenderNameIsNullForOwnAndNotedItems() {
++  fun testSenderNameForOwnAndReceivedItems() {
+     val chatInfo = directInfo(alias = "Ali")
+-    assertNull(ciSenderName(snd("hi"), chatInfo))
+-    assertNull(ciSenderName(ChatItem.getSampleData(dir = CIDirection.LocalSnd(), text = "note"), chatInfo))
+-    assertEquals("Ali", ciSenderName(directRcv("hi"), chatInfo))
++    assertEquals("Me", ciSenderName(snd("hi"), chatInfo, "Me"))
++    assertEquals("Me", ciSenderName(ChatItem.getSampleData(dir = CIDirection.LocalSnd(), text = "note"), chatInfo, "Me"))
++    assertEquals("Me", ciSenderName(ChatItem.getSampleData(dir = CIDirection.LocalRcv(), text = "note"), chatInfo, "Me"))
++    assertEquals("Ali", ciSenderName(directRcv("hi"), chatInfo, "Me"))
++    assertEquals("alice", ciSenderName(sndFor(1, "hi"), groupInfo(), "Me"))
++    // channel posts and other system-like directions have no sender name
++    assertNull(ciSenderName(ChatItem.getSampleData(dir = CIDirection.ChannelRcv(), text = "post"), chatInfo, "Me"))
++  }
++
++  @Test
++  fun testTimeFormatPreference() {
++    assertTrue(uses24HourFormat(TimeFormat.SYSTEM, true))
++    assertFalse(uses24HourFormat(TimeFormat.SYSTEM, false))
++    assertFalse(uses24HourFormat(TimeFormat.HOUR_12, true))
++    assertTrue(uses24HourFormat(TimeFormat.HOUR_24, false))
++    assertEquals("HH:mm", timeOfDayPattern(true))
++    assertEquals("h:mm a", timeOfDayPattern(false))
++    assertEquals("HH:mm:ss", timeOfDayPatternWithSeconds(true))
++    assertEquals("h:mm:ss a", timeOfDayPatternWithSeconds(false))
+   }
+ }
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TimeFormatTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TimeFormatTest.kt
+new file mode 100644
+index 000000000..571b358d1
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TimeFormatTest.kt
+@@ -0,0 +1,38 @@
++package chat.simplex.app
++
++import chat.simplex.common.model.*
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertFalse
++import kotlin.test.assertTrue
++
++// use this command for testing:
++// ./gradlew desktopTest
++class TimeFormatTest {
++  @Test
++  fun testSystemFollowsThePlatform() {
++    assertTrue(uses24HourFormat(TimeFormat.SYSTEM, systemUses24Hour = true))
++    assertFalse(uses24HourFormat(TimeFormat.SYSTEM, systemUses24Hour = false))
++  }
++
++  @Test
++  fun testExplicitFormatsOverrideThePlatform() {
++    assertFalse(uses24HourFormat(TimeFormat.HOUR_12, systemUses24Hour = true))
++    assertFalse(uses24HourFormat(TimeFormat.HOUR_12, systemUses24Hour = false))
++    assertTrue(uses24HourFormat(TimeFormat.HOUR_24, systemUses24Hour = true))
++    assertTrue(uses24HourFormat(TimeFormat.HOUR_24, systemUses24Hour = false))
++  }
++
++  @Test
++  fun testTimePatterns() {
++    assertEquals("HH:mm", timeOfDayPattern(use24Hour = true))
++    assertEquals("h:mm a", timeOfDayPattern(use24Hour = false))
++    assertEquals("HH:mm:ss", timeOfDayPatternWithSeconds(use24Hour = true))
++    assertEquals("h:mm:ss a", timeOfDayPatternWithSeconds(use24Hour = false))
++  }
++
++  @Test
++  fun testDefaultPreferenceIsSystem() {
++    assertEquals(TimeFormat.SYSTEM, TimeFormat.default)
++  }
++}
+diff --git a/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/TimeFormat.desktop.kt b/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/TimeFormat.desktop.kt
+new file mode 100644
+index 000000000..93498b52e
+--- /dev/null
++++ b/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/TimeFormat.desktop.kt
+@@ -0,0 +1,11 @@
++package chat.simplex.common.platform
++
++import java.text.DateFormat
++import java.text.SimpleDateFormat
++
++// On desktop the JVM exposes the 12/24-hour convention through the default locale's short time
++// pattern: 24-hour patterns use `H` (or `k` for 1-based hours), 12-hour ones use `h`.
++actual fun systemUses24HourFormat(): Boolean {
++  val pattern = (DateFormat.getTimeInstance(DateFormat.SHORT) as? SimpleDateFormat)?.toPattern()
++  return pattern == null || pattern.contains('H') || pattern.contains('k')
++}
+diff --git a/apps/multiplatform/product/README.md b/apps/multiplatform/product/README.md
+index 92f9df457..bbb9868ca 100644
+--- a/apps/multiplatform/product/README.md
++++ b/apps/multiplatform/product/README.md
+@@ -71,6 +71,7 @@ Core message composition, delivery, and interaction features.
+ | Send message bar | Composable message input with attachments, voice, send button | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt` |
+ | Profile image viewer | Tap a contact / group / member avatar to view it full size and copy it to the clipboard | `common/src/commonMain/kotlin/chat/simplex/common/views/helpers/ChatInfoImage.kt` |
+ | Copy selected messages | Multi-select toolbar copies the selected messages as text, each with the sender name (local alias first), the send time and the latest version of the text | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SelectableChatItemToolbars.kt` |
++| Time format | 12/24-hour convention for every time of day, following the system setting unless overridden in Settings | `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt` |
+ 
+ ### 2. Contacts
+ 
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index 18b619693..e248d5181 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -61,6 +61,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC39 | Chat List Group Connection Rate | [views/chat-list.md](views/chat-list.md), [views/group-info.md](views/group-info.md) | [spec/client/chat-list.md](../spec/client/chat-list.md), [spec/state.md](../spec/state.md) | `common/.../views/chatlist/ChatPreviewView.kt` (`chatPreviewTitle` group branch dot), `common/.../views/chatlist/ChatListView.kt` (background member prefetch), `common/.../views/chat/group/GroupChatInfoView.kt` (`GroupMembersConnectionRateDot`, `groupMembersConnection`, `groupMembersConnectionRate`, `groupMembersSectionVisible`), `common/.../model/ChatModel.kt` (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`), `common/.../model/SimpleXAPI.kt` (`CR.GroupMemberUpdated` cache refresh) | N/A (client-only) |
+ | PC40 | Favorites Pinned First | [views/chat-list.md](views/chat-list.md), [views/settings.md](views/settings.md) | [spec/client/chat-list.md](../spec/client/chat-list.md), [spec/state.md](../spec/state.md) | `common/.../model/SimpleXAPI.kt` (`AppPreferences.favoritesAsPinned`), `common/.../model/ChatModel.kt` (`isFavoriteChat`, `favoritesPinnedFirst`), `common/.../views/chatlist/ChatListView.kt` (ordering), `common/.../views/usersettings/SettingsView.kt` (toggle) | N/A (client-only) |
+ | PC41 | Selected Messages Copy | [README.md](README.md) (Messaging) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../model/ChatModel.kt` (`ciSenderName`, `canCopyChatItem`, `chatItemToText`, `chatItemsToText`, `selectedChatItemsInOrder`), `common/.../views/chat/SelectableChatItemToolbars.kt` (copy button), `common/.../views/chat/ChatView.kt` (`copyItems` lambda) | N/A (client-only) |
++| PC42 | Time Format | [views/settings.md](views/settings.md) | [spec/client/chat-view.md](../spec/client/chat-view.md), [spec/state.md](../spec/state.md), [spec/architecture.md](../spec/architecture.md) | `common/.../model/SimpleXAPI.kt` (`TimeFormat`, `AppPreferences.timeFormat`), `common/.../model/ChatModel.kt` (`uses24HourFormat`, `timeOfDayPattern`, `getTimestampText`, `localTimestamp`), `common/.../platform/TimeFormat.kt` (+ `.android.kt`, `.desktop.kt`) (`systemUses24HourFormat`), `common/.../views/usersettings/SettingsView.kt` (dropdown) | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
+ - `common/.../` expands to `common/src/commonMain/kotlin/chat/simplex/common/`
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index 792635405..f28d40089 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -20,6 +20,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
+ 12. [Group Connection Rate in the Chat List (RULE-24)](#12-group-connection-rate-in-the-chat-list)
+ 13. [Chat List Order (RULE-25)](#13-chat-list-order)
+ 14. [Copy Selected Messages (RULE-26)](#14-copy-selected-messages)
++15. [Time Format (RULE-27)](#15-time-format)
+ 
+ ---
+ 
+@@ -533,10 +534,13 @@ the model — no API call, no core change, no new stored state:
+    core replaces on every edit. Older versions live only in `ChatItemInfo.itemVersions` and MUST NOT be
+    fetched or copied, so copying a selection never depends on a network round trip.
+ 
+-3. **The sender uses the local alias.** `ciSenderName` returns `GroupMember.displayName` for a received
+-   group message and the contact's `localAlias.ifEmpty { displayName }` for a received direct message, so
+-   an alias always wins over the profile name. Own messages have no sender name, exactly as in the chat;
+-   local notes have none either.
++3. **Every message names its sender, the local alias first.** `ciSenderName` returns
++   `GroupMember.displayName` for a received group message and the contact's
++   `localAlias.ifEmpty { displayName }` for a received direct message, so an alias always wins over the
++   profile name. Own messages carry the user's own name: the member name of the user in that group for a
++   sent group message (the per-group profile can differ from the main one), else the profile
++   `displayName` passed in as `ownName` — the same name the chat shows for the message. Only channel
++   posts have no sender name.
+ 
+ 4. **Only copyable items are copied.** `canCopyChatItem` excludes live (voice) dummy items and reports,
+    and `chatItemsToText` skips deleted items, so a selection never yields empty paragraphs. The action is
+@@ -554,3 +558,46 @@ Enforcement:
+   button and its enablement in `recheckItems`)
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt` (the `copyItems` lambda)
+ - Test: `common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt`
++
++---
++
++## 15. Time Format
++
++### RULE-27: One 12/24-Hour Setting for Every Time of Day
++
++The `TimeFormat` preference (`AppPreferences.timeFormat`, values `SYSTEM`, `HOUR_12`, `HOUR_24`, default
++`SYSTEM`) decides how a time of day is rendered:
++
++1. **A single resolver.** `uses24HourFormat(format, systemUses24Hour)` maps the preference to a boolean:
++   `SYSTEM` uses the platform answer, `HOUR_12` and `HOUR_24` override it. Every time-of-day formatter
++   MUST go through it — never read the preference or the platform setting anywhere else.
++
++2. **The platform answer is read, not guessed.** `systemUses24HourFormat()` is an expect/actual pair:
++   Android asks `android.text.format.DateFormat.is24HourFormat(context)` (the OS switch, which is
++   independent from the locale), desktop reads the default locale's short time pattern. Guessing from
++   the locale inside common code would be wrong on Android.
++
++3. **Both the timestamps and the details follow it.** `getTimestampText` (chat list, message bubbles,
++   contact requests) and `localTimestamp` (message info rows, server statistics) build their time part
++   from `timeOfDayPattern(use24Hour)` = `HH:mm` or `h:mm a` (and the `:ss` variants for
++   `localTimestamp`). The date part keeps the localized formatting, so only the 12/24-hour convention
++   changes and nothing else shifts.
++
++4. **Changing the setting applies immediately.** The resolver reads
++   `AppPreferences.timeFormat.state`, so toggling the dropdown recomposes every visible timestamp —
++   no restart and no re-fetch.
++
++5. **Client-side only.** The preference is local device state: it is not sent to the core, not written
++   to the chat database and not part of the `AppSettings` cross-device backup, like the other display
++   preferences.
++
++Enforcement:
++- `common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt` (`TimeFormat`,
++  `AppPreferences.timeFormat`)
++- `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt` (`uses24HourFormat`,
++  `timeOfDayPattern`, `timeOfDayPatternWithSeconds`, `preferredTimeFormatUses24Hour`,
++  `getTimestampText`, `localTimestamp`)
++- `common/src/commonMain/kotlin/chat/simplex/common/platform/TimeFormat.kt` (+ `.android.kt`,
++  `.desktop.kt`) — `systemUses24HourFormat`
++- `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt` (the dropdown)
++- Test: `common/src/commonTest/kotlin/chat/simplex/app/TimeFormatTest.kt`
+diff --git a/apps/multiplatform/product/views/chat.md b/apps/multiplatform/product/views/chat.md
+index d0e045cc3..b81890d35 100644
+--- a/apps/multiplatform/product/views/chat.md
++++ b/apps/multiplatform/product/views/chat.md
+@@ -121,7 +121,7 @@ Shown when `selectedChatItems != null`:
+ | Delete / Archive | Delete selected messages (for self, or for everyone if allowed by `fullDeleteAllowed`); shown as Archive for report items (group moderators only) |
+ | Forward | Forward selected messages to another chat |
+ | Moderate | Delete selected messages for all members (group moderators only) |
+-| Copy | Copies the whole selection as one text block: per message the sender name (the local alias when set; nothing for own messages), the send time (`meta.itemTs`, not the receive time) and the text of the latest version, ordered from the oldest to the newest as in the conversation and separated by an empty line. Disabled when nothing copyable is selected; capped at 200 items like delete |
++| Copy | Copies the whole selection as one text block: per message the sender name (the local alias when set; own messages carry the user's own name in that chat), the send time (`meta.itemTs`, not the receive time) and the text of the latest version, ordered from the oldest to the newest as in the conversation and separated by an empty line. Disabled when nothing copyable is selected; capped at 200 items like delete |
+ 
+ ### Timed/Disappearing Messages
+ 
+diff --git a/apps/multiplatform/product/views/settings.md b/apps/multiplatform/product/views/settings.md
+index 31039ccb3..6567c07cf 100644
+--- a/apps/multiplatform/product/views/settings.md
++++ b/apps/multiplatform/product/views/settings.md
+@@ -215,6 +215,20 @@ The switch only changes the displayed order (`favoritesPinnedFirst` in `ChatList
+ stored in the model, the core and the database is untouched, and switching it off restores the previous
+ order (see `product/rules.md` RULE-25).
+ 
++### Time Format Section
++
++Rendered on all platforms, right after the "Chat list" section: a single dropdown row (`ic_schedule`
++icon) with `SYSTEM`, `HOUR_12` and `HOUR_24`, defaulting to `SYSTEM`.
++
++| Row | Preference Key | Values | Description |
++|---|---|---|---|
++| Time format | `timeFormat` | System default / 12-hour / 24-hour | 12/24-hour convention used by every time of day |
++
++The footer explains that the setting controls the times shown in chats and in message details. The
++value is resolved by `uses24HourFormat` (`SYSTEM` defers to `systemUses24HourFormat()`), and it takes
++effect immediately because the resolver reads the preference state; see `product/rules.md` RULE-27.
++It is a local display preference — not sent to the core and not part of the `AppSettings` backup.
++
+ ### Message Sending Section (desktop only)
+ 
+ Rendered only when `appPlatform.isDesktop`. Both rows offer the same four combinations: `Enter`, `Shift + Enter`, `Ctrl + Enter`, `Alt + Enter`.
+diff --git a/apps/multiplatform/spec/architecture.md b/apps/multiplatform/spec/architecture.md
+index 362c647ba..7112d1b78 100644
+--- a/apps/multiplatform/spec/architecture.md
++++ b/apps/multiplatform/spec/architecture.md
+@@ -352,6 +352,7 @@ Examples from platform files:
+ | `expect fun UriHandler.sendEmail(subject: String, body: CharSequence)` | [`Share.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Share.kt#L7) | 7 |
+ | `expect fun ClipboardManager.shareText(text: String)` | [`Share.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Share.kt#L9) | 9 |
+ | `expect fun shareFile(text: String, fileSource: CryptoFile)` | [`Share.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Share.kt#L10) | 10 |
++| `expect fun systemUses24HourFormat(): Boolean` | [`TimeFormat.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/TimeFormat.kt#L10) | 10 |
+ 
+ ### PlatformInterface Callback Object
+ 
+diff --git a/apps/multiplatform/spec/client/chat-view.md b/apps/multiplatform/spec/client/chat-view.md
+index 4cdaf3acd..5b98c0516 100644
+--- a/apps/multiplatform/spec/client/chat-view.md
++++ b/apps/multiplatform/spec/client/chat-view.md
+@@ -123,9 +123,10 @@ The message list is a `LazyColumnWithScrollBar` with `reverseLayout = true`, mea
+ - **Scroll To Item:** `scrollToItem` lambda supports animated scrolling to a specific item ID, used by search result taps and quoted message navigation.
+ - **Unread Marking:** `MarkItemsReadAfterDelay` composable marks newly visible received items as read after a brief delay.
+ - **Date Separators:** `DateSeparator` composable renders between messages when the date changes (via `ItemSeparation.date`).
++- **Timestamps:** every time of day goes through `getTimestampText` → `timeOfDayPattern(preferredTimeFormatUses24Hour())`, i.e. `HH:mm` or `h:mm a` depending on the `TimeFormat` preference (`SYSTEM` follows `systemUses24HourFormat()`). The date part stays localized (see `product/rules.md` RULE-27).
+ - **Swipe to Reply:** `SwipeToDismiss` modifier on each item (EndToStart direction, 30dp threshold) sets `ComposeContextItem.QuotedItem`.
+ - **Selection Mode:** When `selectedChatItems` is non-null, a checkbox overlay appears on each item; a full-width clickable overlay toggles selection.
+-- **Copying a selection:** the multi-select toolbar copies all selected messages as one text block (`chatItemsToText` in `ChatModel.kt`), each message rendered as the sender name (the local alias when one is set, nothing for own messages), the SEND time (`meta.itemTs`, never `createdAt`) and the text of the latest version (`content.text`, which the core updates on every edit). Messages follow the order of the conversation with the oldest first (`ChatModel.chatItems` is stored oldest first — `selectedChatItemsInOrder` keeps that order, the chat view reverses it only for rendering) and are separated by an empty line. The action is capped at 200 items, like delete, and is disabled when nothing copyable is selected.
++- **Copying a selection:** the multi-select toolbar copies all selected messages as one text block (`chatItemsToText` in `ChatModel.kt`), each message rendered as the sender name (the local alias when one is set; for own messages the name the user has in that group, else the profile name), the SEND time (`meta.itemTs`, never `createdAt`) and the text of the latest version (`content.text`, which the core updates on every edit). Messages follow the order of the conversation with the oldest first (`ChatModel.chatItems` is stored oldest first — `selectedChatItemsInOrder` keeps that order, the chat view reverses it only for rendering) and are separated by an empty line. The action is capped at 200 items, like delete, and is disabled when nothing copyable is selected.
+ 
+ ### Item Layout (ChatViewListItem)
+ 
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index fcc9e118d..e2016e9a5 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -52,6 +52,7 @@
+ | PC39 | Chat List Group Connection Rate |
+ | PC40 | Favorites Pinned First |
+ | PC41 | Selected Messages Copy |
++| PC42 | Time Format |
+ 
+ ---
+ 
+@@ -65,8 +66,8 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ |-------------|--------------------------|------------|-------|
+ | `App.kt` | PC1 through PC32 | High | Root composable — navigation scaffold for all features |
+ | `AppLock.kt` | PC22 | Medium | App lock state and authorization lifecycle |
+-| `model/ChatModel.kt` | PC1 through PC41 | High | Central state object — every feature reads or writes here; also holds the session-local per-connection status map (`connectionSubStatuses`) with its resolvers (`connectionSubStatus`, `ChatModel.connectionStatus`), the set of connections whose stats were already requested (`connectionStatusRequested`) and its selector (`chatsForConnectionStatus`), and the session-local chat-list cache of group member lists (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`), and the favorites-first ordering helpers (`isFavoriteChat`, `favoritesPinnedFirst`) plus the selected-messages copy formatters (`ciSenderName`, `canCopyChatItem`, `chatItemToText`, `chatItemsToText`) |
+-| `model/SimpleXAPI.kt` | PC1 through PC41 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` and the chat-list member cache from `CR.GroupMemberUpdated` |
++| `model/ChatModel.kt` | PC1 through PC42 | High | Central state object — every feature reads or writes here; also holds the session-local per-connection status map (`connectionSubStatuses`) with its resolvers (`connectionSubStatus`, `ChatModel.connectionStatus`), the set of connections whose stats were already requested (`connectionStatusRequested`) and its selector (`chatsForConnectionStatus`), and the session-local chat-list cache of group member lists (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`), and the favorites-first ordering helpers (`isFavoriteChat`, `favoritesPinnedFirst`), the selected-messages copy formatters (`ciSenderName`, `canCopyChatItem`, `chatItemToText`, `chatItemsToText`, `selectedChatItemsInOrder`), and the time-of-day formatting (`uses24HourFormat`, `timeOfDayPattern`, `timeOfDayPatternWithSeconds`, `getTimestampText`, `localTimestamp`) |
++| `model/SimpleXAPI.kt` | PC1 through PC42 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` and the chat-list member cache from `CR.GroupMemberUpdated` |
+ | `model/CryptoFile.kt` | PC10, PC23 | Medium | Encrypted file read/write helpers |
+ | `platform/Core.kt` | PC1 through PC32 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
+ | `platform/AppCommon.kt` | PC1 through PC32 | Medium | Shared app initialization logic |
+@@ -78,6 +79,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `platform/VideoPlayer.kt` | PC10, PC17 | Low | Video playback abstractions |
+ | `platform/Cryptor.kt` | PC23 | Medium | Keystore encryption expect declarations |
+ | `platform/Share.kt` | PC10, PC12 | Low | Share sheet abstractions |
++| `platform/TimeFormat.kt` | PC42 | Low | `systemUses24HourFormat` expect declaration (+ Android/desktop actuals) — the OS 12/24-hour setting |
+ | `platform/Images.kt` | PC10, PC19, PC35 | Low | Image processing utilities, incl. the `copyImageToClipboard` expect declaration |
+ | `platform/Platform.kt` | PC1 through PC32 | Low | Platform detection and capability flags |
+ | `platform/PlatformTextField.kt` | PC4 | Low | Native text input expect declarations |
+@@ -219,7 +221,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ 
+ | Source File | Product Concepts Affected | Risk Level | Notes |
+ |-------------|--------------------------|------------|-------|
+-| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29, PC32, PC40 | Medium | Settings navigation hub, incl. the desktop message-sending section and the "Chat list" section with the favorites-as-pinned switch |
++| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29, PC32, PC40, PC42 | Medium | Settings navigation hub, incl. the desktop message-sending section, the "Chat list" section with the favorites-as-pinned switch and the time-format dropdown |
+ | `views/usersettings/Appearance.kt` | PC24, PC32 | Low | Theme and appearance customization |
+ | `views/usersettings/PrivacySettings.kt` | PC20, PC22 | Medium | Privacy and lock settings |
+ | `views/usersettings/UserProfileView.kt` | PC19 | Medium | Profile display name and image editing |
+diff --git a/apps/multiplatform/spec/state.md b/apps/multiplatform/spec/state.md
+index de58297b5..837ccdae5 100644
+--- a/apps/multiplatform/spec/state.md
++++ b/apps/multiplatform/spec/state.md
+@@ -336,10 +336,11 @@ The `text` extension on the enum returns the localized status string (resource k
+ <a id="AppPreferences"></a>
+ <a id="appPrefs"></a>
+ <a id="ChatEnterKeyCombination"></a>
++<a id="TimeFormat"></a>
+ 
+ ## 5. AppPreferences
+ 
+-Defined at [`SimpleXAPI.kt line 128`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L128) as `class AppPreferences`.
++Defined at [`SimpleXAPI.kt line 145`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt#L145) as `class AppPreferences`.
+ 
+ Uses the `multiplatform-settings` library (`com.russhwolf.settings.Settings`) for cross-platform key-value storage (Android `SharedPreferences` / Desktop `java.util.prefs.Preferences`).
+ 
+@@ -461,7 +462,7 @@ val appPrefs: AppPreferences by lazy { AppPreferences() }
+ | `selfDestruct` | `Boolean` | `false` | Self-destruct enabled |
+ | `selfDestructDisplayName` | `String?` | null | Display name for self-destruct profile |
+ 
+-#### UI Preferences (lines 307-311)
++#### UI Preferences (lines 324-329)
+ 
+ | Key | Type | Default | Purpose |
+ |---|---|---|---|
+@@ -469,8 +470,15 @@ val appPrefs: AppPreferences by lazy { AppPreferences() }
+ | `chatBottomBar` | `Boolean` | `true` | Bottom bar in chat |
+ | `chatLayout` | `ChatLayoutMode` | `Classic` | App chat layout (`activeChatLayout`) |
+ | `favoritesAsPinned` | `Boolean` | `false` | Show favorite contacts and groups at the top of the home chat list (`favoritesPinnedFirst`); a display preference, the chat order itself is unchanged |
++| `timeFormat` | `TimeFormat` (`SYSTEM`, `HOUR_12`, `HOUR_24`) | `SYSTEM` | 12/24-hour convention for every time of day (`uses24HourFormat`), `SYSTEM` defers to `systemUses24HourFormat()`; a local display preference |
+ 
+-#### Desktop Chat Input (lines 136-137)
++`TimeFormat` (SimpleXAPI.kt line 127) models the 12/24-hour convention: `SYSTEM`, `HOUR_12`, `HOUR_24`.
++`uses24HourFormat(format, systemUses24Hour)` in `ChatModel.kt` resolves it (an explicit choice wins,
++`SYSTEM` uses `systemUses24HourFormat()`), and `getTimestampText` / `localTimestamp` build their time
++part from `timeOfDayPattern(use24Hour)`. The `text` extension returns the localized label
++(`time_format_system`, `time_format_12h`, `time_format_24h`); `default` is `SYSTEM`.
++
++#### Desktop Chat Input (lines 153-154)
+ 
+ Desktop-only Enter key bindings for the compose field. Values are `ChatEnterKeyCombination` members (`ENTER`, `SHIFT_ENTER`, `CTRL_ENTER`, `ALT_ENTER`), defined in the same file.
+ 
+@@ -540,7 +548,7 @@ Factory methods: `mkBoolPreference`, `mkIntPreference`, `mkLongPreference`, `mkF
+ | File | Path | Key Contents |
+ |---|---|---|
+ | ChatModel.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt) | `ChatModel` singleton (line 86), `ChatsContext` (line 339), `Chat` (line 1328), `ChatInfo` (line 1391), `ChatStats` (line 1370), helper methods |
+-| SimpleXAPI.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt) | `ChatEnterKeyCombination` (line 101), `AppPreferences` (line 128), `serverMetadata` (line 274), `ChatController` (line 567), `startReceiver` (line 731), `sendCmd` (line 881), `recvMsg` (line 906), `processReceivedMsg` (line 2833), `ServerMeta` (line 4859) |
++| SimpleXAPI.kt | [`common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`](../common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt) | `ChatEnterKeyCombination` (line 101), `TimeFormat` (line 127), `AppPreferences` (line 145), `serverMetadata` (line 291), `ChatController` (line 587), `startReceiver` (line 754), `sendCmd` (line 904), `recvMsg` (line 929), `processReceivedMsg` (line 2856), `ServerMeta` (line 4886) |
+ | ChatItemsMerger.kt | [`common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatItemsMerger.kt`](../common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatItemsMerger.kt) | `ActiveChatState` (line 196), chat item merge/diff logic |
+ | Core.kt | [`common/src/commonMain/kotlin/chat/simplex/common/platform/Core.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Core.kt) | `initChatController` (line 62), state initialization flow |
+ | App.kt | [`common/src/commonMain/kotlin/chat/simplex/common/App.kt`](../common/src/commonMain/kotlin/chat/simplex/common/App.kt) | `AppScreen` (line 47), `MainScreen` (line 84), top-level UI state reads |
+diff --git a/plans/2026-11-02-own-name-and-time-format.md b/plans/2026-11-02-own-name-and-time-format.md
+new file mode 100644
+index 000000000..ae9c4c074
+--- /dev/null
++++ b/plans/2026-11-02-own-name-and-time-format.md
+@@ -0,0 +1,64 @@
++# Own Name in Copied Messages + 12/24-Hour Setting
++
++## Problem
++
++1. The batch copy of selected messages (`chatItemsToText`) leaves out the sender name for messages the
++   user sent, so an exported conversation loses who said what as soon as both sides are present.
++2. Times of day are formatted with `DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)`, i.e. with the
++   locale's convention. On Android the 12/24-hour switch is an OS setting that is independent from the
++   locale, so the app can show 12-hour times while the system is set to 24-hour (and the reverse); there is
++   also no way to override the convention manually.
++
++## Solution
++
++1. `ciSenderName` gains an `ownName` parameter and returns a name for sent messages too:
++   - `GroupSnd` → the user's member name in that group (`chatInfo.groupInfo.membership.displayName`,
++     which can differ from the main profile), falling back to `ownName`;
++   - `DirectSnd`, `LocalSnd`, `LocalRcv` → `ownName` (messages in a chat with oneself are the user's);
++   - `ChannelRcv` keeps no name (a channel post has no individual sender).
++   `chatItemToText` / `chatItemsToText` take `ownName`, and `ChatView` passes
++   `chatModel.currentUser.value?.profile?.displayName`.
++2. A `TimeFormat` preference (`SYSTEM`, `HOUR_12`, `HOUR_24`, default `SYSTEM`) plus a dropdown in
++   Settings. `uses24HourFormat(format, systemUses24Hour)` resolves it, `systemUses24HourFormat()` is an
++   expect/actual pair (Android: `DateFormat.is24HourFormat`, desktop: the locale's short time pattern),
++   and `getTimestampText` / `localTimestamp` build their time part from `timeOfDayPattern(use24Hour)`.
++
++## Design decisions
++
++- The own name comes from the chat, not from a global value, so a group transcript shows the same name the
++  group members see.
++- No new parameter on `getTimestampText`: it reads `ChatController.appPrefs.timeFormat.state` itself, which
++  also makes a change recompose every visible timestamp without a restart.
++- The date part keeps the existing localized formatting; only the hour convention changes, so the diff is
++  limited to the time pattern.
++- `localTimestamp` keeps seconds, as before; only the 12/24-hour convention changes.
++- `SYSTEM` is the default and reproduces the current behaviour on both platforms, so existing users see no
++  change until they touch the dropdown.
++- The preference is local device state: not sent to the core, not in the database, not in the
++  `AppSettings` cross-device backup (same stance as the other display preferences).
++
++## Steps
++
++1. Strings: `settings_time_format`, `time_format_system`, `time_format_12h`, `time_format_24h`,
++   `time_format_footer` (base + zh-rCN).
++2. `TimeFormat` enum + `AppPreferences.timeFormat` + `SHARED_PREFS_TIME_FORMAT`.
++3. `platform/TimeFormat.kt` expect + android/desktop actuals.
++4. `ChatModel.kt`: `uses24HourFormat`, `timeOfDayPattern`, `timeOfDayPatternWithSeconds`,
++   `preferredTimeFormatUses24Hour`, wire into `getTimestampText` and `localTimestamp`; `ciSenderName`
++   with `ownName`; `chatItemToText` / `chatItemsToText` signatures.
++5. `SettingsView`: untitled section with the dropdown + footer, after the "Chat list" section.
++6. `ChatView.copyItems`: pass the own name.
++7. Tests: `SelectedMessagesCopyTest` (own name for direct/group/notes, group member name wins) and new
++   `TimeFormatTest` (resolver, patterns, default).
++
++## Adversarial review
++
++- `TimeFormat.entries` needs Kotlin 1.9+ enum entries — the project is on 2.1.20, fine.
++- `mkSafeEnumPreference` stores the constant name, so renaming a value would silently fall back to
++  `SYSTEM` — acceptable, the values are stable.
++- Reading the preference state inside `getTimestampText` makes it a Compose read; calling it from a
++  background/copy context still works (a `MutableState` can be read anywhere).
++- Desktop `systemUses24HourFormat` returns `true` when the pattern cannot be inspected, to keep the
++  24-hour behaviour of most non-US locales rather than silently switching to AM/PM.
++- `ChatInfo.Group` needs the `groupChatScope` argument in tests (no default), and
++  `ChatInfo.Local.sampleData` is used for the notes case.

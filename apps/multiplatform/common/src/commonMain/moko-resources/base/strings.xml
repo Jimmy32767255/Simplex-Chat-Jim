@@ -3403,6 +3403,11 @@
   <string name="settings_chat_list">Chat list</string>
   <string name="favorites_as_pinned">Treat favorites as pinned</string>
   <string name="favorites_as_pinned_footer">Favorite contacts and groups will always be shown at the top of the chat list, above the other chats.</string>
+  <string name="settings_time_format">Time format</string>
+  <string name="time_format_system">System default</string>
+  <string name="time_format_12h">12-hour</string>
+  <string name="time_format_24h">24-hour</string>
+  <string name="time_format_footer">How times are shown in chats and in message details.</string>
   <string name="settings_message_sending">Message sending</string>
   <string name="send_message_with">Send message with</string>
   <string name="insert_newline_with">Insert newline with</string>

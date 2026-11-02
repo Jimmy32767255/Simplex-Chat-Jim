@@ -138,6 +138,16 @@ fun SettingsLayout(
     }
     SectionDividerSpaced()
 
+    SectionView {
+      val timeFormat = remember { appPrefs.timeFormat.state }
+      val formats = remember { TimeFormat.entries.map { it to it.text } }
+      ExposedDropDownSettingRow(stringResource(MR.strings.settings_time_format), formats, timeFormat, icon = painterResource(MR.images.ic_schedule)) {
+        appPrefs.timeFormat.set(it)
+      }
+      SectionTextFooter(stringResource(MR.strings.time_format_footer))
+    }
+    SectionDividerSpaced()
+
     SectionView(stringResource(MR.strings.advanced_settings)) {
       SettingsActionItem(painterResource(MR.images.ic_wifi_tethering), stringResource(MR.strings.network_and_servers), showCustomModal { _, close -> NetworkAndServersView(close) }, disabled = stopped)
       if (appPlatform == AppPlatform.ANDROID) {

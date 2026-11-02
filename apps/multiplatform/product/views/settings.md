@@ -215,6 +215,20 @@ The switch only changes the displayed order (`favoritesPinnedFirst` in `ChatList
 stored in the model, the core and the database is untouched, and switching it off restores the previous
 order (see `product/rules.md` RULE-25).
 
+### Time Format Section
+
+Rendered on all platforms, right after the "Chat list" section: a single dropdown row (`ic_schedule`
+icon) with `SYSTEM`, `HOUR_12` and `HOUR_24`, defaulting to `SYSTEM`.
+
+| Row | Preference Key | Values | Description |
+|---|---|---|---|
+| Time format | `timeFormat` | System default / 12-hour / 24-hour | 12/24-hour convention used by every time of day |
+
+The footer explains that the setting controls the times shown in chats and in message details. The
+value is resolved by `uses24HourFormat` (`SYSTEM` defers to `systemUses24HourFormat()`), and it takes
+effect immediately because the resolver reads the preference state; see `product/rules.md` RULE-27.
+It is a local display preference — not sent to the core and not part of the `AppSettings` backup.
+
 ### Message Sending Section (desktop only)
 
 Rendered only when `appPlatform.isDesktop`. Both rows offer the same four combinations: `Enter`, `Shift + Enter`, `Ctrl + Enter`, `Alt + Enter`.

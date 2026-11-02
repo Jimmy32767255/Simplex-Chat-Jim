@@ -121,7 +121,7 @@ Shown when `selectedChatItems != null`:
 | Delete / Archive | Delete selected messages (for self, or for everyone if allowed by `fullDeleteAllowed`); shown as Archive for report items (group moderators only) |
 | Forward | Forward selected messages to another chat |
 | Moderate | Delete selected messages for all members (group moderators only) |
-| Copy | Copies the whole selection as one text block: per message the sender name (the local alias when set; nothing for own messages), the send time (`meta.itemTs`, not the receive time) and the text of the latest version, ordered from the oldest to the newest as in the conversation and separated by an empty line. Disabled when nothing copyable is selected; capped at 200 items like delete |
+| Copy | Copies the whole selection as one text block: per message the sender name (the local alias when set; own messages carry the user's own name in that chat), the send time (`meta.itemTs`, not the receive time) and the text of the latest version, ordered from the oldest to the newest as in the conversation and separated by an empty line. Disabled when nothing copyable is selected; capped at 200 items like delete |
 
 ### Timed/Disappearing Messages
 

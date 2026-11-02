@@ -352,6 +352,7 @@ Examples from platform files:
 | `expect fun UriHandler.sendEmail(subject: String, body: CharSequence)` | [`Share.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Share.kt#L7) | 7 |
 | `expect fun ClipboardManager.shareText(text: String)` | [`Share.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Share.kt#L9) | 9 |
 | `expect fun shareFile(text: String, fileSource: CryptoFile)` | [`Share.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Share.kt#L10) | 10 |
+| `expect fun systemUses24HourFormat(): Boolean` | [`TimeFormat.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/TimeFormat.kt#L10) | 10 |
 
 ### PlatformInterface Callback Object
 
