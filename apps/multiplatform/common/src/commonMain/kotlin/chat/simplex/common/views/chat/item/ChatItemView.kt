@@ -449,7 +449,7 @@ fun ChatItemView(
                     }
                     if (copyAndShareAllowed) {
                       ItemAction(stringResource(MR.strings.copy_verb), painterResource(MR.images.ic_content_copy), onClick = {
-                        copyItemToClipboard(cItem, clipboard)
+                        copyItemToClipboard(cItem, clipboard, ciTextWithQuote(cItem, cInfo, chatModel.currentUser.value?.profile?.displayName))
                         showMenu.value = false
                       })
                     }
@@ -1495,7 +1495,7 @@ fun moderateMessagesAlertDialog(itemIds: List<Long>, questionText: String, delet
   )
 }
 
-expect fun copyItemToClipboard(cItem: ChatItem, clipboard: ClipboardManager)
+expect fun copyItemToClipboard(cItem: ChatItem, clipboard: ClipboardManager, text: String)
 
 val previewDate = Instant.fromEpochSeconds(1_736_936_100)
 

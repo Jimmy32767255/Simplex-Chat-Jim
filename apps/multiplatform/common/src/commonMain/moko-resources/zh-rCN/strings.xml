@@ -334,6 +334,8 @@
     <string name="error_adding_members">添加成员错误</string>
     <string name="hide_notification">隐藏</string>
     <string name="copy_verb">复制</string>
+    <string name="copy_quote_with_author">[引用：“%1$s”——%2$s]</string>
+    <string name="copy_quote">[引用：“%1$s”]</string>
     <string name="hide_verb">隐藏</string>
     <string name="how_to">如何</string>
     <string name="icon_descr_help">帮助</string>

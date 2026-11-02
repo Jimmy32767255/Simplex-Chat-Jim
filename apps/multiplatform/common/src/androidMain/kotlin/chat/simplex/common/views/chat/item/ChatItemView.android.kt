@@ -44,6 +44,6 @@ actual fun SaveContentItemAction(cItem: ChatItem, saveFileLauncher: FileChooserL
   })
 }
 
-actual fun copyItemToClipboard(cItem: ChatItem, clipboard: ClipboardManager) {
-  clipboard.setText(AnnotatedString(cItem.content.text))
+actual fun copyItemToClipboard(cItem: ChatItem, clipboard: ClipboardManager, text: String) {
+  clipboard.setText(AnnotatedString(text))
 }

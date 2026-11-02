@@ -554,13 +554,25 @@ the model — no API call, no core change, no new stored state:
    and keeps its order: the oldest selected message starts the copied text. The order of
    `selectedChatItems` (a `Set`) MUST NOT be used, and the list MUST NOT be reversed a second time.
 
+6. **A reply carries its quote.** When the copied message replies to another one, `ciQuoteLine` puts
+   `[引用：“quoted text”——author]` on the line before the body (the marker follows the interface language,
+   see `copy_quote_with_author` / `copy_quote`); `chatItemToText` places it after the sender/time header
+   and the single-message copy (`ciTextWithQuote`) places it first. The quoted text is folded onto one
+   line, its author comes from `dirSenderName` on the QUOTE's own direction (so an own quote is named the
+   same way an own message is), and a quote without text, or a channel quote without an author, degrades
+   to no line / no author instead of an empty placeholder.
+
 Enforcement:
 - `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt` (`ciSenderName`,
-  `canCopyChatItem`, `chatItemToText`, `chatItemsToText`, `selectedChatItemsInOrder`)
+  `dirSenderName`, `ciQuoteLine`, `ciTextWithQuote`, `canCopyChatItem`, `chatItemToText`,
+  `chatItemsToText`, `selectedChatItemsInOrder`)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.kt` (single-message
+  copy passes `ciTextWithQuote`)
 - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SelectableChatItemToolbars.kt` (the copy
   button and its enablement in `recheckItems`)
 - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt` (the `copyItems` lambda)
-- Test: `common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt`
+- Test: `common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt`,
+  `common/src/commonTest/kotlin/chat/simplex/app/CopiedQuoteTest.kt`
 
 ---
 

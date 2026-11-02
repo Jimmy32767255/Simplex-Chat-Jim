@@ -1,0 +1,434 @@
+diff --git a/TODO.md b/TODO.md
+index 59582eb9c..07a0f43e3 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -168,6 +168,15 @@
+   - 文档：`spec/client/compose.md`（新增第 8 节 Message Preview，源文件表两行）、`product/views/chat.md`（Compose Bar 表新增 Preview button 行）、`product/rules.md`（新增第 18 节 RULE-30）、`product/concepts.md`（PC45）、`spec/impact.md`（PC45 与 `SendMsgView.kt`、`MessagePreviewView.kt` 行）、`product/README.md`、`plans/2026-11-03-message-preview.md`。
+   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/MessagePreviewTest.kt`（4 个用例：普通文本可预览、空白文本不可预览、发送过程中不可预览、Markdown 文本可预览），`./gradlew :common:desktopTest` 通过（24 个测试类无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
+ 
++- [x] 复制聊天消息的时候带上引用（回复）的内容，格式是在正文前面加上一段 `[引用：“$MSG”——$USER_NAME]`
++  - 实现方法：`model/ChatModel.kt` 新增 `dirSenderName`（把 `ciSenderName` 的名字解析抽出来，引用消息带自己的方向，所以同一个函数也能算引用的作者）、`ciQuoteLine`（用 `ci.quotedItem` 拼出 `[引用：“…”——作者]`，没有引用或引用文本为空时返回 null）和 `ciTextWithQuote`（引用行 + 正文）；`chatItemToText` 的正文改用 `ciTextWithQuote`，所以多选复制是「名字, 时间」头行、引用行、正文三行。
++  - 单条消息复制：`ChatItemView` 的 Copy 菜单把 `ciTextWithQuote(...)` 传给 `copyItemToClipboard`（该 `expect` 函数新增 `text` 参数，Android / 桌面两个 `actual` 相应改为写入传入文本；桌面的“有附件时复制文件路径”分支保持不变），因此单条复制也有引用行，但不会多出名字和时间头。
++  - 格式：标记文字跟随界面语言（`copy_quote_with_author` / `copy_quote` 两个字符串），中文是 `[引用：“…”——张三]`，英文是 `[Quote: “…”——Alice]`；引用文本会折叠成一行（括号里放不下换行），但不截断内容。
++  - 作者名字：引用的作者按**引用消息自己的方向**解析——引用了自己发的消息就写自己的名字（群聊里用该群的昵称，否则用资料名），群成员用其显示名（本地别名优先），频道消息没有作者时只保留 `[引用：“…”]`。
++  - 未改核心与 `AppSettings`，未新增偏好或数据库字段；消息信息页里“按历史版本复制”的入口故意不动（那里复制的是某个历史版本的正文，不是一条完整消息）。
++  - 文档：`product/rules.md`（RULE-26 新增第 6 条）、`spec/client/chat-view.md`（复制小节）、`product/views/chat.md`（单条 Copy 与多选 Copy 两行）、`spec/impact.md`（`ChatItemView.kt` 行）、`plans/2026-11-03-copy-with-quote.md`。
++  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/CopiedQuoteTest.kt`（10 个用例：引用行在正文前、引用行在多选复制里位于名字时间之后、引用自己的消息用自己名字、群引用用成员显示名、引用文本折叠成一行、没有引用时行为不变、引用为空文本时跳过、频道引用没有作者、多选复制整体格式、标记来自字符串资源），`./gradlew :common:desktopTest` 通过（25 个测试类无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
++
+ ## mod:
+ 
+ none
+diff --git a/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.android.kt b/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.android.kt
+index e16f99bf5..d73488af7 100644
+--- a/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.android.kt
++++ b/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.android.kt
+@@ -44,6 +44,6 @@ actual fun SaveContentItemAction(cItem: ChatItem, saveFileLauncher: FileChooserL
+   })
+ }
+ 
+-actual fun copyItemToClipboard(cItem: ChatItem, clipboard: ClipboardManager) {
+-  clipboard.setText(AnnotatedString(cItem.content.text))
++actual fun copyItemToClipboard(cItem: ChatItem, clipboard: ClipboardManager, text: String) {
++  clipboard.setText(AnnotatedString(text))
+ }
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
+index 4c9fe2e32..f514adb99 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt
+@@ -4301,7 +4301,14 @@ fun localDate(t: Instant): String {
+  * [ownName] is the name of the user; for a group chat the member name of the user in that group wins
+  * over it, because that is the name the chat itself shows. Channel posts have no sender name.
+  */
+-internal fun ciSenderName(ci: ChatItem, chatInfo: ChatInfo, ownName: String? = null): String? = when (val dir = ci.chatDir) {
++internal fun ciSenderName(ci: ChatItem, chatInfo: ChatInfo, ownName: String? = null): String? =
++  dirSenderName(ci.chatDir, chatInfo, ownName)
++
++/**
++ * The name of the sender of a message in the given direction. Quoted messages carry their own direction,
++ * so this is also used for the author of a quote.
++ */
++internal fun dirSenderName(dir: CIDirection?, chatInfo: ChatInfo, ownName: String? = null): String? = when (dir) {
+   // GroupMember.displayName already prefers the local alias
+   is CIDirection.GroupRcv -> dir.groupMember.displayName
+   is CIDirection.DirectRcv -> (chatInfo as? ChatInfo.Direct)?.contact?.let { it.localAlias.ifEmpty { it.displayName } }
+@@ -4323,16 +4330,43 @@ private fun ownGroupMemberName(chatInfo: ChatInfo): String? =
+ internal fun canCopyChatItem(ci: ChatItem): Boolean =
+   ci.content.msgContent != null && ci.meta.itemDeleted == null && !ci.isLiveDummy && !ci.isReport
+ 
++/**
++ * The quote line that goes in front of a copied message when it replies to another one, in the form
++ * `[引用：“text”——author]`. The quoted text is folded onto one line, because the whole quote has to stay
++ * readable inside the brackets. Returns null when the message quotes nothing, or quotes only an empty text.
++ */
++internal fun ciQuoteLine(ci: ChatItem, chatInfo: ChatInfo, ownName: String?): String? {
++  val quote = ci.quotedItem ?: return null
++  val quoted = quote.text.replace(Regex("\\s+"), " ").trim()
++  if (quoted.isEmpty()) return null
++  val author = dirSenderName(quote.chatDir, chatInfo, ownName)
++  return if (author != null) {
++    String.format(generalGetString(MR.strings.copy_quote_with_author), quoted, author)
++  } else {
++    String.format(generalGetString(MR.strings.copy_quote), quoted)
++  }
++}
++
++/**
++ * The message text as it is copied: the quote line (when the message replies to one) and then the text
++ * of the latest version.
++ */
++internal fun ciTextWithQuote(ci: ChatItem, chatInfo: ChatInfo, ownName: String?): String {
++  val quote = ciQuoteLine(ci, chatInfo, ownName)
++  return if (quote != null) "$quote\n${ci.text}" else ci.text
++}
++
+ /**
+  * One copied message: the sender name (when there is one), the time the message was SENT and the
+- * text of its latest version. [timeText] is passed in so that the formatting stays testable and the
+- * caller decides how the timestamp is presented.
++ * text of its latest version, preceded by the quote line when the message replies to another one.
++ * [timeText] is passed in so that the formatting stays testable and the caller decides how the
++ * timestamp is presented.
+  */
+ internal fun chatItemToText(ci: ChatItem, chatInfo: ChatInfo, ownName: String?, timeText: (Instant) -> String): String {
+   val time = timeText(ci.meta.itemTs)
+   val name = ciSenderName(ci, chatInfo, ownName)
+   val header = if (name != null) "$name, $time" else time
+-  return "$header\n${ci.text}"
++  return "$header\n${ciTextWithQuote(ci, chatInfo, ownName)}"
+ }
+ 
+ /**
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.kt
+index e39560a77..aa9223861 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.kt
+@@ -449,7 +449,7 @@ fun ChatItemView(
+                     }
+                     if (copyAndShareAllowed) {
+                       ItemAction(stringResource(MR.strings.copy_verb), painterResource(MR.images.ic_content_copy), onClick = {
+-                        copyItemToClipboard(cItem, clipboard)
++                        copyItemToClipboard(cItem, clipboard, ciTextWithQuote(cItem, cInfo, chatModel.currentUser.value?.profile?.displayName))
+                         showMenu.value = false
+                       })
+                     }
+@@ -1495,7 +1495,7 @@ fun moderateMessagesAlertDialog(itemIds: List<Long>, questionText: String, delet
+   )
+ }
+ 
+-expect fun copyItemToClipboard(cItem: ChatItem, clipboard: ClipboardManager)
++expect fun copyItemToClipboard(cItem: ChatItem, clipboard: ClipboardManager, text: String)
+ 
+ val previewDate = Instant.fromEpochSeconds(1_736_936_100)
+ 
+diff --git a/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml b/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml
+index 115a035b5..571bb2fb8 100644
+--- a/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml
+@@ -389,6 +389,8 @@
+   <string name="reply_verb">Reply</string>
+   <string name="share_verb">Share</string>
+   <string name="copy_verb">Copy</string>
++  <string name="copy_quote_with_author">[Quote: “%1$s”——%2$s]</string>
++  <string name="copy_quote">[Quote: “%1$s”]</string>
+   <string name="save_simplex_name_question">Save SimpleX name?</string>
+   <string name="get_simplex_name_beta">Get SimpleX name (BETA)</string>
+   <string name="channel_simplex_name">Channel SimpleX name</string>
+diff --git a/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml b/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml
+index dbc22b2fc..41f033cea 100644
+--- a/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml
+@@ -334,6 +334,8 @@
+     <string name="error_adding_members">添加成员错误</string>
+     <string name="hide_notification">隐藏</string>
+     <string name="copy_verb">复制</string>
++    <string name="copy_quote_with_author">[引用：“%1$s”——%2$s]</string>
++    <string name="copy_quote">[引用：“%1$s”]</string>
+     <string name="hide_verb">隐藏</string>
+     <string name="how_to">如何</string>
+     <string name="icon_descr_help">帮助</string>
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/CopiedQuoteTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/CopiedQuoteTest.kt
+new file mode 100644
+index 000000000..e1a2fb784
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/CopiedQuoteTest.kt
+@@ -0,0 +1,111 @@
++package chat.simplex.app
++
++import chat.simplex.common.model.*
++import chat.simplex.common.views.helpers.generalGetString
++import chat.simplex.res.*
++import kotlinx.datetime.Instant
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertNull
++
++// use this command for testing:
++// ./gradlew desktopTest
++class CopiedQuoteTest {
++  private val ts = Instant.parse("2026-10-28T02:30:00Z")
++  private val timeText: (Instant) -> String = { "T(${it.toEpochMilliseconds()})" }
++  private val renderedTs = "T(${ts.toEpochMilliseconds()})"
++
++  private fun member(displayName: String, alias: String = ""): GroupMember =
++    GroupMember.sampleData.copy(
++      memberProfile = GroupMember.sampleData.memberProfile.copy(displayName = displayName, localAlias = alias)
++    )
++
++  private fun directInfo(alias: String = "", displayName: String = "Alice"): ChatInfo.Direct =
++    ChatInfo.Direct(
++      Contact.sampleData.copy(
++        profile = Contact.sampleData.profile.copy(displayName = displayName, localAlias = alias)
++      )
++    )
++
++  private fun groupInfo(): ChatInfo.Group = ChatInfo.Group(GroupInfo.sampleData, groupChatScope = null)
++
++  private fun quote(text: String, dir: CIDirection?): CIQuote = CIQuote.getSample(itemId = 1, sentAt = ts, text = text, chatDir = dir)
++
++  private fun withQuote(text: String, quoted: CIQuote, dir: CIDirection = CIDirection.DirectRcv()): ChatItem =
++    ChatItem.getSampleData(id = 2, dir = dir, ts = ts, text = text, quotedItem = quoted)
++
++  // the marker itself follows the interface language, so the expectation is built from the same resource
++  private fun quoteLine(msg: String, author: String?): String =
++    if (author != null) {
++      String.format(generalGetString(MR.strings.copy_quote_with_author), msg, author)
++    } else {
++      String.format(generalGetString(MR.strings.copy_quote), msg)
++    }
++
++  @Test
++  fun testQuotedMessageIsPrependedToCopiedText() {
++    val ci = withQuote("hi", quote("earlier", CIDirection.DirectRcv()))
++    assertEquals("${quoteLine("earlier", "Alice")}\nhi", ciTextWithQuote(ci, directInfo(), "Me"))
++  }
++
++  @Test
++  fun testQuoteLineComesAfterTheNameAndTimeOfTheMessage() {
++    val ci = withQuote("hi", quote("earlier", CIDirection.DirectRcv()))
++    assertEquals("Alice, $renderedTs\n${quoteLine("earlier", "Alice")}\nhi", chatItemToText(ci, directInfo(), "Me", timeText))
++  }
++
++  @Test
++  fun testOwnQuotedMessageUsesTheOwnName() {
++    val ci = withQuote("hi", quote("earlier", CIDirection.DirectSnd()), CIDirection.DirectSnd())
++    assertEquals("${quoteLine("earlier", "Me")}\nhi", ciTextWithQuote(ci, directInfo(), "Me"))
++  }
++
++  @Test
++  fun testQuotedGroupMemberUsesTheMemberNameOfThatGroup() {
++    val quoted = quote("earlier", CIDirection.GroupRcv(member("Bob", alias = "B")))
++    val ci = withQuote("hi", quoted, CIDirection.GroupRcv(member("Alice")))
++    assertEquals("${quoteLine("earlier", "B")}\nhi", ciTextWithQuote(ci, groupInfo(), "Me"))
++  }
++
++  @Test
++  fun testQuotedTextIsFoldedOntoOneLine() {
++    val ci = withQuote("hi", quote("first\nsecond   third", CIDirection.DirectRcv()))
++    assertEquals("${quoteLine("first second third", "Alice")}\nhi", ciTextWithQuote(ci, directInfo(), "Me"))
++  }
++
++  @Test
++  fun testMessageWithoutQuoteIsCopiedAsBefore() {
++    val ci = ChatItem.getSampleData(id = 1, dir = CIDirection.DirectRcv(), ts = ts, text = "hi")
++    assertNull(ciQuoteLine(ci, directInfo(), "Me"))
++    assertEquals("hi", ciTextWithQuote(ci, directInfo(), "Me"))
++  }
++
++  @Test
++  fun testQuoteWithoutTextIsSkipped() {
++    val ci = withQuote("hi", quote("   ", CIDirection.DirectRcv()))
++    assertNull(ciQuoteLine(ci, directInfo(), "Me"))
++    assertEquals("hi", ciTextWithQuote(ci, directInfo(), "Me"))
++  }
++
++  @Test
++  fun testChannelQuoteHasNoAuthorName() {
++    val ci = withQuote("hi", quote("earlier", CIDirection.ChannelRcv()))
++    assertEquals(quoteLine("earlier", null), ciQuoteLine(ci, groupInfo(), "Me"))
++  }
++
++  @Test
++  fun testQuoteLineIsUsedInTheMultiMessageCopy() {
++    val plain = ChatItem.getSampleData(id = 1, dir = CIDirection.DirectRcv(), ts = ts, text = "first")
++    val reply = withQuote("second", quote("first", CIDirection.DirectRcv()))
++    val copied = chatItemsToText(listOf(plain, reply), directInfo(), "Me", timeText)
++    assertEquals("Alice, $renderedTs\nfirst\n\nAlice, $renderedTs\n${quoteLine("first", "Alice")}\nsecond", copied)
++  }
++
++  @Test
++  fun testQuoteLineContainsTheMarkerFromTheStringResource() {
++    val line = quoteLine("earlier", "Alice")
++    assertEquals(true, line.startsWith("["))
++    assertEquals(true, line.endsWith("Alice]"))
++    assertEquals(true, line.contains("earlier"))
++  }
++}
+diff --git a/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.desktop.kt b/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.desktop.kt
+index 997100246..19b577ea5 100644
+--- a/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.desktop.kt
++++ b/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.desktop.kt
+@@ -51,7 +51,7 @@ actual fun SaveContentItemAction(cItem: ChatItem, saveFileLauncher: FileChooserL
+   })
+ }
+ 
+-actual fun copyItemToClipboard(cItem: ChatItem, clipboard: ClipboardManager) = withLongRunningApi(slow = 600_000) {
++actual fun copyItemToClipboard(cItem: ChatItem, clipboard: ClipboardManager, text: String) = withLongRunningApi(slow = 600_000) {
+   var fileSource = getLoadedFileSource(cItem.file)
+   if (chatModel.connectedToRemote() && fileSource == null) {
+     cItem.file?.loadRemoteFile(true)
+@@ -65,7 +65,7 @@ actual fun copyItemToClipboard(cItem: ChatItem, clipboard: ClipboardManager) = w
+       else -> clipboard.setText(AnnotatedString(filePath))
+     }
+   } else {
+-    clipboard.setText(AnnotatedString(cItem.content.text))
++    clipboard.setText(AnnotatedString(text))
+   }
+   showToast(MR.strings.copied.localized())
+ }.run {}
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index bed468039..b8cf23f19 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -554,13 +554,25 @@ the model — no API call, no core change, no new stored state:
+    and keeps its order: the oldest selected message starts the copied text. The order of
+    `selectedChatItems` (a `Set`) MUST NOT be used, and the list MUST NOT be reversed a second time.
+ 
++6. **A reply carries its quote.** When the copied message replies to another one, `ciQuoteLine` puts
++   `[引用：“quoted text”——author]` on the line before the body (the marker follows the interface language,
++   see `copy_quote_with_author` / `copy_quote`); `chatItemToText` places it after the sender/time header
++   and the single-message copy (`ciTextWithQuote`) places it first. The quoted text is folded onto one
++   line, its author comes from `dirSenderName` on the QUOTE's own direction (so an own quote is named the
++   same way an own message is), and a quote without text, or a channel quote without an author, degrades
++   to no line / no author instead of an empty placeholder.
++
+ Enforcement:
+ - `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt` (`ciSenderName`,
+-  `canCopyChatItem`, `chatItemToText`, `chatItemsToText`, `selectedChatItemsInOrder`)
++  `dirSenderName`, `ciQuoteLine`, `ciTextWithQuote`, `canCopyChatItem`, `chatItemToText`,
++  `chatItemsToText`, `selectedChatItemsInOrder`)
++- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.kt` (single-message
++  copy passes `ciTextWithQuote`)
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SelectableChatItemToolbars.kt` (the copy
+   button and its enablement in `recheckItems`)
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt` (the `copyItems` lambda)
+-- Test: `common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt`
++- Test: `common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt`,
++  `common/src/commonTest/kotlin/chat/simplex/app/CopiedQuoteTest.kt`
+ 
+ ---
+ 
+diff --git a/apps/multiplatform/product/views/chat.md b/apps/multiplatform/product/views/chat.md
+index e3670ec80..d8a0cf333 100644
+--- a/apps/multiplatform/product/views/chat.md
++++ b/apps/multiplatform/product/views/chat.md
+@@ -78,7 +78,7 @@ Long-press context menu on any message:
+ |---|---|
+ | Reply | Sets compose bar to reply mode with quoted message (`ComposeContextItem.QuotedItem`) |
+ | Forward | Opens destination picker; uses `apiPlanForwardChatItems` with confirmation for partial forwards |
+-| Copy | Copies message text to clipboard |
++| Copy | Copies message text to clipboard, with a `[引用：“text”——author]` line in front when the message is a reply |
+ | Edit | Enters edit mode (`ComposeContextItem.EditingItem`); own messages within edit window |
+ | Delete | Delete for self or delete for everyone (with confirmation via `deleteMessagesAlertDialog`) |
+ | Moderate | Group moderators can delete messages for all members (`moderateMessagesAlertDialog`) |
+@@ -123,7 +123,7 @@ Shown when `selectedChatItems != null`:
+ | Forward | Forward selected messages to another chat |
+ | Moderate | Delete selected messages for all members (group moderators only) |
+ | Select to here | Floating pill at the top edge and at the bottom edge of the list, shown only while messages are selected: extends the selection from the anchor message (the last message the user selected) to that edge row of the visible list, taking every message of the merged rows in between. Hidden when the range would add nothing new |
+-| Copy | Copies the whole selection as one text block: per message the sender name (the local alias when set; own messages carry the user's own name in that chat), the send time (`meta.itemTs`, not the receive time) and the text of the latest version, ordered from the oldest to the newest as in the conversation and separated by an empty line. Disabled when nothing copyable is selected; capped at 200 items like delete |
++| Copy | Copies the whole selection as one text block: per message the sender name (the local alias when set; own messages carry the user's own name in that chat), the send time (`meta.itemTs`, not the receive time) and the text of the latest version, ordered from the oldest to the newest as in the conversation and separated by an empty line. Disabled when nothing copyable is selected; capped at 200 items like delete. A reply carries its quote as a `[引用：“text”——author]` line before the body |
+ 
+ Selecting a message also sets the selection anchor (`selectionAnchor`, remembered per chat), so a range can be extended repeatedly: select the first message by hand, scroll, then use the edge button instead of tapping every row. A merged group of messages counts as one row and is taken whole, the same way the collapsed group is taken by a tap.
+ 
+diff --git a/apps/multiplatform/spec/client/chat-view.md b/apps/multiplatform/spec/client/chat-view.md
+index 4068e8aea..8cdec4ff3 100644
+--- a/apps/multiplatform/spec/client/chat-view.md
++++ b/apps/multiplatform/spec/client/chat-view.md
+@@ -127,7 +127,7 @@ The message list is a `LazyColumnWithScrollBar` with `reverseLayout = true`, mea
+ - **Swipe to Reply:** `SwipeToDismiss` modifier on each item (EndToStart direction, 30dp threshold) sets `ComposeContextItem.QuotedItem`.
+ - **Selection Mode:** When `selectedChatItems` is non-null, a checkbox overlay appears on each item; a full-width clickable overlay toggles selection. Each selection also records `selectionAnchor` (a per-chat `rememberSaveable` id of the last item the user selected), which is the starting point of a range.
+ - **Select to here:** while the selection is active, `BoxScope.ChatItemsList` renders two `SelectToHereButton` pills — one under `FloatingDate` at the top edge (`topEdge = true`) and one above the compose view at the bottom edge. Each pill maps the visible rows (`listState.layoutInfo.visibleItemsInfo`) to the row range `selectionRangeRows(mergedItems, anchorId, edgeRow)` and adds every id of every `MergedItem` in it (`selectionToHereIds`), so a collapsed group is taken whole. The pills disappear when there is nothing to add (`selectionToHereAddsItems`), when no anchor exists, or when the list is empty. All of this lives in `views/chat/ChatSelectionRange.kt`; the row indexes are the `MergedItems.indexInParentItems` values, i.e. the LazyColumn rows, not the indexes of `chatsContext.chatItems`.
+-- **Copying a selection:** the multi-select toolbar copies all selected messages as one text block (`chatItemsToText` in `ChatModel.kt`), each message rendered as the sender name (the local alias when one is set; for own messages the name the user has in that group, else the profile name), the SEND time (`meta.itemTs`, never `createdAt`) and the text of the latest version (`content.text`, which the core updates on every edit). Messages follow the order of the conversation with the oldest first (`ChatModel.chatItems` is stored oldest first — `selectedChatItemsInOrder` keeps that order, the chat view reverses it only for rendering) and are separated by an empty line. The action is capped at 200 items, like delete, and is disabled when nothing copyable is selected.
++- **Copying a selection:** the multi-select toolbar copies all selected messages as one text block (`chatItemsToText` in `ChatModel.kt`), each message rendered as the sender name (the local alias when one is set; for own messages the name the user has in that group, else the profile name), the SEND time (`meta.itemTs`, never `createdAt`) and the text of the latest version (`content.text`, which the core updates on every edit). Messages follow the order of the conversation with the oldest first (`ChatModel.chatItems` is stored oldest first — `selectedChatItemsInOrder` keeps that order, the chat view reverses it only for rendering) and are separated by an empty line. The action is capped at 200 items, like delete, and is disabled when nothing copyable is selected. When a copied message is a reply, `ciQuoteLine` prepends `[引用：“quoted text”——author]` on the line before the body: the quoted text is folded onto one line, the author is resolved with `dirSenderName` from the QUOTE's own direction (own quotes are named like own messages, channel quotes have no author), and the marker text comes from `copy_quote_with_author` / `copy_quote`, so it follows the interface language. The single-message **Copy** action uses `ciTextWithQuote` (quote line + text, no header) through `copyItemToClipboard`, which now takes the composed text.
+ 
+ ### Item Layout (ChatViewListItem)
+ 
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index 43aef3581..22697a8b4 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -153,7 +153,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ 
+ | Source File | Product Concepts Affected | Risk Level | Notes |
+ |-------------|--------------------------|------------|-------|
+-| `views/chat/item/ChatItemView.kt` | PC2, PC3, PC5, PC6, PC7, PC8, PC32 | High | Root chat item renderer with context menus |
++| `views/chat/item/ChatItemView.kt` | PC2, PC3, PC5, PC6, PC7, PC8, PC32, PC41 | High | Root chat item renderer with context menus; the single-message Copy action passes `ciTextWithQuote` to `copyItemToClipboard` |
+ | `views/chat/item/TextItemView.kt` | PC2, PC3, PC4, PC32 | Medium | Text message bubble rendering |
+ | `views/chat/item/MarkdownBlocks.kt` | PC4, PC32 | Medium | Block Markdown rendering; terminal block gaps and headings |
+ | `views/chat/item/FramedItemView.kt` | PC4, PC6, PC10, PC11, PC32 | Medium | Framed (quoted/forwarded) message container |
+diff --git a/plans/2026-11-03-copy-with-quote.md b/plans/2026-11-03-copy-with-quote.md
+new file mode 100644
+index 000000000..c2eb652dd
+--- /dev/null
++++ b/plans/2026-11-03-copy-with-quote.md
+@@ -0,0 +1,61 @@
++# Copy a reply together with its quote
++
++## Problem
++
++Copying a message that replies to another message loses the context: the clipboard gets only the reply
++text, so a pasted conversation no longer shows what was being answered. The user asked for the quoted
++message to be put in front of the body as `[引用：“$MSG”——$USER_NAME]`.
++
++## Solution
++
++- `model/ChatModel.kt`:
++  - `dirSenderName(dir: CIDirection?, chatInfo, ownName)` — the existing name resolution extracted from
++    `ciSenderName`, so it can also answer "who wrote the quoted message" (a `CIQuote` carries its own
++    `chatDir`).
++  - `ciQuoteLine(ci, chatInfo, ownName): String?` — builds `[引用：“text”——author]` from
++    `ci.quotedItem`, folding the quoted text onto one line; returns null when there is no quote or the
++    quoted text is blank, and omits the author for a channel post.
++  - `ciTextWithQuote(ci, chatInfo, ownName)` — quote line + `ci.text`.
++  - `chatItemToText` now uses `ciTextWithQuote` for the body, so a multi-message copy has the header
++    (`name, time`) first and then the quote line.
++- `views/chat/item/ChatItemView.kt`: the single-message **Copy** action passes
++  `ciTextWithQuote(cItem, cInfo, ownName)` to `copyItemToClipboard`, whose signature gained a `text`
++  parameter (expect + both actuals in `androidMain` / `desktopMain`), so the platform copy only has to put
++  the composed string on the clipboard (the desktop file-path branch is unchanged).
++- Strings `copy_quote_with_author` (`[Quote: “%1$s”——%2$s]` / `[引用：“%1$s”——%2$s]`) and `copy_quote`
++  (`[Quote: “%1$s”]` / `[引用：“%1$s”]`) next to `copy_verb`.
++
++## Design decisions
++
++- **The marker follows the interface language** (user decision): the quotes and brackets come from a
++  string resource instead of being hard-coded Chinese, so an English UI says `[Quote: “…”——Alice]`. The
++  separator `——` is kept in both languages, as requested.
++- **Own quotes are named like own messages** (user decision): the author comes from `dirSenderName` on
++  the quote's direction, so a quote of your own message shows your group member name (or profile name)
++  rather than the "you" pronoun.
++- **One line, not the original layout.** The quote sits inside brackets, so newlines and runs of spaces
++  are folded into single spaces; the text itself is never truncated, so nothing is silently lost.
++- **Degrade instead of empty placeholders.** A quote whose text is blank produces no line at all; a
++  channel quote (no sender) produces the bracket without the author.
++- **Both copy paths.** The multi-message copy (which has a header) and the single-message menu copy (which
++  does not) share `ciQuoteLine`, so they cannot disagree. The per-version copy inside the message-info
++  view is deliberately left alone: it copies one historical version of the text, not the message as it
++  was sent.
++- **No new state, no core call.** The quote is already in the `ChatItem` (`quotedItem`), so copying stays
++  a pure client-side operation and nothing is added to `AppSettings`.
++
++## Steps
++
++1. Extract `dirSenderName`, add `ciQuoteLine` / `ciTextWithQuote`, use them in `chatItemToText`.
++2. Thread the composed text through `copyItemToClipboard` (expect + android/desktop actuals + call site).
++3. Strings (base + zh-rCN).
++4. `CopiedQuoteTest.kt` (10 cases), `./gradlew :common:desktopTest`,
++   `./gradlew :common:compileDebugKotlinAndroid`.
++5. Docs: `product/rules.md` (RULE-26 invariant 6), `spec/client/chat-view.md`, `product/views/chat.md`,
++   `spec/impact.md`, `TODO.md`.
++6. Write `diff/0021-copy-with-quote.patch` and commit.
++
++## Verification
++
++- `./gradlew :common:desktopTest` → `BUILD SUCCESSFUL`; `CopiedQuoteTest` 10/10, 25 suites, no failures.
++- `./gradlew :common:compileDebugKotlinAndroid` → `BUILD SUCCESSFUL` (the changed android actual compiles).

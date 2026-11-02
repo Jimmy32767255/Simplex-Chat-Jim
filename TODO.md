@@ -168,6 +168,15 @@
   - 文档：`spec/client/compose.md`（新增第 8 节 Message Preview，源文件表两行）、`product/views/chat.md`（Compose Bar 表新增 Preview button 行）、`product/rules.md`（新增第 18 节 RULE-30）、`product/concepts.md`（PC45）、`spec/impact.md`（PC45 与 `SendMsgView.kt`、`MessagePreviewView.kt` 行）、`product/README.md`、`plans/2026-11-03-message-preview.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/MessagePreviewTest.kt`（4 个用例：普通文本可预览、空白文本不可预览、发送过程中不可预览、Markdown 文本可预览），`./gradlew :common:desktopTest` 通过（24 个测试类无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
 
+- [x] 复制聊天消息的时候带上引用（回复）的内容，格式是在正文前面加上一段 `[引用：“$MSG”——$USER_NAME]`
+  - 实现方法：`model/ChatModel.kt` 新增 `dirSenderName`（把 `ciSenderName` 的名字解析抽出来，引用消息带自己的方向，所以同一个函数也能算引用的作者）、`ciQuoteLine`（用 `ci.quotedItem` 拼出 `[引用：“…”——作者]`，没有引用或引用文本为空时返回 null）和 `ciTextWithQuote`（引用行 + 正文）；`chatItemToText` 的正文改用 `ciTextWithQuote`，所以多选复制是「名字, 时间」头行、引用行、正文三行。
+  - 单条消息复制：`ChatItemView` 的 Copy 菜单把 `ciTextWithQuote(...)` 传给 `copyItemToClipboard`（该 `expect` 函数新增 `text` 参数，Android / 桌面两个 `actual` 相应改为写入传入文本；桌面的“有附件时复制文件路径”分支保持不变），因此单条复制也有引用行，但不会多出名字和时间头。
+  - 格式：标记文字跟随界面语言（`copy_quote_with_author` / `copy_quote` 两个字符串），中文是 `[引用：“…”——张三]`，英文是 `[Quote: “…”——Alice]`；引用文本会折叠成一行（括号里放不下换行），但不截断内容。
+  - 作者名字：引用的作者按**引用消息自己的方向**解析——引用了自己发的消息就写自己的名字（群聊里用该群的昵称，否则用资料名），群成员用其显示名（本地别名优先），频道消息没有作者时只保留 `[引用：“…”]`。
+  - 未改核心与 `AppSettings`，未新增偏好或数据库字段；消息信息页里“按历史版本复制”的入口故意不动（那里复制的是某个历史版本的正文，不是一条完整消息）。
+  - 文档：`product/rules.md`（RULE-26 新增第 6 条）、`spec/client/chat-view.md`（复制小节）、`product/views/chat.md`（单条 Copy 与多选 Copy 两行）、`spec/impact.md`（`ChatItemView.kt` 行）、`plans/2026-11-03-copy-with-quote.md`。
+  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/CopiedQuoteTest.kt`（10 个用例：引用行在正文前、引用行在多选复制里位于名字时间之后、引用自己的消息用自己名字、群引用用成员显示名、引用文本折叠成一行、没有引用时行为不变、引用为空文本时跳过、频道引用没有作者、多选复制整体格式、标记来自字符串资源），`./gradlew :common:desktopTest` 通过（25 个测试类无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
+
 ## mod:
 
 none

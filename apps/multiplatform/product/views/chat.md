@@ -78,7 +78,7 @@ Long-press context menu on any message:
 |---|---|
 | Reply | Sets compose bar to reply mode with quoted message (`ComposeContextItem.QuotedItem`) |
 | Forward | Opens destination picker; uses `apiPlanForwardChatItems` with confirmation for partial forwards |
-| Copy | Copies message text to clipboard |
+| Copy | Copies message text to clipboard, with a `[引用：“text”——author]` line in front when the message is a reply |
 | Edit | Enters edit mode (`ComposeContextItem.EditingItem`); own messages within edit window |
 | Delete | Delete for self or delete for everyone (with confirmation via `deleteMessagesAlertDialog`) |
 | Moderate | Group moderators can delete messages for all members (`moderateMessagesAlertDialog`) |
@@ -123,7 +123,7 @@ Shown when `selectedChatItems != null`:
 | Forward | Forward selected messages to another chat |
 | Moderate | Delete selected messages for all members (group moderators only) |
 | Select to here | Floating pill at the top edge and at the bottom edge of the list, shown only while messages are selected: extends the selection from the anchor message (the last message the user selected) to that edge row of the visible list, taking every message of the merged rows in between. Hidden when the range would add nothing new |
-| Copy | Copies the whole selection as one text block: per message the sender name (the local alias when set; own messages carry the user's own name in that chat), the send time (`meta.itemTs`, not the receive time) and the text of the latest version, ordered from the oldest to the newest as in the conversation and separated by an empty line. Disabled when nothing copyable is selected; capped at 200 items like delete |
+| Copy | Copies the whole selection as one text block: per message the sender name (the local alias when set; own messages carry the user's own name in that chat), the send time (`meta.itemTs`, not the receive time) and the text of the latest version, ordered from the oldest to the newest as in the conversation and separated by an empty line. Disabled when nothing copyable is selected; capped at 200 items like delete. A reply carries its quote as a `[引用：“text”——author]` line before the body |
 
 Selecting a message also sets the selection anchor (`selectionAnchor`, remembered per chat), so a range can be extended repeatedly: select the first message by hand, scroll, then use the edge button instead of tapping every row. A merged group of messages counts as one row and is taken whole, the same way the collapsed group is taken by a tap.
 

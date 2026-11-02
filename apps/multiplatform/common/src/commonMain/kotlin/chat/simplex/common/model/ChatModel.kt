@@ -4301,7 +4301,14 @@ fun localDate(t: Instant): String {
  * [ownName] is the name of the user; for a group chat the member name of the user in that group wins
  * over it, because that is the name the chat itself shows. Channel posts have no sender name.
  */
-internal fun ciSenderName(ci: ChatItem, chatInfo: ChatInfo, ownName: String? = null): String? = when (val dir = ci.chatDir) {
+internal fun ciSenderName(ci: ChatItem, chatInfo: ChatInfo, ownName: String? = null): String? =
+  dirSenderName(ci.chatDir, chatInfo, ownName)
+
+/**
+ * The name of the sender of a message in the given direction. Quoted messages carry their own direction,
+ * so this is also used for the author of a quote.
+ */
+internal fun dirSenderName(dir: CIDirection?, chatInfo: ChatInfo, ownName: String? = null): String? = when (dir) {
   // GroupMember.displayName already prefers the local alias
   is CIDirection.GroupRcv -> dir.groupMember.displayName
   is CIDirection.DirectRcv -> (chatInfo as? ChatInfo.Direct)?.contact?.let { it.localAlias.ifEmpty { it.displayName } }
@@ -4324,15 +4331,42 @@ internal fun canCopyChatItem(ci: ChatItem): Boolean =
   ci.content.msgContent != null && ci.meta.itemDeleted == null && !ci.isLiveDummy && !ci.isReport
 
 /**
+ * The quote line that goes in front of a copied message when it replies to another one, in the form
+ * `[引用：“text”——author]`. The quoted text is folded onto one line, because the whole quote has to stay
+ * readable inside the brackets. Returns null when the message quotes nothing, or quotes only an empty text.
+ */
+internal fun ciQuoteLine(ci: ChatItem, chatInfo: ChatInfo, ownName: String?): String? {
+  val quote = ci.quotedItem ?: return null
+  val quoted = quote.text.replace(Regex("\\s+"), " ").trim()
+  if (quoted.isEmpty()) return null
+  val author = dirSenderName(quote.chatDir, chatInfo, ownName)
+  return if (author != null) {
+    String.format(generalGetString(MR.strings.copy_quote_with_author), quoted, author)
+  } else {
+    String.format(generalGetString(MR.strings.copy_quote), quoted)
+  }
+}
+
+/**
+ * The message text as it is copied: the quote line (when the message replies to one) and then the text
+ * of the latest version.
+ */
+internal fun ciTextWithQuote(ci: ChatItem, chatInfo: ChatInfo, ownName: String?): String {
+  val quote = ciQuoteLine(ci, chatInfo, ownName)
+  return if (quote != null) "$quote\n${ci.text}" else ci.text
+}
+
+/**
  * One copied message: the sender name (when there is one), the time the message was SENT and the
- * text of its latest version. [timeText] is passed in so that the formatting stays testable and the
- * caller decides how the timestamp is presented.
+ * text of its latest version, preceded by the quote line when the message replies to another one.
+ * [timeText] is passed in so that the formatting stays testable and the caller decides how the
+ * timestamp is presented.
  */
 internal fun chatItemToText(ci: ChatItem, chatInfo: ChatInfo, ownName: String?, timeText: (Instant) -> String): String {
   val time = timeText(ci.meta.itemTs)
   val name = ciSenderName(ci, chatInfo, ownName)
   val header = if (name != null) "$name, $time" else time
-  return "$header\n${ci.text}"
+  return "$header\n${ciTextWithQuote(ci, chatInfo, ownName)}"
 }
 
 /**
