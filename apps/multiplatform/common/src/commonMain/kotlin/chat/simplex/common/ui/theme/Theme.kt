@@ -825,8 +825,11 @@ fun SimpleXTheme(darkTheme: Boolean? = null, content: @Composable () -> Unit) {
   val theme by CurrentColors.collectAsState()
   // Rainbow mode only changes what is displayed: `theme` keeps the saved colors.
   val rainbowPhase = rememberRainbowPhase()
+  val rainbowChatColors = rememberRainbowChatColors()
   val displayedColors = remember(theme, rainbowPhase) { rainbowColors(theme.colors, rainbowPhase) }
-  val displayedAppColors = remember(theme, rainbowPhase) { rainbowAppColors(theme.appColors, rainbowPhase) }
+  val displayedAppColors = remember(theme, rainbowPhase, rainbowChatColors) {
+    rainbowAppColors(theme.appColors, rainbowPhase, rainbowChatColors)
+  }
   LaunchedEffect(Unit) {
     // snapshotFlow vs LaunchedEffect reduce number of recomposes when user is changed or it's themes
     snapshotFlow { chatModel.currentUser.value?.uiThemes }

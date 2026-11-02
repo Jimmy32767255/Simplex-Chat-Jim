@@ -402,19 +402,40 @@ touched, so turning the mode off restores the exact colors the user picked.
 
 | Piece | Purpose |
 |---|---|
-| `RAINBOW_CYCLE_MILLIS` (`16_000`) | Duration of one full 360° hue cycle |
+| `RAINBOW_CYCLE_MILLIS` (`16_000`) | Duration of one full 360° hue cycle at the normal speed |
 | `RAINBOW_UPDATE_MILLIS` (`50`) | How often the hue offset changes; 20 steps per second look continuous for a cycle this slow and cost far less than recomposing on every frame |
-| `nextRainbowPhase(phase)` | Advances the phase by `rainbowHueStep()` and wraps it into `0..360` |
+| `RAINBOW_UPDATE_MILLIS_LOW_PERFORMANCE` (`250`) | Update interval in low performance mode: four steps per second, visibly stepped but 5x cheaper |
+| `rainbowCycleMillis(speed)` | Cycle length for `RainbowSpeed`: `SLOW` 32 s, `NORMAL` 16 s, `FAST` 8 s |
+| `rainbowUpdateMillis(lowPerformance)` | `50` normally, `250` in low performance mode |
+| `rainbowHueStep(cycleMillis, updateMillis)` | Degrees the phase advances between two updates |
+| `nextRainbowPhase(phase, step)` | Advances the phase and wraps it into `0..360` |
 | `rgbToHsv` / `hsvToRgb` | Platform-independent conversions (no `java.awt`, works on Android too) |
 | `shiftHue(color, degrees)` | Rotates one color, keeping saturation, brightness and alpha. Achromatic colors (greys, black, white) are returned unchanged, which keeps backgrounds and text readable |
 | `rainbowColors(colors, phase)` | `MaterialTheme` palette with every field shifted by the shared phase |
-| `rainbowAppColors(appColors, phase)` | `AppColors` (title, `primaryVariant2`, sent/received message and quote colors) shifted by the same phase |
-| `rememberRainbowPhase(): Float` | The current offset, or `0` when `appPrefs.rainbowThemeColors` is off |
+| `rainbowAppColors(appColors, phase, chatColors)` | `AppColors` (title, `primaryVariant2`, sent/received message and quote colors) shifted by the same phase; the four chat colors keep their saved value when `chatColors` is false |
+| `rainbowTextColor(phase, dark)` | The message-text color: hue from the phase, with a fixed saturation and brightness per theme so the text stays readable on a bubble |
+| `rainbowChatColorsActive(enabled, chatColors, messageText)` | Whether the chat bubbles take part: only when rainbow mode, the chat-colors option are on and the message text is **not** rainbow |
+| `rainbowMessageTextActive(enabled, messageText)` | Whether message text is rainbow |
+| `rememberRainbowPhase(): Float` | The current offset, or `0` when `appPrefs.rainbowThemeColors` is off. It runs the only timer rainbow mode starts, at the configured speed and update interval |
+| `rememberRainbowChatColors(): Boolean` | The resolved chat-colors decision, read from the three preferences |
+| `rememberRainbowMessageTextColor(): Color?` | The message text color, or `null` when the text is not rainbow |
 
 The same phase is used for every color, so the interface moves through the spectrum as a whole and a
 color swatch in the settings list always shows the same hue as the color it stands for. The swatches in
 `CustomizeThemeColorsSection` (`views/usersettings/Appearance.kt`) call `shiftHue` with that phase, and
 `SimpleXTheme` feeds `rainbowColors` / `rainbowAppColors` into `MaterialTheme` and `LocalAppColors`.
+
+The options that shape the mode live in the same section and only appear while it is on:
+`rainbowSpeed` (cycle length), `rainbowChatColors` (bubbles take part, on by default),
+`rainbowMessageText` (the text itself is rainbow, off by default) and `rainbowLowPerformance`
+(update interval). Chat colors and message text are **mutually exclusive**: two saturated hues at once
+make the text unreadable, so the text wins in `rainbowChatColorsActive` and the settings rows clear the
+other preference when one is switched on.
+
+Message text has no hue of its own to rotate, so `rainbowTextColor` builds a color from the phase
+instead. `MarkdownText` (`views/chat/item/TextItemView.kt`) resolves its default text color through
+`rememberRainbowMessageTextColor()`, which is why the option reaches chat items, quotes and the message
+preview without touching any of their call sites.
 
 `SimpleXThemeOverride`, used for per-chat theme previews and the color editor preview, deliberately does
 not apply the phase: it shows the colors that are being edited.

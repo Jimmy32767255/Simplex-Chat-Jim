@@ -160,6 +160,10 @@ Platform-specific composable (`expect fun AppearanceView`):
 | Toolbar opacity | App bar transparency settings (`inAppBarsAlpha`) |
 | Color picker | `ClassicColorPicker` for custom theme colors |
 | Rainbow mode | `rainbowThemeColors` -- cycles the hue of every interface color while the app is open; display-only, the saved colors are not changed (RULE-29). The toggle sits in *Customize theme > Interface colors*, and the color swatches there animate with the interface |
+| Rainbow speed | `rainbowSpeed` -- `Slow` / `Normal` / `Fast`, one full hue cycle in 32 / 16 / 8 seconds. Only shown while rainbow mode is on |
+| Rainbow chat colors | `rainbowChatColors` (on by default) -- the chat bubbles cycle with the rest of the interface; turning it off leaves them in the saved colors |
+| Rainbow message text | `rainbowMessageText` -- draws the message text itself in rainbow colors. Mutually exclusive with *Rainbow chat colors*: enabling one clears the other, so the text always sits on a plain bubble (RULE-29) |
+| Low performance mode | `rainbowLowPerformance` -- updates the hue four times per second instead of twenty: visible steps, but far less recomposition, which keeps the home screen smooth on slower phones |
 
 ### Chat Database Section
 

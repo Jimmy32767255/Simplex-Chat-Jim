@@ -1143,6 +1143,15 @@
     <string name="theme_colors_section_title">界面颜色</string>
     <string name="rainbow_mode">彩虹模式</string>
     <string name="rainbow_mode_footer">开启后界面颜色会一直循环变色（RGB 效果）。你保存的颜色不会被修改。</string>
+    <string name="rainbow_speed">速度</string>
+    <string name="rainbow_speed_slow">慢</string>
+    <string name="rainbow_speed_normal">标准</string>
+    <string name="rainbow_speed_fast">快</string>
+    <string name="rainbow_chat_colors">聊天颜色也用彩虹</string>
+    <string name="rainbow_message_text">消息文字用彩虹</string>
+    <string name="rainbow_low_performance">低性能模式</string>
+    <string name="rainbow_colors_footer">聊天颜色和消息文字不能同时彩虹——文字优先，因为两个颜色同时变化会看不清。</string>
+    <string name="rainbow_low_performance_footer">降低颜色的更新频率：变色不那么平滑，但应用需要做的渲染更少，在较慢的手机上更流畅。</string>
     <string name="your_contacts_will_remain_connected">与你的联系人保持连接。</string>
     <string name="share_with_contacts">与联系人分享</string>
     <string name="invite_friends">邀请朋友</string>

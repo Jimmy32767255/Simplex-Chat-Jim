@@ -154,7 +154,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
 | `views/chat/item/ChatItemView.kt` | PC2, PC3, PC5, PC6, PC7, PC8, PC32, PC41 | High | Root chat item renderer with context menus; the single-message Copy action passes `ciTextWithQuote` to `copyItemToClipboard` |
-| `views/chat/item/TextItemView.kt` | PC2, PC3, PC4, PC32 | Medium | Text message bubble rendering |
+| `views/chat/item/TextItemView.kt` | PC2, PC3, PC4, PC32, PC44 | Medium | Text message bubble rendering; `MarkdownText` resolves its default text color through `rememberRainbowMessageTextColor`, so rainbow message text reaches every markdown surface |
 | `views/chat/item/MarkdownBlocks.kt` | PC4, PC32 | Medium | Block Markdown rendering; terminal block gaps and headings |
 | `views/chat/item/FramedItemView.kt` | PC4, PC6, PC10, PC11, PC32 | Medium | Framed (quoted/forwarded) message container |
 | `views/chat/item/TerminalItemView.kt` | PC2, PC3, PC32 | Medium | Terminal layout rows, sender rows, time placement |

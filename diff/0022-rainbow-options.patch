@@ -1,0 +1,824 @@
+diff --git a/TODO.md b/TODO.md
+index 07a0f43e3..0448c0596 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -158,6 +158,17 @@
+   - 文档：`spec/services/theme.md`（新增 Rainbow mode 小节与源文件表行）、`spec/state.md`（UI 偏好表新增 `rainbowThemeColors`）、`product/rules.md`（新增第 17 节 RULE-29）、`product/concepts.md`（PC44）、`spec/impact.md`（PC44 与 `ui/theme/Rainbow.kt`、`Theme.kt`、`Appearance.kt` 行）、`product/views/settings.md`（外观表新增 Rainbow mode 行）、`plans/2026-11-02-rainbow-theme-mode.md`。
+   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/RainbowTest.kt`（13 个用例：RGB→HSV 的三原色与灰色、HSV→RGB 往返、`shiftHue` 保持饱和度／明度／透明度、色相按度数移动、360° 为一圈且可逆、无彩色不变、相位整圈回到起点、步长与周期一致、相位 0 时调色板不变、只偏移有彩色、`AppColors` 六个字段全部偏移且原对象不变、默认关闭），`./gradlew :common:desktopTest` 通过（23 个测试类、159 个用例无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
+ 
++- [x] 彩虹模式增强：可调变色速度、聊天颜色可选择是否参与、消息文字也可彩虹（与聊天颜色互斥）、低性能模式（解决开启后手机端主页卡顿）
++  - 实现方法：`Rainbow.kt` 把原来的固定常量拆成可配置的纯函数——`rainbowCycleMillis(speed)`（`SLOW` 32 秒、`NORMAL` 16 秒、`FAST` 8 秒）、`rainbowUpdateMillis(lowPerformance)`（50ms / 低性能 250ms）、`rainbowHueStep(cycleMillis, updateMillis)`，`nextRainbowPhase(phase, step)` 多了一个步长参数；`rememberRainbowPhase()` 读取速度与低性能开关，算出步长后只在两者变化时重启唯一的计时器（`LaunchedEffect(step, updateMillis)`），所以低性能模式不是“少画一点”，而是真的少重组 5 倍。
++  - 聊天颜色可关：`rainbowAppColors(appColors, phase, chatColors)` 在 `chatColors` 为 false 时原样保留发送／接收气泡与引用颜色，只让标题、`primaryVariant2` 和界面调色板参与循环；`SimpleXTheme` 通过 `rememberRainbowChatColors()` 决定传什么给 `LocalAppColors`。
++  - 消息文字彩虹：文字颜色本身没有色相可旋转（`onSurface` 在自带主题里是无彩色），所以 `rainbowTextColor(phase, dark)` 直接用相位生成颜色（深色主题饱和 0.55／明度 0.95，浅色主题 0.85／0.45，保证气泡上的对比度）；`MarkdownText` 的默认 `style` 改为 `rememberRainbowMessageTextColor() ?: MaterialTheme.colors.onSurface`，因此文本气泡、引用和消息详情都跟着变，调用点一个都不用改。
++  - 互斥：`rainbowChatColorsActive(enabled, chatColors, messageText)` 在文字彩虹时强制返回 false（文字优先），设置里的两个开关也会在打开一个时自动关掉另一个，避免两个都彩虹导致看不清。
++  - 设置界面：`CustomizeThemeColorsSection` 在彩虹开关下面新增「速度」下拉（`ExposedDropDownSettingRow` + `RainbowSpeed.entries`）与三个开关（聊天颜色、消息文字、低性能模式），以及两段页脚说明；这些行只在彩虹模式打开时出现。
++  - 改动文件：`.../ui/theme/Rainbow.kt`（速度／低性能／文字颜色／互斥判定）、`.../ui/theme/Theme.kt`（气泡颜色开关）、`.../views/chat/item/TextItemView.kt`（`MarkdownText` 默认文字色）、`.../views/usersettings/Appearance.kt`（新增速度下拉与三个开关）、`.../model/SimpleXAPI.kt`（新增 `RainbowSpeed` 枚举与 `rainbowSpeed`、`rainbowChatColors`、`rainbowMessageText`、`rainbowLowPerformance` 四个偏好，键 `"RainbowSpeed"` / `"RainbowChatColors"` / `"RainbowMessageText"` / `"RainbowLowPerformance"`）、`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 9 条字符串）。
++  - 兼容性：仍是纯客户端显示偏好，未改核心、未新增数据库写入、未加入 `AppSettings`；`rainbowChatColors` 默认开启，所以对已经在用彩虹模式的人是纯增量，关掉才改变行为。
++  - 文档：`spec/services/theme.md`（Rainbow mode 小节重写，新增速度／低性能／文字颜色／互斥的表格行与说明）、`spec/state.md`（`RainbowSpeed` 锚点与四个偏好行）、`product/rules.md`（RULE-29 新增第 6–8 条不变式并更新 Enforcement）、`product/concepts.md`（PC44 源文件）、`spec/impact.md`（`TextItemView.kt` 行加入 PC44）、`product/views/settings.md`（外观表新增四行）、`spec/client/chat-view.md`（Rainbow message text 条目）、`plans/2026-11-03-rainbow-options.md`。
++  - 测试：`RainbowTest.kt` 扩到 19 个用例（新增：速度决定周期长度、低性能模式更新更慢但周期不变、快速档整圈仍回到起点、聊天颜色与文字互斥且文字优先、关掉聊天颜色时只保留界面循环、文字颜色随相位变化且在深浅主题下都保持可读、速度偏好可写入读回），`./gradlew :common:desktopTest` 通过（25 个测试类、179 个用例无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
++
+ - [x] 消息输入框发送键旁边放一个预览键，点击后打开一个界面显示该信息发送后的样子（渲染）（编辑 Markdown 消息时很有用）
+   - 实现方法：新增 `views/chat/MessagePreviewView.kt`，`messagePreviewAvailable(text, inProgress)` 判断是否可以预览（有非空文本且不在发送中），`MessagePreviewButton` 是发送键左侧的 36dp 圆形眼睛图标（`ic_visibility`，次要色），点击后 `showMessagePreview(text)` 以全屏弹窗打开 `MessagePreviewView(text)`。
+   - 渲染方式：弹窗里用聊天消息同一个渲染器（`MarkdownText` + `parseToMarkdown`）在 `Surface` 气泡中显示文本，所以“预览到的”就是“发送后的”格式，不会出现两套 Markdown 实现不同步的问题；底部用 `preview_message_footer` 说明这只是近似效果。
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
+index 323cbccd4..3c739362d 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
+@@ -144,6 +144,23 @@ enum class TimeFormat {
+   }
+ }
+ 
++// How quickly the rainbow mode rotates the hue. Slower cycles are calmer and cheaper to recompose.
++// Spec: spec/state.md#RainbowSpeed
++enum class RainbowSpeed {
++  SLOW, NORMAL, FAST;
++
++  val text: String
++    get() = when (this) {
++      SLOW -> generalGetString(MR.strings.rainbow_speed_slow)
++      NORMAL -> generalGetString(MR.strings.rainbow_speed_normal)
++      FAST -> generalGetString(MR.strings.rainbow_speed_fast)
++    }
++
++  companion object {
++    val default = NORMAL
++  }
++}
++
+ class HintPref(val reset: () -> Unit, val isUnchanged: () -> Boolean)
+ 
+ // Spec: spec/state.md#AppPreferences
+@@ -344,6 +361,16 @@ class AppPreferences {
+   // Cycle the hue of the theme colors while the app is open. Display-only: the saved theme is never
+   // modified, and the mode is a client-side preference (not part of the exported AppSettings).
+   val rainbowThemeColors = mkBoolPreference(SHARED_PREFS_RAINBOW_THEME_COLORS, false)
++  val rainbowSpeed: SharedPreference<RainbowSpeed> = mkSafeEnumPreference(SHARED_PREFS_RAINBOW_SPEED, RainbowSpeed.default)
++  // Whether chat bubbles take part in rainbow mode. They are part of the interface colors, so this is
++  // on by default; turning it off keeps only the chrome colorful (and is forced off while the message
++  // text is rainbow, see `rainbowChatColorsActive`).
++  val rainbowChatColors = mkBoolPreference(SHARED_PREFS_RAINBOW_CHAT_COLORS, true)
++  // Rainbow message text instead of rainbow bubbles: the two would make the text unreadable together.
++  val rainbowMessageText = mkBoolPreference(SHARED_PREFS_RAINBOW_MESSAGE_TEXT, false)
++  // Fewer hue updates per second: the colors change in visible steps but the app recomposes less often,
++  // which keeps the home screen smooth on slower phones.
++  val rainbowLowPerformance = mkBoolPreference(SHARED_PREFS_RAINBOW_LOW_PERFORMANCE, false)
+ 
+   val hintPreferences: List<HintPref> = listOf(
+     hintPref(laNoticeShown, false),
+@@ -570,6 +597,10 @@ class AppPreferences {
+     private const val SHARED_PREFS_FAVORITES_AS_PINNED = "FavoritesAsPinned"
+     private const val SHARED_PREFS_TIME_FORMAT = "TimeFormat"
+     private const val SHARED_PREFS_RAINBOW_THEME_COLORS = "RainbowThemeColors"
++    private const val SHARED_PREFS_RAINBOW_SPEED = "RainbowSpeed"
++    private const val SHARED_PREFS_RAINBOW_CHAT_COLORS = "RainbowChatColors"
++    private const val SHARED_PREFS_RAINBOW_MESSAGE_TEXT = "RainbowMessageText"
++    private const val SHARED_PREFS_RAINBOW_LOW_PERFORMANCE = "RainbowLowPerformance"
+     private const val SHARED_PREFS_SELF_DESTRUCT = "LocalAuthenticationSelfDestruct"
+     private const val SHARED_PREFS_SELF_DESTRUCT_DISPLAY_NAME = "LocalAuthenticationSelfDestructDisplayName"
+     private const val SHARED_PREFS_PQ_EXPERIMENTAL_ENABLED = "PQExperimentalEnabled" // no longer used
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt
+index 30ce1e3b4..eb173c0c8 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt
+@@ -1,54 +1,64 @@
+ package chat.simplex.common.ui.theme
+ 
+-import androidx.compose.animation.core.*
+ import androidx.compose.material.Colors
++import androidx.compose.material.MaterialTheme
+ import androidx.compose.runtime.*
+ import androidx.compose.ui.graphics.Color
+ import chat.simplex.common.model.ChatController.appPrefs
++import chat.simplex.common.model.RainbowSpeed
+ import kotlinx.coroutines.delay
+ 
+-// Spec: spec/services/theme.md#rainbow-mode
++// Rainbow mode: every color of the active theme is rotated around the HSV hue circle by one shared
++// phase, so the whole interface stays consistent while it cycles. The theme itself never changes --
++// only what is displayed does. Spec: spec/services/theme.md#rainbow-mode
+ 
+-/**
+- * Rainbow mode rotates the hue of every theme color over time without touching the saved theme.
+- *
+- * The hue offset is a single value shared by the whole palette: the interface moves through the
+- * spectrum as one piece, and a color swatch in the settings always shows the same hue as the color it
+- * stands for.
+- */
++/** Length of one full hue rotation at the normal speed. */
+ internal const val RAINBOW_CYCLE_MILLIS: Long = 16_000
+ 
++/** Time between two hue updates at the normal speed: 20 per second, enough for a slow cycle. */
++internal const val RAINBOW_UPDATE_MILLIS: Long = 50
++
+ /**
+- * How often the hue offset is recomputed. The cycle is slow enough that 20 updates per second still
+- * look continuous, and a lower rate keeps the cost of recomposing the interface with new colors
+- * reasonable compared to animating on every frame.
++ * Time between two hue updates in low performance mode. Four updates per second look stepped, but the
++ * app recomposes 5x less often, which is what keeps the home screen smooth on slower phones.
+  */
+-internal const val RAINBOW_UPDATE_MILLIS: Long = 50
++internal const val RAINBOW_UPDATE_MILLIS_LOW_PERFORMANCE: Long = 250
++
++/** Length of one full hue rotation for the selected speed. */
++internal fun rainbowCycleMillis(speed: RainbowSpeed): Long = when (speed) {
++  RainbowSpeed.SLOW -> 32_000
++  RainbowSpeed.NORMAL -> RAINBOW_CYCLE_MILLIS
++  RainbowSpeed.FAST -> 8_000
++}
+ 
+-/** Hue offset added per update, so a full cycle takes [RAINBOW_CYCLE_MILLIS] regardless of the update rate. */
+-internal fun rainbowHueStep(): Float = 360f * RAINBOW_UPDATE_MILLIS / RAINBOW_CYCLE_MILLIS
++internal fun rainbowUpdateMillis(lowPerformance: Boolean): Long =
++  if (lowPerformance) RAINBOW_UPDATE_MILLIS_LOW_PERFORMANCE else RAINBOW_UPDATE_MILLIS
+ 
+-internal fun nextRainbowPhase(phase: Float): Float {
+-  val next = phase + rainbowHueStep()
++/** Degrees the phase advances between two updates. */
++internal fun rainbowHueStep(
++  cycleMillis: Long = RAINBOW_CYCLE_MILLIS,
++  updateMillis: Long = RAINBOW_UPDATE_MILLIS
++): Float = 360f * updateMillis / cycleMillis
++
++internal fun nextRainbowPhase(phase: Float, step: Float = rainbowHueStep()): Float {
++  val next = phase + step
+   return if (next >= 360f) next - 360f else next
+ }
+ 
+-/** Returns `(hue, saturation, value)` with hue in `0..360` and the other components in `0..1`. */
+ internal fun rgbToHsv(red: Float, green: Float, blue: Float): Triple<Float, Float, Float> {
+-  val maxC = maxOf(red, green, blue)
+-  val minC = minOf(red, green, blue)
+-  val delta = maxC - minC
++  val max = maxOf(red, green, blue)
++  val min = minOf(red, green, blue)
++  val delta = max - min
+   val hue = when {
+     delta == 0f -> 0f
+-    maxC == red -> 60f * (((green - blue) / delta) % 6f)
+-    maxC == green -> 60f * (((blue - red) / delta) + 2f)
++    max == red -> 60f * (((green - blue) / delta) % 6f)
++    max == green -> 60f * (((blue - red) / delta) + 2f)
+     else -> 60f * (((red - green) / delta) + 4f)
+   }
+-  val saturation = if (maxC == 0f) 0f else delta / maxC
+-  return Triple(if (hue < 0f) hue + 360f else hue, saturation, maxC)
++  val saturation = if (max == 0f) 0f else delta / max
++  return Triple(if (hue < 0f) hue + 360f else hue, saturation, max)
+ }
+ 
+-/** Returns `(red, green, blue)` in `0..1` for the given hue (`0..360`), saturation and value (`0..1`). */
+ internal fun hsvToRgb(hue: Float, saturation: Float, value: Float): Triple<Float, Float, Float> {
+   val h = ((hue % 360f) + 360f) % 360f
+   val c = value * saturation
+@@ -66,9 +76,9 @@ internal fun hsvToRgb(hue: Float, saturation: Float, value: Float): Triple<Float
+ }
+ 
+ /**
+- * Rotates the hue of [color] by [degrees], keeping its saturation, brightness and alpha. Colors without
+- * a hue (greys, black, white) come back unchanged, which is what keeps backgrounds and text readable in
+- * rainbow mode.
++ * Rotates the hue of [color] by [degrees]. Achromatic colors (greys, black, white) and transparent
++ * colors are returned unchanged: they have no hue to rotate, and shifting them would only make the
++ * interface unreadable.
+  */
+ internal fun shiftHue(color: Color, degrees: Float): Color {
+   if (degrees == 0f || color.alpha == 0f) return color
+@@ -78,54 +88,99 @@ internal fun shiftHue(color: Color, degrees: Float): Color {
+   return Color(red, green, blue, color.alpha)
+ }
+ 
+-internal fun rainbowColors(colors: Colors, phase: Float): Colors {
+-  if (phase == 0f) return colors
+-  fun shift(color: Color): Color = shiftHue(color, phase)
+-  return colors.copy(
+-    primary = shift(colors.primary),
+-    primaryVariant = shift(colors.primaryVariant),
+-    secondary = shift(colors.secondary),
+-    secondaryVariant = shift(colors.secondaryVariant),
+-    background = shift(colors.background),
+-    surface = shift(colors.surface),
+-    error = shift(colors.error),
+-    onPrimary = shift(colors.onPrimary),
+-    onSecondary = shift(colors.onSecondary),
+-    onBackground = shift(colors.onBackground),
+-    onSurface = shift(colors.onSurface),
+-    onError = shift(colors.onError),
++/** The Material palette with every color rotated by [phase]. */
++internal fun rainbowColors(colors: Colors, phase: Float): Colors = colors.copy(
++  primary = shiftHue(colors.primary, phase),
++  primaryVariant = shiftHue(colors.primaryVariant, phase),
++  secondary = shiftHue(colors.secondary, phase),
++  secondaryVariant = shiftHue(colors.secondaryVariant, phase),
++  background = shiftHue(colors.background, phase),
++  surface = shiftHue(colors.surface, phase),
++  error = shiftHue(colors.error, phase),
++  onPrimary = shiftHue(colors.onPrimary, phase),
++  onSecondary = shiftHue(colors.onSecondary, phase),
++  onBackground = shiftHue(colors.onBackground, phase),
++  onSurface = shiftHue(colors.onSurface, phase),
++  onError = shiftHue(colors.onError, phase),
++)
++
++/**
++ * The app palette with the colors rotated by [phase]. The chat bubble colors only take part when
++ * [chatColors] is set: they are the largest colored areas on the screen, so they can be turned off
++ * (and are turned off while the message text is rainbow, see [rainbowChatColorsActive]).
++ */
++internal fun rainbowAppColors(appColors: AppColors, phase: Float, chatColors: Boolean = true): AppColors =
++  appColors.copy(
++    title = shiftHue(appColors.title, phase),
++    primaryVariant2 = shiftHue(appColors.primaryVariant2, phase),
++    sentMessage = if (chatColors) shiftHue(appColors.sentMessage, phase) else appColors.sentMessage,
++    sentQuote = if (chatColors) shiftHue(appColors.sentQuote, phase) else appColors.sentQuote,
++    receivedMessage = if (chatColors) shiftHue(appColors.receivedMessage, phase) else appColors.receivedMessage,
++    receivedQuote = if (chatColors) shiftHue(appColors.receivedQuote, phase) else appColors.receivedQuote,
+   )
+-}
+ 
+-internal fun rainbowAppColors(appColors: AppColors, phase: Float): AppColors {
+-  if (phase == 0f) return appColors
+-  fun shift(color: Color): Color = shiftHue(color, phase)
+-  return appColors.copy(
+-    title = shift(appColors.title),
+-    primaryVariant2 = shift(appColors.primaryVariant2),
+-    sentMessage = shift(appColors.sentMessage),
+-    sentQuote = shift(appColors.sentQuote),
+-    receivedMessage = shift(appColors.receivedMessage),
+-    receivedQuote = shift(appColors.receivedQuote),
++/**
++ * The color of chat message text in rainbow mode. The hue comes straight from [phase] because text
++ * colors have no hue of their own to rotate; saturation and brightness are fixed per theme so the text
++ * stays readable on top of the bubble.
++ */
++internal fun rainbowTextColor(phase: Float, dark: Boolean): Color {
++  val (red, green, blue) = hsvToRgb(
++    phase,
++    saturation = if (dark) 0.55f else 0.85f,
++    value = if (dark) 0.95f else 0.45f
+   )
++  return Color(red, green, blue)
+ }
+ 
+ /**
+- * The current hue offset of rainbow mode, or `0` when the mode is off.
+- *
+- * Reading the returned value from a composable subscribes it to the animation; callers are expected to
+- * pass the result to [rainbowColors] / [rainbowAppColors] rather than to store it.
++ * Chat colors and message text are never rainbow at the same time: two fully saturated hues together
++ * make the text unreadable, so the text wins when both are enabled.
++ */
++internal fun rainbowChatColorsActive(enabled: Boolean, chatColors: Boolean, messageText: Boolean): Boolean =
++  enabled && chatColors && !messageText
++
++internal fun rainbowMessageTextActive(enabled: Boolean, messageText: Boolean): Boolean =
++  enabled && messageText
++
++/**
++ * The current hue phase, advanced by a timer while rainbow mode is on, and `0f` while it is off (so
++ * every caller falls back to the plain theme). The timer runs at the configured speed and update
++ * interval, and it is the only timer rainbow mode starts.
+  */
+ @Composable
+ fun rememberRainbowPhase(): Float {
+   val enabled = remember { appPrefs.rainbowThemeColors.state }.value
+   if (!enabled) return 0f
++  val speed = remember { appPrefs.rainbowSpeed.state }.value
++  val lowPerformance = remember { appPrefs.rainbowLowPerformance.state }.value
++  val updateMillis = rainbowUpdateMillis(lowPerformance)
++  val step = rainbowHueStep(rainbowCycleMillis(speed), updateMillis)
+   val phase = remember { mutableStateOf(0f) }
+-  LaunchedEffect(Unit) {
++  LaunchedEffect(step, updateMillis) {
+     while (true) {
+-      delay(RAINBOW_UPDATE_MILLIS)
+-      phase.value = nextRainbowPhase(phase.value)
++      delay(updateMillis)
++      phase.value = nextRainbowPhase(phase.value, step)
+     }
+   }
+   return phase.value
+ }
++
++/** Whether the chat bubble colors take part in rainbow mode. */
++@Composable
++fun rememberRainbowChatColors(): Boolean {
++  val enabled = remember { appPrefs.rainbowThemeColors.state }.value
++  val chatColors = remember { appPrefs.rainbowChatColors.state }.value
++  val messageText = remember { appPrefs.rainbowMessageText.state }.value
++  return rainbowChatColorsActive(enabled, chatColors, messageText)
++}
++
++/** The color of chat message text in rainbow mode, or `null` when the text is not rainbow. */
++@Composable
++fun rememberRainbowMessageTextColor(): Color? {
++  val enabled = remember { appPrefs.rainbowThemeColors.state }.value
++  val messageText = remember { appPrefs.rainbowMessageText.state }.value
++  if (!rainbowMessageTextActive(enabled, messageText)) return null
++  val phase = rememberRainbowPhase()
++  return rainbowTextColor(phase, dark = !MaterialTheme.colors.isLight)
++}
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt
+index 606f0e0e8..fb910e431 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt
+@@ -825,8 +825,11 @@ fun SimpleXTheme(darkTheme: Boolean? = null, content: @Composable () -> Unit) {
+   val theme by CurrentColors.collectAsState()
+   // Rainbow mode only changes what is displayed: `theme` keeps the saved colors.
+   val rainbowPhase = rememberRainbowPhase()
++  val rainbowChatColors = rememberRainbowChatColors()
+   val displayedColors = remember(theme, rainbowPhase) { rainbowColors(theme.colors, rainbowPhase) }
+-  val displayedAppColors = remember(theme, rainbowPhase) { rainbowAppColors(theme.appColors, rainbowPhase) }
++  val displayedAppColors = remember(theme, rainbowPhase, rainbowChatColors) {
++    rainbowAppColors(theme.appColors, rainbowPhase, rainbowChatColors)
++  }
+   LaunchedEffect(Unit) {
+     // snapshotFlow vs LaunchedEffect reduce number of recomposes when user is changed or it's themes
+     snapshotFlow { chatModel.currentUser.value?.uiThemes }
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TextItemView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TextItemView.kt
+index 4550cd3b2..6ca3b5986 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TextItemView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TextItemView.kt
+@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
+ import chat.simplex.common.model.*
+ import chat.simplex.common.platform.*
+ import chat.simplex.common.ui.theme.CurrentColors
++import chat.simplex.common.ui.theme.rememberRainbowMessageTextColor
+ import chat.simplex.common.ui.theme.DEFAULT_PADDING
+ import chat.simplex.common.ui.theme.appColors
+ import chat.simplex.common.views.chat.ItemSelection
+@@ -184,7 +185,7 @@ fun MarkdownText (
+   userMemberId: String? = null,
+   toggleSecrets: Boolean,
+   sendCommandMsg: ((String) -> Unit)? = null,
+-  style: TextStyle = MaterialTheme.typography.body1.copy(color = messageTextColor(), lineHeight = 22.sp),
++  style: TextStyle = MaterialTheme.typography.body1.copy(color = rememberRainbowMessageTextColor() ?: messageTextColor(), lineHeight = 22.sp),
+   maxLines: Int = Int.MAX_VALUE,
+   overflow: TextOverflow = TextOverflow.Clip,
+   uriHandler: UriHandler? = null,
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/Appearance.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/Appearance.kt
+index a0e26e81d..dbee8cece 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/Appearance.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/Appearance.kt
+@@ -1048,6 +1048,43 @@ object AppearanceScope {
+         stringResource(MR.strings.rainbow_mode),
+         appPrefs.rainbowThemeColors
+       )
++      // The settings below only matter while rainbow mode is on, so they are not shown otherwise.
++      if (remember { appPrefs.rainbowThemeColors.state }.value) {
++        val rainbowSpeed = remember { appPrefs.rainbowSpeed.state }
++        val speeds = remember { RainbowSpeed.entries.map { it to it.text } }
++        ExposedDropDownSettingRow(
++          stringResource(MR.strings.rainbow_speed),
++          speeds,
++          rainbowSpeed,
++          icon = painterResource(MR.images.ic_schedule)
++        ) { appPrefs.rainbowSpeed.set(it) }
++        // Chat colors and message text are mutually exclusive: enabling one turns the other off.
++        SettingsPreferenceItem(
++          painterResource(MR.images.ic_circle_filled),
++          stringResource(MR.strings.rainbow_chat_colors),
++          appPrefs.rainbowChatColors,
++          onChange = {
++            appPrefs.rainbowChatColors.set(it)
++            if (it) appPrefs.rainbowMessageText.set(false)
++          }
++        )
++        SettingsPreferenceItem(
++          painterResource(MR.images.ic_edit),
++          stringResource(MR.strings.rainbow_message_text),
++          appPrefs.rainbowMessageText,
++          onChange = {
++            appPrefs.rainbowMessageText.set(it)
++            if (it) appPrefs.rainbowChatColors.set(false)
++          }
++        )
++        SettingsPreferenceItem(
++          painterResource(MR.images.ic_bolt),
++          stringResource(MR.strings.rainbow_low_performance),
++          appPrefs.rainbowLowPerformance
++        )
++        SectionTextFooter(stringResource(MR.strings.rainbow_colors_footer))
++        SectionTextFooter(stringResource(MR.strings.rainbow_low_performance_footer))
++      }
+       SectionItemViewSpaceBetween({ editColor(ThemeColor.PRIMARY) }) {
+         val title = generalGetString(MR.strings.color_primary)
+         Text(title)
+diff --git a/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml b/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml
+index 571bb2fb8..61b4daa3a 100644
+--- a/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml
+@@ -1180,6 +1180,15 @@
+   <string name="theme_colors_section_title">Interface colors</string>
+   <string name="rainbow_mode">Rainbow mode</string>
+   <string name="rainbow_mode_footer">Interface colors keep cycling through the rainbow while the app is open. Your saved colors are not changed.</string>
++  <string name="rainbow_speed">Speed</string>
++  <string name="rainbow_speed_slow">Slow</string>
++  <string name="rainbow_speed_normal">Normal</string>
++  <string name="rainbow_speed_fast">Fast</string>
++  <string name="rainbow_chat_colors">Rainbow chat colors</string>
++  <string name="rainbow_message_text">Rainbow message text</string>
++  <string name="rainbow_low_performance">Low performance mode</string>
++  <string name="rainbow_colors_footer">Chat colors and message text cannot both be rainbow - the text wins, because two colors at once are unreadable.</string>
++  <string name="rainbow_low_performance_footer">Updates the colors less often: the change is less smooth, but the app needs less work, which helps on slower phones.</string>
+   <string name="app_version_title">App version</string>
+   <string name="app_version_name">App version: v%s</string>
+   <string name="app_version_code">App build: %s</string>
+diff --git a/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml b/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml
+index 41f033cea..f08d53aa4 100644
+--- a/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml
+@@ -1143,6 +1143,15 @@
+     <string name="theme_colors_section_title">界面颜色</string>
+     <string name="rainbow_mode">彩虹模式</string>
+     <string name="rainbow_mode_footer">开启后界面颜色会一直循环变色（RGB 效果）。你保存的颜色不会被修改。</string>
++    <string name="rainbow_speed">速度</string>
++    <string name="rainbow_speed_slow">慢</string>
++    <string name="rainbow_speed_normal">标准</string>
++    <string name="rainbow_speed_fast">快</string>
++    <string name="rainbow_chat_colors">聊天颜色也用彩虹</string>
++    <string name="rainbow_message_text">消息文字用彩虹</string>
++    <string name="rainbow_low_performance">低性能模式</string>
++    <string name="rainbow_colors_footer">聊天颜色和消息文字不能同时彩虹——文字优先，因为两个颜色同时变化会看不清。</string>
++    <string name="rainbow_low_performance_footer">降低颜色的更新频率：变色不那么平滑，但应用需要做的渲染更少，在较慢的手机上更流畅。</string>
+     <string name="your_contacts_will_remain_connected">与你的联系人保持连接。</string>
+     <string name="share_with_contacts">与联系人分享</string>
+     <string name="invite_friends">邀请朋友</string>
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/RainbowTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/RainbowTest.kt
+index 5c22f6dc7..20ffcd275 100644
+--- a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/RainbowTest.kt
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/RainbowTest.kt
+@@ -3,6 +3,7 @@ package chat.simplex.app
+ import androidx.compose.material.darkColors
+ import androidx.compose.ui.graphics.Color
+ import chat.simplex.common.model.AppPreferences
++import chat.simplex.common.model.RainbowSpeed
+ import chat.simplex.common.ui.theme.*
+ import kotlin.math.abs
+ import kotlin.test.*
+@@ -158,7 +159,108 @@ class RainbowTest {
+   }
+ 
+   @Test
+-  fun testRainbowModeIsOffByDefault() {
+-    assertFalse(AppPreferences().rainbowThemeColors.get())
++  fun testRainbowSpeedIsAStoredPreference() {
++    // The stored value depends on what the user picked, so this only checks the round trip and the
++    // declared default, never the value itself.
++    assertEquals(RainbowSpeed.NORMAL, RainbowSpeed.default)
++    val prefs = AppPreferences()
++    val previous = prefs.rainbowSpeed.get()
++    try {
++      for (speed in RainbowSpeed.entries) {
++        prefs.rainbowSpeed.set(speed)
++        assertEquals(speed, prefs.rainbowSpeed.get(), "speed $speed round trips")
++      }
++    } finally {
++      prefs.rainbowSpeed.set(previous)
++    }
++  }
++
++  @Test
++  fun testCycleLengthFollowsTheSpeed() {
++    assertEquals(32_000L, rainbowCycleMillis(RainbowSpeed.SLOW))
++    assertEquals(RAINBOW_CYCLE_MILLIS, rainbowCycleMillis(RainbowSpeed.NORMAL))
++    assertEquals(8_000L, rainbowCycleMillis(RainbowSpeed.FAST))
++    // A faster cycle turns the hue by a larger step per update
++    assertTrue(
++      rainbowHueStep(rainbowCycleMillis(RainbowSpeed.FAST)) >
++        rainbowHueStep(rainbowCycleMillis(RainbowSpeed.NORMAL))
++    )
++  }
++
++  @Test
++  fun testLowPerformanceModeUpdatesLessOften() {
++    assertEquals(RAINBOW_UPDATE_MILLIS, rainbowUpdateMillis(false))
++    assertEquals(RAINBOW_UPDATE_MILLIS_LOW_PERFORMANCE, rainbowUpdateMillis(true))
++    assertTrue(rainbowUpdateMillis(true) > rainbowUpdateMillis(false))
++    // The same cycle still takes the same time, it is just drawn in fewer, larger steps
++    val step = rainbowHueStep(rainbowCycleMillis(RainbowSpeed.NORMAL), rainbowUpdateMillis(true))
++    val updatesPerCycle = 360f / step
++    assertFloatEquals(
++      (rainbowCycleMillis(RainbowSpeed.NORMAL) / rainbowUpdateMillis(true)).toFloat(),
++      updatesPerCycle,
++      0.01f
++    )
++  }
++
++  @Test
++  fun testFastSpeedStillCoversTheCycleInWholeSteps() {
++    var phase = 0f
++    val step = rainbowHueStep(rainbowCycleMillis(RainbowSpeed.FAST), rainbowUpdateMillis(false))
++    val steps = (360f / step).toInt()
++    repeat(steps) { phase = nextRainbowPhase(phase, step) }
++    assertTrue(phase >= 0f && phase < 360f, "phase $phase stays in range")
++    assertTrue(abs(phase) < 1f || abs(phase - 360f) < 1f, "a full cycle returns to the start, got $phase")
++  }
++
++  @Test
++  fun testChatColorsAndMessageTextAreMutuallyExclusive() {
++    // Text wins when both are enabled, so the text never sits on a rainbow bubble
++    assertFalse(rainbowChatColorsActive(true, true, true))
++    assertTrue(rainbowMessageTextActive(true, true))
++    assertTrue(rainbowChatColorsActive(true, true, false))
++    assertFalse(rainbowMessageTextActive(true, false))
++    // Everything is off while rainbow mode itself is off
++    assertFalse(rainbowChatColorsActive(false, true, false))
++    assertFalse(rainbowMessageTextActive(false, true))
++  }
++
++  @Test
++  fun testChatColorsCanBeLeftOutOfTheRainbow() {
++    val appColors = AppColors(
++      title = Color(1f, 0f, 0f),
++      primaryVariant2 = Color(0f, 1f, 0f),
++      sentMessage = Color(0f, 0f, 1f),
++      sentQuote = Color(1f, 1f, 0f),
++      receivedMessage = Color(1f, 0f, 1f),
++      receivedQuote = Color(0f, 1f, 1f),
++    )
++    val rainbow = rainbowAppColors(appColors, 90f, chatColors = false)
++    // The chrome still cycles
++    assertNotEquals(appColors.title, rainbow.title)
++    assertNotEquals(appColors.primaryVariant2, rainbow.primaryVariant2)
++    // The bubbles keep the saved colors
++    assertColorEquals(appColors.sentMessage, rainbow.sentMessage)
++    assertColorEquals(appColors.sentQuote, rainbow.sentQuote)
++    assertColorEquals(appColors.receivedMessage, rainbow.receivedMessage)
++    assertColorEquals(appColors.receivedQuote, rainbow.receivedQuote)
++  }
++
++  @Test
++  fun testRainbowTextColorFollowsThePhaseAndStaysReadable() {
++    val darkRed = rainbowTextColor(0f, dark = true)
++    val darkGreen = rainbowTextColor(120f, dark = true)
++    val (redHue, redSat, redValue) = rgbToHsv(darkRed.red, darkRed.green, darkRed.blue)
++    val (greenHue, greenSat, greenValue) = rgbToHsv(darkGreen.red, darkGreen.green, darkGreen.blue)
++    assertFloatEquals(0f, redHue, 1f)
++    assertFloatEquals(120f, greenHue, 1f)
++    // Fixed saturation and brightness: colorful, but neither washed out nor black
++    assertTrue(redSat > 0.5f && greenSat > 0.5f, "text stays saturated")
++    assertTrue(redValue > 0.9f && greenValue > 0.9f, "dark theme text stays bright")
++    val lightText = rainbowTextColor(240f, dark = false)
++    val (_, lightSat, lightValue) = rgbToHsv(lightText.red, lightText.green, lightText.blue)
++    assertTrue(lightSat > 0.5f, "light theme text stays saturated")
++    assertTrue(lightValue < 0.5f, "light theme text stays dark")
++    // The two themes need different colors to stay readable
++    assertNotEquals(rainbowTextColor(0f, dark = true), rainbowTextColor(0f, dark = false))
+   }
+ }
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index f17bb1387..92c3b3217 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -63,7 +63,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC41 | Selected Messages Copy | [README.md](README.md) (Messaging) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../model/ChatModel.kt` (`ciSenderName`, `canCopyChatItem`, `chatItemToText`, `chatItemsToText`, `selectedChatItemsInOrder`), `common/.../views/chat/SelectableChatItemToolbars.kt` (copy button), `common/.../views/chat/ChatView.kt` (`copyItems` lambda) | N/A (client-only) |
+ | PC42 | Time Format | [views/settings.md](views/settings.md) | [spec/client/chat-view.md](../spec/client/chat-view.md), [spec/state.md](../spec/state.md), [spec/architecture.md](../spec/architecture.md) | `common/.../model/SimpleXAPI.kt` (`TimeFormat`, `AppPreferences.timeFormat`), `common/.../model/ChatModel.kt` (`uses24HourFormat`, `timeOfDayPattern`, `getTimestampText`, `localTimestamp`), `common/.../platform/TimeFormat.kt` (+ `.android.kt`, `.desktop.kt`) (`systemUses24HourFormat`), `common/.../views/usersettings/SettingsView.kt` (dropdown) | N/A (client-only) |
+ | PC43 | Range Selection | [views/chat.md](views/chat.md) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../views/chat/ChatSelectionRange.kt` (`mergedItemChatItemIds`, `selectionRangeRows`, `selectionToHereIds`, `selectionToHereAddsItems`, `visibleEdgeRows`), `common/.../views/chat/ChatView.kt` (`selectionAnchor`, `SelectToHereButton`) | N/A (client-only) |
+-| PC44 | Rainbow Mode | [views/settings.md](views/settings.md) | [spec/services/theme.md](../spec/services/theme.md), [spec/state.md](../spec/state.md) | `common/.../ui/theme/Rainbow.kt` (`shiftHue`, `rainbowColors`, `rainbowAppColors`, `rememberRainbowPhase`), `common/.../ui/theme/Theme.kt` (`SimpleXTheme`), `common/.../views/usersettings/Appearance.kt` (`CustomizeThemeColorsSection`), `common/.../model/SimpleXAPI.kt` (`rainbowThemeColors`) | N/A (client-only) |
++| PC44 | Rainbow Mode | [views/settings.md](views/settings.md) | [spec/services/theme.md](../spec/services/theme.md), [spec/state.md](../spec/state.md) | `common/.../ui/theme/Rainbow.kt` (`shiftHue`, `rainbowColors`, `rainbowAppColors`, `rainbowTextColor`, `rainbowCycleMillis`, `rainbowUpdateMillis`, `rainbowChatColorsActive`, `rememberRainbowPhase`, `rememberRainbowChatColors`, `rememberRainbowMessageTextColor`), `common/.../ui/theme/Theme.kt` (`SimpleXTheme`), `common/.../views/usersettings/Appearance.kt` (`CustomizeThemeColorsSection`), `common/.../views/chat/item/TextItemView.kt` (`MarkdownText` text color), `common/.../model/SimpleXAPI.kt` (`rainbowThemeColors`, `rainbowSpeed`, `rainbowChatColors`, `rainbowMessageText`, `rainbowLowPerformance`, `RainbowSpeed`) | N/A (client-only) |
+ | PC45 | Message Preview | [views/chat.md](views/chat.md) | [spec/client/compose.md](../spec/client/compose.md) | `common/.../views/chat/MessagePreviewView.kt` (`messagePreviewAvailable`, `MessagePreviewView`, `showMessagePreview`, `MessagePreviewButton`), `common/.../views/chat/SendMsgView.kt` (preview button next to the send button) | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index b8cf23f19..5173daf6f 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -681,13 +681,33 @@ Enforcement:
+    `"RainbowThemeColors"`); it is not stored in the database, not sent to the core, and not part of the
+    exported `AppSettings`. Starting or stopping it never re-saves a theme.
+ 
++6. **Speed is a preference, the cycle stays whole.** `rainbowSpeed` selects the cycle length
++   (`SLOW` 32 s, `NORMAL` 16 s, `FAST` 8 s) and `rainbowLowPerformance` selects the update interval
++   (`50` ms or `250` ms). The timer is the only one the mode starts, it restarts when either value
++   changes, and the phase MUST still wrap inside `0..360` so one cycle returns to the start.
++
++7. **Exactly one kind of rainbow.** Chat bubble rainbow (`rainbowChatColors`) and message text rainbow
++   (`rainbowMessageText`) MUST never be active together: the bubbles carry the text, so two saturated
++   hues make it unreadable. `rainbowChatColorsActive` resolves this with the text winning, and the
++   settings rows switch the other option off when one is enabled.
++
++8. **Rainbow text gets its own color.** Message text has no hue to rotate, so `rainbowTextColor`
++   derives the hue from the phase with a fixed saturation and brightness per theme (bright on dark,
++   dark on light). It MUST NOT be a hue shift of `onSurface`, which is achromatic in the shipped themes
++   and would stay grey.
++
+ Enforcement:
+ - `common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt` (`shiftHue`, `rainbowColors`,
+-  `rainbowAppColors`, `rememberRainbowPhase`, `nextRainbowPhase`)
++  `rainbowAppColors`, `rainbowTextColor`, `rainbowCycleMillis`, `rainbowUpdateMillis`,
++  `rainbowChatColorsActive`, `rememberRainbowPhase`, `rememberRainbowChatColors`,
++  `rememberRainbowMessageTextColor`, `nextRainbowPhase`)
+ - `common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt` (`SimpleXTheme` passes the
+-  displayed colors; `SimpleXThemeOverride` deliberately does not)
++  displayed colors and gates the bubble colors; `SimpleXThemeOverride` deliberately does not)
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/Appearance.kt`
+-  (`CustomizeThemeColorsSection` toggle and swatches)
++  (`CustomizeThemeColorsSection`: toggle, speed dropdown, the two exclusive color options, low
++  performance, swatches)
++- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TextItemView.kt` (`MarkdownText`
++  resolves its default text color through `rememberRainbowMessageTextColor`)
+ - Test: `common/src/commonTest/kotlin/chat/simplex/app/RainbowTest.kt`
+ 
+ ## 18. Message Preview
+diff --git a/apps/multiplatform/product/views/settings.md b/apps/multiplatform/product/views/settings.md
+index 87e5fffe7..bbaa0be50 100644
+--- a/apps/multiplatform/product/views/settings.md
++++ b/apps/multiplatform/product/views/settings.md
+@@ -160,6 +160,10 @@ Platform-specific composable (`expect fun AppearanceView`):
+ | Toolbar opacity | App bar transparency settings (`inAppBarsAlpha`) |
+ | Color picker | `ClassicColorPicker` for custom theme colors |
+ | Rainbow mode | `rainbowThemeColors` -- cycles the hue of every interface color while the app is open; display-only, the saved colors are not changed (RULE-29). The toggle sits in *Customize theme > Interface colors*, and the color swatches there animate with the interface |
++| Rainbow speed | `rainbowSpeed` -- `Slow` / `Normal` / `Fast`, one full hue cycle in 32 / 16 / 8 seconds. Only shown while rainbow mode is on |
++| Rainbow chat colors | `rainbowChatColors` (on by default) -- the chat bubbles cycle with the rest of the interface; turning it off leaves them in the saved colors |
++| Rainbow message text | `rainbowMessageText` -- draws the message text itself in rainbow colors. Mutually exclusive with *Rainbow chat colors*: enabling one clears the other, so the text always sits on a plain bubble (RULE-29) |
++| Low performance mode | `rainbowLowPerformance` -- updates the hue four times per second instead of twenty: visible steps, but far less recomposition, which keeps the home screen smooth on slower phones |
+ 
+ ### Chat Database Section
+ 
+diff --git a/apps/multiplatform/spec/client/chat-view.md b/apps/multiplatform/spec/client/chat-view.md
+index 8cdec4ff3..da0c050ef 100644
+--- a/apps/multiplatform/spec/client/chat-view.md
++++ b/apps/multiplatform/spec/client/chat-view.md
+@@ -123,6 +123,7 @@ The message list is a `LazyColumnWithScrollBar` with `reverseLayout = true`, mea
+ - **Scroll To Item:** `scrollToItem` lambda supports animated scrolling to a specific item ID, used by search result taps and quoted message navigation.
+ - **Unread Marking:** `MarkItemsReadAfterDelay` composable marks newly visible received items as read after a brief delay.
+ - **Date Separators:** `DateSeparator` composable renders between messages when the date changes (via `ItemSeparation.date`).
++- **Rainbow message text:** when `rainbowMessageText` is on (and rainbow mode is enabled), `MarkdownText` takes its default text color from `rememberRainbowMessageTextColor()` instead of `MaterialTheme.colors.onSurface`, so every markdown surface (text bubbles, quotes, message details) cycles its hue together. The option is exclusive with rainbow chat bubbles (RULE-29).
+ - **Timestamps:** every time of day goes through `getTimestampText` → `timeOfDayPattern(preferredTimeFormatUses24Hour())`, i.e. `HH:mm` or `h:mm a` depending on the `TimeFormat` preference (`SYSTEM` follows `systemUses24HourFormat()`). The date part stays localized (see `product/rules.md` RULE-27).
+ - **Swipe to Reply:** `SwipeToDismiss` modifier on each item (EndToStart direction, 30dp threshold) sets `ComposeContextItem.QuotedItem`.
+ - **Selection Mode:** When `selectedChatItems` is non-null, a checkbox overlay appears on each item; a full-width clickable overlay toggles selection. Each selection also records `selectionAnchor` (a per-chat `rememberSaveable` id of the last item the user selected), which is the starting point of a range.
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index 22697a8b4..e27c96cf0 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -154,7 +154,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | Source File | Product Concepts Affected | Risk Level | Notes |
+ |-------------|--------------------------|------------|-------|
+ | `views/chat/item/ChatItemView.kt` | PC2, PC3, PC5, PC6, PC7, PC8, PC32, PC41 | High | Root chat item renderer with context menus; the single-message Copy action passes `ciTextWithQuote` to `copyItemToClipboard` |
+-| `views/chat/item/TextItemView.kt` | PC2, PC3, PC4, PC32 | Medium | Text message bubble rendering |
++| `views/chat/item/TextItemView.kt` | PC2, PC3, PC4, PC32, PC44 | Medium | Text message bubble rendering; `MarkdownText` resolves its default text color through `rememberRainbowMessageTextColor`, so rainbow message text reaches every markdown surface |
+ | `views/chat/item/MarkdownBlocks.kt` | PC4, PC32 | Medium | Block Markdown rendering; terminal block gaps and headings |
+ | `views/chat/item/FramedItemView.kt` | PC4, PC6, PC10, PC11, PC32 | Medium | Framed (quoted/forwarded) message container |
+ | `views/chat/item/TerminalItemView.kt` | PC2, PC3, PC32 | Medium | Terminal layout rows, sender rows, time placement |
+diff --git a/apps/multiplatform/spec/services/theme.md b/apps/multiplatform/spec/services/theme.md
+index fa75a03ea..14eea7010 100644
+--- a/apps/multiplatform/spec/services/theme.md
++++ b/apps/multiplatform/spec/services/theme.md
+@@ -402,20 +402,41 @@ touched, so turning the mode off restores the exact colors the user picked.
+ 
+ | Piece | Purpose |
+ |---|---|
+-| `RAINBOW_CYCLE_MILLIS` (`16_000`) | Duration of one full 360° hue cycle |
++| `RAINBOW_CYCLE_MILLIS` (`16_000`) | Duration of one full 360° hue cycle at the normal speed |
+ | `RAINBOW_UPDATE_MILLIS` (`50`) | How often the hue offset changes; 20 steps per second look continuous for a cycle this slow and cost far less than recomposing on every frame |
+-| `nextRainbowPhase(phase)` | Advances the phase by `rainbowHueStep()` and wraps it into `0..360` |
++| `RAINBOW_UPDATE_MILLIS_LOW_PERFORMANCE` (`250`) | Update interval in low performance mode: four steps per second, visibly stepped but 5x cheaper |
++| `rainbowCycleMillis(speed)` | Cycle length for `RainbowSpeed`: `SLOW` 32 s, `NORMAL` 16 s, `FAST` 8 s |
++| `rainbowUpdateMillis(lowPerformance)` | `50` normally, `250` in low performance mode |
++| `rainbowHueStep(cycleMillis, updateMillis)` | Degrees the phase advances between two updates |
++| `nextRainbowPhase(phase, step)` | Advances the phase and wraps it into `0..360` |
+ | `rgbToHsv` / `hsvToRgb` | Platform-independent conversions (no `java.awt`, works on Android too) |
+ | `shiftHue(color, degrees)` | Rotates one color, keeping saturation, brightness and alpha. Achromatic colors (greys, black, white) are returned unchanged, which keeps backgrounds and text readable |
+ | `rainbowColors(colors, phase)` | `MaterialTheme` palette with every field shifted by the shared phase |
+-| `rainbowAppColors(appColors, phase)` | `AppColors` (title, `primaryVariant2`, sent/received message and quote colors) shifted by the same phase |
+-| `rememberRainbowPhase(): Float` | The current offset, or `0` when `appPrefs.rainbowThemeColors` is off |
++| `rainbowAppColors(appColors, phase, chatColors)` | `AppColors` (title, `primaryVariant2`, sent/received message and quote colors) shifted by the same phase; the four chat colors keep their saved value when `chatColors` is false |
++| `rainbowTextColor(phase, dark)` | The message-text color: hue from the phase, with a fixed saturation and brightness per theme so the text stays readable on a bubble |
++| `rainbowChatColorsActive(enabled, chatColors, messageText)` | Whether the chat bubbles take part: only when rainbow mode, the chat-colors option are on and the message text is **not** rainbow |
++| `rainbowMessageTextActive(enabled, messageText)` | Whether message text is rainbow |
++| `rememberRainbowPhase(): Float` | The current offset, or `0` when `appPrefs.rainbowThemeColors` is off. It runs the only timer rainbow mode starts, at the configured speed and update interval |
++| `rememberRainbowChatColors(): Boolean` | The resolved chat-colors decision, read from the three preferences |
++| `rememberRainbowMessageTextColor(): Color?` | The message text color, or `null` when the text is not rainbow |
+ 
+ The same phase is used for every color, so the interface moves through the spectrum as a whole and a
+ color swatch in the settings list always shows the same hue as the color it stands for. The swatches in
+ `CustomizeThemeColorsSection` (`views/usersettings/Appearance.kt`) call `shiftHue` with that phase, and
+ `SimpleXTheme` feeds `rainbowColors` / `rainbowAppColors` into `MaterialTheme` and `LocalAppColors`.
+ 
++The options that shape the mode live in the same section and only appear while it is on:
++`rainbowSpeed` (cycle length), `rainbowChatColors` (bubbles take part, on by default),
++`rainbowMessageText` (the text itself is rainbow, off by default) and `rainbowLowPerformance`
++(update interval). Chat colors and message text are **mutually exclusive**: two saturated hues at once
++make the text unreadable, so the text wins in `rainbowChatColorsActive` and the settings rows clear the
++other preference when one is switched on.
++
++Message text has no hue of its own to rotate, so `rainbowTextColor` builds a color from the phase
++instead. `MarkdownText` (`views/chat/item/TextItemView.kt`) resolves its default text color through
++`rememberRainbowMessageTextColor()`, which is why the option reaches chat items, quotes and the message
++preview without touching any of their call sites.
++
+ `SimpleXThemeOverride`, used for per-chat theme previews and the color editor preview, deliberately does
+ not apply the phase: it shows the colors that are being edited.
+ 
+diff --git a/apps/multiplatform/spec/state.md b/apps/multiplatform/spec/state.md
+index 19123d77e..d00e4cb4e 100644
+--- a/apps/multiplatform/spec/state.md
++++ b/apps/multiplatform/spec/state.md
+@@ -337,6 +337,7 @@ The `text` extension on the enum returns the localized status string (resource k
+ <a id="appPrefs"></a>
+ <a id="ChatEnterKeyCombination"></a>
+ <a id="TimeFormat"></a>
++<a id="RainbowSpeed"></a>
+ 
+ ## 5. AppPreferences
+ 
+@@ -472,6 +473,10 @@ val appPrefs: AppPreferences by lazy { AppPreferences() }
+ | `favoritesAsPinned` | `Boolean` | `false` | Show favorite contacts and groups at the top of the home chat list (`favoritesPinnedFirst`); a display preference, the chat order itself is unchanged |
+ | `timeFormat` | `TimeFormat` (`SYSTEM`, `HOUR_12`, `HOUR_24`) | `SYSTEM` | 12/24-hour convention for every time of day (`uses24HourFormat`), `SYSTEM` defers to `systemUses24HourFormat()`; a local display preference |
+ | `rainbowThemeColors` | `Boolean` | `false` | Cycle the hue of every interface color while the app is open (`rememberRainbowPhase`, `rainbowColors`); display-only, the saved theme is untouched |
++| `rainbowSpeed` | `RainbowSpeed` (`SLOW`, `NORMAL`, `FAST`) | `NORMAL` | Length of one hue cycle: 32 s / 16 s / 8 s (`rainbowCycleMillis`) |
++| `rainbowChatColors` | `Boolean` | `true` | Let the chat bubble colors take part in the cycle (`rainbowAppColors(..., chatColors)`); forced off while `rainbowMessageText` is on |
++| `rainbowMessageText` | `Boolean` | `false` | Render the message text itself in rainbow colors (`rainbowTextColor` via `MarkdownText`); exclusive with `rainbowChatColors` |
++| `rainbowLowPerformance` | `Boolean` | `false` | Fewer hue updates per second (250 ms instead of 50 ms), which eases the load on slower phones |
+ 
+ `TimeFormat` (SimpleXAPI.kt line 127) models the 12/24-hour convention: `SYSTEM`, `HOUR_12`, `HOUR_24`.
+ `uses24HourFormat(format, systemUses24Hour)` in `ChatModel.kt` resolves it (an explicit choice wins,
+@@ -483,6 +488,13 @@ part from `timeOfDayPattern(use24Hour)`. The `text` extension returns the locali
+ `SimpleXTheme` hands `rainbowColors` / `rainbowAppColors` to `MaterialTheme` and `LocalAppColors`, but
+ `CurrentColors` and the stored `ThemeOverrides` keep the user's colors.
+ 
++`RainbowSpeed` (SimpleXAPI.kt line 145) models the cycle length (`SLOW`, `NORMAL`, `FAST`; `text`
++returns the localized label and `default` is `NORMAL`). The other three keys only matter while rainbow
++mode is on: `rainbowChatColors` (`"RainbowChatColors"`, on by default — the bubbles are part of the
++interface palette), `rainbowMessageText` (`"RainbowMessageText"`) and `rainbowLowPerformance`
++(`"RainbowLowPerformance"`). `rainbowChatColors` and `rainbowMessageText` are mutually exclusive —
++`rainbowChatColorsActive` gives the text priority, and the settings rows clear the other preference.
++
+ #### Desktop Chat Input (lines 153-154)
+ 
+ Desktop-only Enter key bindings for the compose field. Values are `ChatEnterKeyCombination` members (`ENTER`, `SHIFT_ENTER`, `CTRL_ENTER`, `ALT_ENTER`), defined in the same file.
+diff --git a/plans/2026-11-03-rainbow-options.md b/plans/2026-11-03-rainbow-options.md
+new file mode 100644
+index 000000000..0b1a52ea7
+--- /dev/null
++++ b/plans/2026-11-03-rainbow-options.md
+@@ -0,0 +1,68 @@
++# Rainbow mode options: speed, chat colors, message text, low performance
++
++## Problem
++
++Rainbow mode (`d50916901`) rotated the hue of every interface color, including the chat bubbles, at a
++fixed 16-second cycle and 20 updates per second. Three complaints followed:
++
++1. the cycle speed cannot be changed;
++2. the bubbles are always rainbow, but the user may want colorful chrome with plain chat (and the
++   request also asked for the *text* to be rainbow, which is a different thing);
++3. on phones the home screen became janky with the mode on.
++
++## Solution
++
++Four preferences, all in the *Customize theme > Interface colors* section, all only visible while
++rainbow mode is on:
++
++| Preference | Default | Effect |
++|---|---|---|
++| `rainbowSpeed` (`RainbowSpeed`) | `NORMAL` | cycle length 32 s / 16 s / 8 s |
++| `rainbowChatColors` | `true` | bubble colors take part in the rotation |
++| `rainbowMessageText` | `false` | the message text itself is rainbow |
++| `rainbowLowPerformance` | `false` | hue updates every 250 ms instead of 50 ms |
++
++## Design decisions
++
++- **The timer stays the only timer.** `rememberRainbowPhase()` reads the speed and the low-performance
++  flag, computes the step once, and restarts its `LaunchedEffect` only when those change. No new
++  composable starts a clock.
++- **Low performance trades smoothness for work.** 250 ms is four updates per second: visibly stepped,
++  but 5x fewer recompositions of the whole app, which is what the home-screen jank needed. The cycle
++  length is unchanged, so the colors still complete a rotation in the same time.
++- **Bubbles are on by default.** They were already cycling, so keeping `rainbowChatColors = true` makes
++  this change purely additive for existing users; the switch exists to turn them off.
++- **Text and bubbles are mutually exclusive, and text wins in code.** `rainbowChatColorsActive(enabled,
++  chatColors, messageText)` returns false whenever the text is rainbow, so even a stale preference
++  combination cannot produce an unreadable bubble; the settings rows additionally clear the other
++  toggle when one is switched on, so the UI never shows two active options.
++- **Text rainbow is a color, not a hue shift.** `onSurface` is achromatic in the shipped themes, so
++  `shiftHue` would return it unchanged. `rainbowTextColor(phase, dark)` builds the color from the phase
++  with a fixed saturation/brightness per theme (bright on dark, dark on light), which keeps contrast on
++  the bubble.
++- **One place for the text color.** `MarkdownText`'s default `style` resolves the color through
++  `rememberRainbowMessageTextColor()`, so text bubbles, quotes and the message-details modal all follow
++  the option without touching their call sites. Callers that pass an explicit style keep control.
++- **Still display-only and local.** All four keys are client-side `AppPreferences`; nothing is written
++  to the theme, the database, or `AppSettings` (RULE-29 invariant 5 is unchanged).
++
++## Rejected alternatives
++
++- A per-color "rainbow" checkbox next to each of the eight swatches: the request is about modes, and
++  eight independent switches would be unreadable anyway.
++- Letting both rainbows coexist with a warning: the user explicitly asked for exclusion because the text
++  becomes unreadable.
++- Rebuilding `SimpleXTheme` per animation frame for maximum smoothness: that is exactly the cost the
++  low-performance mode exists to avoid.
++- Hue-shifting `onSurface` for the text: it is grey in the shipped themes, so nothing would change.
++
++## Verification
++
++`./gradlew :common:desktopTest` → 25 suites, 179 tests, no failures (`RainbowTest` now 19 cases,
++covering cycle length per speed, update intervals, the mutual exclusion, bubble opt-out, the text color
++range for both themes, and the speed preference round trip).
++`./gradlew :common:compileDebugKotlinAndroid` → `BUILD SUCCESSFUL`.
++
++Note: the desktop tests share the app's real `java.util.prefs` store, so a test that asserts a stored
++default is environment-dependent (it failed once because the developer had rainbow mode switched on).
++The speed test sets and restores the value instead of asserting it.

@@ -1180,6 +1180,15 @@
   <string name="theme_colors_section_title">Interface colors</string>
   <string name="rainbow_mode">Rainbow mode</string>
   <string name="rainbow_mode_footer">Interface colors keep cycling through the rainbow while the app is open. Your saved colors are not changed.</string>
+  <string name="rainbow_speed">Speed</string>
+  <string name="rainbow_speed_slow">Slow</string>
+  <string name="rainbow_speed_normal">Normal</string>
+  <string name="rainbow_speed_fast">Fast</string>
+  <string name="rainbow_chat_colors">Rainbow chat colors</string>
+  <string name="rainbow_message_text">Rainbow message text</string>
+  <string name="rainbow_low_performance">Low performance mode</string>
+  <string name="rainbow_colors_footer">Chat colors and message text cannot both be rainbow - the text wins, because two colors at once are unreadable.</string>
+  <string name="rainbow_low_performance_footer">Updates the colors less often: the change is less smooth, but the app needs less work, which helps on slower phones.</string>
   <string name="app_version_title">App version</string>
   <string name="app_version_name">App version: v%s</string>
   <string name="app_version_code">App build: %s</string>

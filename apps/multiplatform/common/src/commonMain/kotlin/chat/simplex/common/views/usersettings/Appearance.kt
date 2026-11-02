@@ -1048,6 +1048,43 @@ object AppearanceScope {
         stringResource(MR.strings.rainbow_mode),
         appPrefs.rainbowThemeColors
       )
+      // The settings below only matter while rainbow mode is on, so they are not shown otherwise.
+      if (remember { appPrefs.rainbowThemeColors.state }.value) {
+        val rainbowSpeed = remember { appPrefs.rainbowSpeed.state }
+        val speeds = remember { RainbowSpeed.entries.map { it to it.text } }
+        ExposedDropDownSettingRow(
+          stringResource(MR.strings.rainbow_speed),
+          speeds,
+          rainbowSpeed,
+          icon = painterResource(MR.images.ic_schedule)
+        ) { appPrefs.rainbowSpeed.set(it) }
+        // Chat colors and message text are mutually exclusive: enabling one turns the other off.
+        SettingsPreferenceItem(
+          painterResource(MR.images.ic_circle_filled),
+          stringResource(MR.strings.rainbow_chat_colors),
+          appPrefs.rainbowChatColors,
+          onChange = {
+            appPrefs.rainbowChatColors.set(it)
+            if (it) appPrefs.rainbowMessageText.set(false)
+          }
+        )
+        SettingsPreferenceItem(
+          painterResource(MR.images.ic_edit),
+          stringResource(MR.strings.rainbow_message_text),
+          appPrefs.rainbowMessageText,
+          onChange = {
+            appPrefs.rainbowMessageText.set(it)
+            if (it) appPrefs.rainbowChatColors.set(false)
+          }
+        )
+        SettingsPreferenceItem(
+          painterResource(MR.images.ic_bolt),
+          stringResource(MR.strings.rainbow_low_performance),
+          appPrefs.rainbowLowPerformance
+        )
+        SectionTextFooter(stringResource(MR.strings.rainbow_colors_footer))
+        SectionTextFooter(stringResource(MR.strings.rainbow_low_performance_footer))
+      }
       SectionItemViewSpaceBetween({ editColor(ThemeColor.PRIMARY) }) {
         val title = generalGetString(MR.strings.color_primary)
         Text(title)

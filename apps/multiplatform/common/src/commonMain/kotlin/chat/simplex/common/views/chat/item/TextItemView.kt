@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import chat.simplex.common.model.*
 import chat.simplex.common.platform.*
 import chat.simplex.common.ui.theme.CurrentColors
+import chat.simplex.common.ui.theme.rememberRainbowMessageTextColor
 import chat.simplex.common.ui.theme.DEFAULT_PADDING
 import chat.simplex.common.ui.theme.appColors
 import chat.simplex.common.views.chat.ItemSelection
@@ -184,7 +185,7 @@ fun MarkdownText (
   userMemberId: String? = null,
   toggleSecrets: Boolean,
   sendCommandMsg: ((String) -> Unit)? = null,
-  style: TextStyle = MaterialTheme.typography.body1.copy(color = messageTextColor(), lineHeight = 22.sp),
+  style: TextStyle = MaterialTheme.typography.body1.copy(color = rememberRainbowMessageTextColor() ?: messageTextColor(), lineHeight = 22.sp),
   maxLines: Int = Int.MAX_VALUE,
   overflow: TextOverflow = TextOverflow.Clip,
   uriHandler: UriHandler? = null,

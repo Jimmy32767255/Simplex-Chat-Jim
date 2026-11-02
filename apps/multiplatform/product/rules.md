@@ -681,13 +681,33 @@ Enforcement:
    `"RainbowThemeColors"`); it is not stored in the database, not sent to the core, and not part of the
    exported `AppSettings`. Starting or stopping it never re-saves a theme.
 
+6. **Speed is a preference, the cycle stays whole.** `rainbowSpeed` selects the cycle length
+   (`SLOW` 32 s, `NORMAL` 16 s, `FAST` 8 s) and `rainbowLowPerformance` selects the update interval
+   (`50` ms or `250` ms). The timer is the only one the mode starts, it restarts when either value
+   changes, and the phase MUST still wrap inside `0..360` so one cycle returns to the start.
+
+7. **Exactly one kind of rainbow.** Chat bubble rainbow (`rainbowChatColors`) and message text rainbow
+   (`rainbowMessageText`) MUST never be active together: the bubbles carry the text, so two saturated
+   hues make it unreadable. `rainbowChatColorsActive` resolves this with the text winning, and the
+   settings rows switch the other option off when one is enabled.
+
+8. **Rainbow text gets its own color.** Message text has no hue to rotate, so `rainbowTextColor`
+   derives the hue from the phase with a fixed saturation and brightness per theme (bright on dark,
+   dark on light). It MUST NOT be a hue shift of `onSurface`, which is achromatic in the shipped themes
+   and would stay grey.
+
 Enforcement:
 - `common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt` (`shiftHue`, `rainbowColors`,
-  `rainbowAppColors`, `rememberRainbowPhase`, `nextRainbowPhase`)
+  `rainbowAppColors`, `rainbowTextColor`, `rainbowCycleMillis`, `rainbowUpdateMillis`,
+  `rainbowChatColorsActive`, `rememberRainbowPhase`, `rememberRainbowChatColors`,
+  `rememberRainbowMessageTextColor`, `nextRainbowPhase`)
 - `common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt` (`SimpleXTheme` passes the
-  displayed colors; `SimpleXThemeOverride` deliberately does not)
+  displayed colors and gates the bubble colors; `SimpleXThemeOverride` deliberately does not)
 - `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/Appearance.kt`
-  (`CustomizeThemeColorsSection` toggle and swatches)
+  (`CustomizeThemeColorsSection`: toggle, speed dropdown, the two exclusive color options, low
+  performance, swatches)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TextItemView.kt` (`MarkdownText`
+  resolves its default text color through `rememberRainbowMessageTextColor`)
 - Test: `common/src/commonTest/kotlin/chat/simplex/app/RainbowTest.kt`
 
 ## 18. Message Preview

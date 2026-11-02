@@ -144,6 +144,23 @@ enum class TimeFormat {
   }
 }
 
+// How quickly the rainbow mode rotates the hue. Slower cycles are calmer and cheaper to recompose.
+// Spec: spec/state.md#RainbowSpeed
+enum class RainbowSpeed {
+  SLOW, NORMAL, FAST;
+
+  val text: String
+    get() = when (this) {
+      SLOW -> generalGetString(MR.strings.rainbow_speed_slow)
+      NORMAL -> generalGetString(MR.strings.rainbow_speed_normal)
+      FAST -> generalGetString(MR.strings.rainbow_speed_fast)
+    }
+
+  companion object {
+    val default = NORMAL
+  }
+}
+
 class HintPref(val reset: () -> Unit, val isUnchanged: () -> Boolean)
 
 // Spec: spec/state.md#AppPreferences
@@ -344,6 +361,16 @@ class AppPreferences {
   // Cycle the hue of the theme colors while the app is open. Display-only: the saved theme is never
   // modified, and the mode is a client-side preference (not part of the exported AppSettings).
   val rainbowThemeColors = mkBoolPreference(SHARED_PREFS_RAINBOW_THEME_COLORS, false)
+  val rainbowSpeed: SharedPreference<RainbowSpeed> = mkSafeEnumPreference(SHARED_PREFS_RAINBOW_SPEED, RainbowSpeed.default)
+  // Whether chat bubbles take part in rainbow mode. They are part of the interface colors, so this is
+  // on by default; turning it off keeps only the chrome colorful (and is forced off while the message
+  // text is rainbow, see `rainbowChatColorsActive`).
+  val rainbowChatColors = mkBoolPreference(SHARED_PREFS_RAINBOW_CHAT_COLORS, true)
+  // Rainbow message text instead of rainbow bubbles: the two would make the text unreadable together.
+  val rainbowMessageText = mkBoolPreference(SHARED_PREFS_RAINBOW_MESSAGE_TEXT, false)
+  // Fewer hue updates per second: the colors change in visible steps but the app recomposes less often,
+  // which keeps the home screen smooth on slower phones.
+  val rainbowLowPerformance = mkBoolPreference(SHARED_PREFS_RAINBOW_LOW_PERFORMANCE, false)
 
   val hintPreferences: List<HintPref> = listOf(
     hintPref(laNoticeShown, false),
@@ -570,6 +597,10 @@ class AppPreferences {
     private const val SHARED_PREFS_FAVORITES_AS_PINNED = "FavoritesAsPinned"
     private const val SHARED_PREFS_TIME_FORMAT = "TimeFormat"
     private const val SHARED_PREFS_RAINBOW_THEME_COLORS = "RainbowThemeColors"
+    private const val SHARED_PREFS_RAINBOW_SPEED = "RainbowSpeed"
+    private const val SHARED_PREFS_RAINBOW_CHAT_COLORS = "RainbowChatColors"
+    private const val SHARED_PREFS_RAINBOW_MESSAGE_TEXT = "RainbowMessageText"
+    private const val SHARED_PREFS_RAINBOW_LOW_PERFORMANCE = "RainbowLowPerformance"
     private const val SHARED_PREFS_SELF_DESTRUCT = "LocalAuthenticationSelfDestruct"
     private const val SHARED_PREFS_SELF_DESTRUCT_DISPLAY_NAME = "LocalAuthenticationSelfDestructDisplayName"
     private const val SHARED_PREFS_PQ_EXPERIMENTAL_ENABLED = "PQExperimentalEnabled" // no longer used

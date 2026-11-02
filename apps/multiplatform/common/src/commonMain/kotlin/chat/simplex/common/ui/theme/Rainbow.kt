@@ -1,54 +1,64 @@
 package chat.simplex.common.ui.theme
 
-import androidx.compose.animation.core.*
 import androidx.compose.material.Colors
+import androidx.compose.material.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
 import chat.simplex.common.model.ChatController.appPrefs
+import chat.simplex.common.model.RainbowSpeed
 import kotlinx.coroutines.delay
 
-// Spec: spec/services/theme.md#rainbow-mode
+// Rainbow mode: every color of the active theme is rotated around the HSV hue circle by one shared
+// phase, so the whole interface stays consistent while it cycles. The theme itself never changes --
+// only what is displayed does. Spec: spec/services/theme.md#rainbow-mode
 
-/**
- * Rainbow mode rotates the hue of every theme color over time without touching the saved theme.
- *
- * The hue offset is a single value shared by the whole palette: the interface moves through the
- * spectrum as one piece, and a color swatch in the settings always shows the same hue as the color it
- * stands for.
- */
+/** Length of one full hue rotation at the normal speed. */
 internal const val RAINBOW_CYCLE_MILLIS: Long = 16_000
 
-/**
- * How often the hue offset is recomputed. The cycle is slow enough that 20 updates per second still
- * look continuous, and a lower rate keeps the cost of recomposing the interface with new colors
- * reasonable compared to animating on every frame.
- */
+/** Time between two hue updates at the normal speed: 20 per second, enough for a slow cycle. */
 internal const val RAINBOW_UPDATE_MILLIS: Long = 50
 
-/** Hue offset added per update, so a full cycle takes [RAINBOW_CYCLE_MILLIS] regardless of the update rate. */
-internal fun rainbowHueStep(): Float = 360f * RAINBOW_UPDATE_MILLIS / RAINBOW_CYCLE_MILLIS
+/**
+ * Time between two hue updates in low performance mode. Four updates per second look stepped, but the
+ * app recomposes 5x less often, which is what keeps the home screen smooth on slower phones.
+ */
+internal const val RAINBOW_UPDATE_MILLIS_LOW_PERFORMANCE: Long = 250
 
-internal fun nextRainbowPhase(phase: Float): Float {
-  val next = phase + rainbowHueStep()
+/** Length of one full hue rotation for the selected speed. */
+internal fun rainbowCycleMillis(speed: RainbowSpeed): Long = when (speed) {
+  RainbowSpeed.SLOW -> 32_000
+  RainbowSpeed.NORMAL -> RAINBOW_CYCLE_MILLIS
+  RainbowSpeed.FAST -> 8_000
+}
+
+internal fun rainbowUpdateMillis(lowPerformance: Boolean): Long =
+  if (lowPerformance) RAINBOW_UPDATE_MILLIS_LOW_PERFORMANCE else RAINBOW_UPDATE_MILLIS
+
+/** Degrees the phase advances between two updates. */
+internal fun rainbowHueStep(
+  cycleMillis: Long = RAINBOW_CYCLE_MILLIS,
+  updateMillis: Long = RAINBOW_UPDATE_MILLIS
+): Float = 360f * updateMillis / cycleMillis
+
+internal fun nextRainbowPhase(phase: Float, step: Float = rainbowHueStep()): Float {
+  val next = phase + step
   return if (next >= 360f) next - 360f else next
 }
 
-/** Returns `(hue, saturation, value)` with hue in `0..360` and the other components in `0..1`. */
 internal fun rgbToHsv(red: Float, green: Float, blue: Float): Triple<Float, Float, Float> {
-  val maxC = maxOf(red, green, blue)
-  val minC = minOf(red, green, blue)
-  val delta = maxC - minC
+  val max = maxOf(red, green, blue)
+  val min = minOf(red, green, blue)
+  val delta = max - min
   val hue = when {
     delta == 0f -> 0f
-    maxC == red -> 60f * (((green - blue) / delta) % 6f)
-    maxC == green -> 60f * (((blue - red) / delta) + 2f)
+    max == red -> 60f * (((green - blue) / delta) % 6f)
+    max == green -> 60f * (((blue - red) / delta) + 2f)
     else -> 60f * (((red - green) / delta) + 4f)
   }
-  val saturation = if (maxC == 0f) 0f else delta / maxC
-  return Triple(if (hue < 0f) hue + 360f else hue, saturation, maxC)
+  val saturation = if (max == 0f) 0f else delta / max
+  return Triple(if (hue < 0f) hue + 360f else hue, saturation, max)
 }
 
-/** Returns `(red, green, blue)` in `0..1` for the given hue (`0..360`), saturation and value (`0..1`). */
 internal fun hsvToRgb(hue: Float, saturation: Float, value: Float): Triple<Float, Float, Float> {
   val h = ((hue % 360f) + 360f) % 360f
   val c = value * saturation
@@ -66,9 +76,9 @@ internal fun hsvToRgb(hue: Float, saturation: Float, value: Float): Triple<Float
 }
 
 /**
- * Rotates the hue of [color] by [degrees], keeping its saturation, brightness and alpha. Colors without
- * a hue (greys, black, white) come back unchanged, which is what keeps backgrounds and text readable in
- * rainbow mode.
+ * Rotates the hue of [color] by [degrees]. Achromatic colors (greys, black, white) and transparent
+ * colors are returned unchanged: they have no hue to rotate, and shifting them would only make the
+ * interface unreadable.
  */
 internal fun shiftHue(color: Color, degrees: Float): Color {
   if (degrees == 0f || color.alpha == 0f) return color
@@ -78,54 +88,99 @@ internal fun shiftHue(color: Color, degrees: Float): Color {
   return Color(red, green, blue, color.alpha)
 }
 
-internal fun rainbowColors(colors: Colors, phase: Float): Colors {
-  if (phase == 0f) return colors
-  fun shift(color: Color): Color = shiftHue(color, phase)
-  return colors.copy(
-    primary = shift(colors.primary),
-    primaryVariant = shift(colors.primaryVariant),
-    secondary = shift(colors.secondary),
-    secondaryVariant = shift(colors.secondaryVariant),
-    background = shift(colors.background),
-    surface = shift(colors.surface),
-    error = shift(colors.error),
-    onPrimary = shift(colors.onPrimary),
-    onSecondary = shift(colors.onSecondary),
-    onBackground = shift(colors.onBackground),
-    onSurface = shift(colors.onSurface),
-    onError = shift(colors.onError),
-  )
-}
+/** The Material palette with every color rotated by [phase]. */
+internal fun rainbowColors(colors: Colors, phase: Float): Colors = colors.copy(
+  primary = shiftHue(colors.primary, phase),
+  primaryVariant = shiftHue(colors.primaryVariant, phase),
+  secondary = shiftHue(colors.secondary, phase),
+  secondaryVariant = shiftHue(colors.secondaryVariant, phase),
+  background = shiftHue(colors.background, phase),
+  surface = shiftHue(colors.surface, phase),
+  error = shiftHue(colors.error, phase),
+  onPrimary = shiftHue(colors.onPrimary, phase),
+  onSecondary = shiftHue(colors.onSecondary, phase),
+  onBackground = shiftHue(colors.onBackground, phase),
+  onSurface = shiftHue(colors.onSurface, phase),
+  onError = shiftHue(colors.onError, phase),
+)
 
-internal fun rainbowAppColors(appColors: AppColors, phase: Float): AppColors {
-  if (phase == 0f) return appColors
-  fun shift(color: Color): Color = shiftHue(color, phase)
-  return appColors.copy(
-    title = shift(appColors.title),
-    primaryVariant2 = shift(appColors.primaryVariant2),
-    sentMessage = shift(appColors.sentMessage),
-    sentQuote = shift(appColors.sentQuote),
-    receivedMessage = shift(appColors.receivedMessage),
-    receivedQuote = shift(appColors.receivedQuote),
+/**
+ * The app palette with the colors rotated by [phase]. The chat bubble colors only take part when
+ * [chatColors] is set: they are the largest colored areas on the screen, so they can be turned off
+ * (and are turned off while the message text is rainbow, see [rainbowChatColorsActive]).
+ */
+internal fun rainbowAppColors(appColors: AppColors, phase: Float, chatColors: Boolean = true): AppColors =
+  appColors.copy(
+    title = shiftHue(appColors.title, phase),
+    primaryVariant2 = shiftHue(appColors.primaryVariant2, phase),
+    sentMessage = if (chatColors) shiftHue(appColors.sentMessage, phase) else appColors.sentMessage,
+    sentQuote = if (chatColors) shiftHue(appColors.sentQuote, phase) else appColors.sentQuote,
+    receivedMessage = if (chatColors) shiftHue(appColors.receivedMessage, phase) else appColors.receivedMessage,
+    receivedQuote = if (chatColors) shiftHue(appColors.receivedQuote, phase) else appColors.receivedQuote,
   )
+
+/**
+ * The color of chat message text in rainbow mode. The hue comes straight from [phase] because text
+ * colors have no hue of their own to rotate; saturation and brightness are fixed per theme so the text
+ * stays readable on top of the bubble.
+ */
+internal fun rainbowTextColor(phase: Float, dark: Boolean): Color {
+  val (red, green, blue) = hsvToRgb(
+    phase,
+    saturation = if (dark) 0.55f else 0.85f,
+    value = if (dark) 0.95f else 0.45f
+  )
+  return Color(red, green, blue)
 }
 
 /**
- * The current hue offset of rainbow mode, or `0` when the mode is off.
- *
- * Reading the returned value from a composable subscribes it to the animation; callers are expected to
- * pass the result to [rainbowColors] / [rainbowAppColors] rather than to store it.
+ * Chat colors and message text are never rainbow at the same time: two fully saturated hues together
+ * make the text unreadable, so the text wins when both are enabled.
+ */
+internal fun rainbowChatColorsActive(enabled: Boolean, chatColors: Boolean, messageText: Boolean): Boolean =
+  enabled && chatColors && !messageText
+
+internal fun rainbowMessageTextActive(enabled: Boolean, messageText: Boolean): Boolean =
+  enabled && messageText
+
+/**
+ * The current hue phase, advanced by a timer while rainbow mode is on, and `0f` while it is off (so
+ * every caller falls back to the plain theme). The timer runs at the configured speed and update
+ * interval, and it is the only timer rainbow mode starts.
  */
 @Composable
 fun rememberRainbowPhase(): Float {
   val enabled = remember { appPrefs.rainbowThemeColors.state }.value
   if (!enabled) return 0f
+  val speed = remember { appPrefs.rainbowSpeed.state }.value
+  val lowPerformance = remember { appPrefs.rainbowLowPerformance.state }.value
+  val updateMillis = rainbowUpdateMillis(lowPerformance)
+  val step = rainbowHueStep(rainbowCycleMillis(speed), updateMillis)
   val phase = remember { mutableStateOf(0f) }
-  LaunchedEffect(Unit) {
+  LaunchedEffect(step, updateMillis) {
     while (true) {
-      delay(RAINBOW_UPDATE_MILLIS)
-      phase.value = nextRainbowPhase(phase.value)
+      delay(updateMillis)
+      phase.value = nextRainbowPhase(phase.value, step)
     }
   }
   return phase.value
+}
+
+/** Whether the chat bubble colors take part in rainbow mode. */
+@Composable
+fun rememberRainbowChatColors(): Boolean {
+  val enabled = remember { appPrefs.rainbowThemeColors.state }.value
+  val chatColors = remember { appPrefs.rainbowChatColors.state }.value
+  val messageText = remember { appPrefs.rainbowMessageText.state }.value
+  return rainbowChatColorsActive(enabled, chatColors, messageText)
+}
+
+/** The color of chat message text in rainbow mode, or `null` when the text is not rainbow. */
+@Composable
+fun rememberRainbowMessageTextColor(): Color? {
+  val enabled = remember { appPrefs.rainbowThemeColors.state }.value
+  val messageText = remember { appPrefs.rainbowMessageText.state }.value
+  if (!rainbowMessageTextActive(enabled, messageText)) return null
+  val phase = rememberRainbowPhase()
+  return rainbowTextColor(phase, dark = !MaterialTheme.colors.isLight)
 }

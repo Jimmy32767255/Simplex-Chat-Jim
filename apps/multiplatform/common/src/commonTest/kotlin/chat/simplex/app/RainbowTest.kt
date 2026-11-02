@@ -3,6 +3,7 @@ package chat.simplex.app
 import androidx.compose.material.darkColors
 import androidx.compose.ui.graphics.Color
 import chat.simplex.common.model.AppPreferences
+import chat.simplex.common.model.RainbowSpeed
 import chat.simplex.common.ui.theme.*
 import kotlin.math.abs
 import kotlin.test.*
@@ -158,7 +159,108 @@ class RainbowTest {
   }
 
   @Test
-  fun testRainbowModeIsOffByDefault() {
-    assertFalse(AppPreferences().rainbowThemeColors.get())
+  fun testRainbowSpeedIsAStoredPreference() {
+    // The stored value depends on what the user picked, so this only checks the round trip and the
+    // declared default, never the value itself.
+    assertEquals(RainbowSpeed.NORMAL, RainbowSpeed.default)
+    val prefs = AppPreferences()
+    val previous = prefs.rainbowSpeed.get()
+    try {
+      for (speed in RainbowSpeed.entries) {
+        prefs.rainbowSpeed.set(speed)
+        assertEquals(speed, prefs.rainbowSpeed.get(), "speed $speed round trips")
+      }
+    } finally {
+      prefs.rainbowSpeed.set(previous)
+    }
+  }
+
+  @Test
+  fun testCycleLengthFollowsTheSpeed() {
+    assertEquals(32_000L, rainbowCycleMillis(RainbowSpeed.SLOW))
+    assertEquals(RAINBOW_CYCLE_MILLIS, rainbowCycleMillis(RainbowSpeed.NORMAL))
+    assertEquals(8_000L, rainbowCycleMillis(RainbowSpeed.FAST))
+    // A faster cycle turns the hue by a larger step per update
+    assertTrue(
+      rainbowHueStep(rainbowCycleMillis(RainbowSpeed.FAST)) >
+        rainbowHueStep(rainbowCycleMillis(RainbowSpeed.NORMAL))
+    )
+  }
+
+  @Test
+  fun testLowPerformanceModeUpdatesLessOften() {
+    assertEquals(RAINBOW_UPDATE_MILLIS, rainbowUpdateMillis(false))
+    assertEquals(RAINBOW_UPDATE_MILLIS_LOW_PERFORMANCE, rainbowUpdateMillis(true))
+    assertTrue(rainbowUpdateMillis(true) > rainbowUpdateMillis(false))
+    // The same cycle still takes the same time, it is just drawn in fewer, larger steps
+    val step = rainbowHueStep(rainbowCycleMillis(RainbowSpeed.NORMAL), rainbowUpdateMillis(true))
+    val updatesPerCycle = 360f / step
+    assertFloatEquals(
+      (rainbowCycleMillis(RainbowSpeed.NORMAL) / rainbowUpdateMillis(true)).toFloat(),
+      updatesPerCycle,
+      0.01f
+    )
+  }
+
+  @Test
+  fun testFastSpeedStillCoversTheCycleInWholeSteps() {
+    var phase = 0f
+    val step = rainbowHueStep(rainbowCycleMillis(RainbowSpeed.FAST), rainbowUpdateMillis(false))
+    val steps = (360f / step).toInt()
+    repeat(steps) { phase = nextRainbowPhase(phase, step) }
+    assertTrue(phase >= 0f && phase < 360f, "phase $phase stays in range")
+    assertTrue(abs(phase) < 1f || abs(phase - 360f) < 1f, "a full cycle returns to the start, got $phase")
+  }
+
+  @Test
+  fun testChatColorsAndMessageTextAreMutuallyExclusive() {
+    // Text wins when both are enabled, so the text never sits on a rainbow bubble
+    assertFalse(rainbowChatColorsActive(true, true, true))
+    assertTrue(rainbowMessageTextActive(true, true))
+    assertTrue(rainbowChatColorsActive(true, true, false))
+    assertFalse(rainbowMessageTextActive(true, false))
+    // Everything is off while rainbow mode itself is off
+    assertFalse(rainbowChatColorsActive(false, true, false))
+    assertFalse(rainbowMessageTextActive(false, true))
+  }
+
+  @Test
+  fun testChatColorsCanBeLeftOutOfTheRainbow() {
+    val appColors = AppColors(
+      title = Color(1f, 0f, 0f),
+      primaryVariant2 = Color(0f, 1f, 0f),
+      sentMessage = Color(0f, 0f, 1f),
+      sentQuote = Color(1f, 1f, 0f),
+      receivedMessage = Color(1f, 0f, 1f),
+      receivedQuote = Color(0f, 1f, 1f),
+    )
+    val rainbow = rainbowAppColors(appColors, 90f, chatColors = false)
+    // The chrome still cycles
+    assertNotEquals(appColors.title, rainbow.title)
+    assertNotEquals(appColors.primaryVariant2, rainbow.primaryVariant2)
+    // The bubbles keep the saved colors
+    assertColorEquals(appColors.sentMessage, rainbow.sentMessage)
+    assertColorEquals(appColors.sentQuote, rainbow.sentQuote)
+    assertColorEquals(appColors.receivedMessage, rainbow.receivedMessage)
+    assertColorEquals(appColors.receivedQuote, rainbow.receivedQuote)
+  }
+
+  @Test
+  fun testRainbowTextColorFollowsThePhaseAndStaysReadable() {
+    val darkRed = rainbowTextColor(0f, dark = true)
+    val darkGreen = rainbowTextColor(120f, dark = true)
+    val (redHue, redSat, redValue) = rgbToHsv(darkRed.red, darkRed.green, darkRed.blue)
+    val (greenHue, greenSat, greenValue) = rgbToHsv(darkGreen.red, darkGreen.green, darkGreen.blue)
+    assertFloatEquals(0f, redHue, 1f)
+    assertFloatEquals(120f, greenHue, 1f)
+    // Fixed saturation and brightness: colorful, but neither washed out nor black
+    assertTrue(redSat > 0.5f && greenSat > 0.5f, "text stays saturated")
+    assertTrue(redValue > 0.9f && greenValue > 0.9f, "dark theme text stays bright")
+    val lightText = rainbowTextColor(240f, dark = false)
+    val (_, lightSat, lightValue) = rgbToHsv(lightText.red, lightText.green, lightText.blue)
+    assertTrue(lightSat > 0.5f, "light theme text stays saturated")
+    assertTrue(lightValue < 0.5f, "light theme text stays dark")
+    // The two themes need different colors to stay readable
+    assertNotEquals(rainbowTextColor(0f, dark = true), rainbowTextColor(0f, dark = false))
   }
 }

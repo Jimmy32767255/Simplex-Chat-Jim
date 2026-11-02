@@ -337,6 +337,7 @@ The `text` extension on the enum returns the localized status string (resource k
 <a id="appPrefs"></a>
 <a id="ChatEnterKeyCombination"></a>
 <a id="TimeFormat"></a>
+<a id="RainbowSpeed"></a>
 
 ## 5. AppPreferences
 
@@ -472,6 +473,10 @@ val appPrefs: AppPreferences by lazy { AppPreferences() }
 | `favoritesAsPinned` | `Boolean` | `false` | Show favorite contacts and groups at the top of the home chat list (`favoritesPinnedFirst`); a display preference, the chat order itself is unchanged |
 | `timeFormat` | `TimeFormat` (`SYSTEM`, `HOUR_12`, `HOUR_24`) | `SYSTEM` | 12/24-hour convention for every time of day (`uses24HourFormat`), `SYSTEM` defers to `systemUses24HourFormat()`; a local display preference |
 | `rainbowThemeColors` | `Boolean` | `false` | Cycle the hue of every interface color while the app is open (`rememberRainbowPhase`, `rainbowColors`); display-only, the saved theme is untouched |
+| `rainbowSpeed` | `RainbowSpeed` (`SLOW`, `NORMAL`, `FAST`) | `NORMAL` | Length of one hue cycle: 32 s / 16 s / 8 s (`rainbowCycleMillis`) |
+| `rainbowChatColors` | `Boolean` | `true` | Let the chat bubble colors take part in the cycle (`rainbowAppColors(..., chatColors)`); forced off while `rainbowMessageText` is on |
+| `rainbowMessageText` | `Boolean` | `false` | Render the message text itself in rainbow colors (`rainbowTextColor` via `MarkdownText`); exclusive with `rainbowChatColors` |
+| `rainbowLowPerformance` | `Boolean` | `false` | Fewer hue updates per second (250 ms instead of 50 ms), which eases the load on slower phones |
 
 `TimeFormat` (SimpleXAPI.kt line 127) models the 12/24-hour convention: `SYSTEM`, `HOUR_12`, `HOUR_24`.
 `uses24HourFormat(format, systemUses24Hour)` in `ChatModel.kt` resolves it (an explicit choice wins,
@@ -482,6 +487,13 @@ part from `timeOfDayPattern(use24Hour)`. The `text` extension returns the locali
 `rainbowThemeColors` (`"RainbowThemeColors"`) is a display-only switch for [rainbow mode](../services/theme.md#rainbow-mode):
 `SimpleXTheme` hands `rainbowColors` / `rainbowAppColors` to `MaterialTheme` and `LocalAppColors`, but
 `CurrentColors` and the stored `ThemeOverrides` keep the user's colors.
+
+`RainbowSpeed` (SimpleXAPI.kt line 145) models the cycle length (`SLOW`, `NORMAL`, `FAST`; `text`
+returns the localized label and `default` is `NORMAL`). The other three keys only matter while rainbow
+mode is on: `rainbowChatColors` (`"RainbowChatColors"`, on by default — the bubbles are part of the
+interface palette), `rainbowMessageText` (`"RainbowMessageText"`) and `rainbowLowPerformance`
+(`"RainbowLowPerformance"`). `rainbowChatColors` and `rainbowMessageText` are mutually exclusive —
+`rainbowChatColorsActive` gives the text priority, and the settings rows clear the other preference.
 
 #### Desktop Chat Input (lines 153-154)
 
