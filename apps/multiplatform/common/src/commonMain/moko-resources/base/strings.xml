@@ -767,6 +767,8 @@
 
   <!-- Message Actions - SendMsgView.kt -->
   <string name="icon_descr_send_message">Send Message</string>
+  <string name="preview_message">Preview message</string>
+  <string name="preview_message_footer">Formatting is shown the way it will be sent. Mentions, links and emoji depend on the chat and are only approximated here.</string>
   <string name="icon_descr_record_voice_message">Record voice message</string>
   <string name="allow_voice_messages_question">Allow voice messages?</string>
   <string name="you_need_to_allow_to_send_voice">You need to allow your contact to send voice messages to be able to send them.</string>

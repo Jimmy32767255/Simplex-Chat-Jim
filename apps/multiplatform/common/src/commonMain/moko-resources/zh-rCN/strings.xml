@@ -716,6 +716,8 @@
     <string name="ask_your_contact_to_enable_voice">请让你的联系人启用发送语音消息。</string>
     <string name="icon_descr_record_voice_message">录制语音消息</string>
     <string name="icon_descr_send_message">发消息</string>
+    <string name="preview_message">预览消息</string>
+    <string name="preview_message_footer">这里显示的是消息发送后的格式。@提及、链接和表情与具体会话有关，此处只是近似效果。</string>
     <string name="reset_verb">重置</string>
     <string name="send_verb">发送</string>
     <string name="send_live_message_desc">发送实时消息——它会在你键入时为收件人更新</string>

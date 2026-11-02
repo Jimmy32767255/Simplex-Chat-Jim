@@ -158,6 +158,16 @@
   - 文档：`spec/services/theme.md`（新增 Rainbow mode 小节与源文件表行）、`spec/state.md`（UI 偏好表新增 `rainbowThemeColors`）、`product/rules.md`（新增第 17 节 RULE-29）、`product/concepts.md`（PC44）、`spec/impact.md`（PC44 与 `ui/theme/Rainbow.kt`、`Theme.kt`、`Appearance.kt` 行）、`product/views/settings.md`（外观表新增 Rainbow mode 行）、`plans/2026-11-02-rainbow-theme-mode.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/RainbowTest.kt`（13 个用例：RGB→HSV 的三原色与灰色、HSV→RGB 往返、`shiftHue` 保持饱和度／明度／透明度、色相按度数移动、360° 为一圈且可逆、无彩色不变、相位整圈回到起点、步长与周期一致、相位 0 时调色板不变、只偏移有彩色、`AppColors` 六个字段全部偏移且原对象不变、默认关闭），`./gradlew :common:desktopTest` 通过（23 个测试类、159 个用例无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
 
+- [x] 消息输入框发送键旁边放一个预览键，点击后打开一个界面显示该信息发送后的样子（渲染）（编辑 Markdown 消息时很有用）
+  - 实现方法：新增 `views/chat/MessagePreviewView.kt`，`messagePreviewAvailable(text, inProgress)` 判断是否可以预览（有非空文本且不在发送中），`MessagePreviewButton` 是发送键左侧的 36dp 圆形眼睛图标（`ic_visibility`，次要色），点击后 `showMessagePreview(text)` 以全屏弹窗打开 `MessagePreviewView(text)`。
+  - 渲染方式：弹窗里用聊天消息同一个渲染器（`MarkdownText` + `parseToMarkdown`）在 `Surface` 气泡中显示文本，所以“预览到的”就是“发送后的”格式，不会出现两套 Markdown 实现不同步的问题；底部用 `preview_message_footer` 说明这只是近似效果。
+  - 只读、不发消息：预览只读取当前 `ComposeState.message.text` 的快照，不改输入框、不发消息、不写核心，关掉弹窗回到原来的草稿；语音消息（`ComposePreview.VoicePreview`）没有可渲染的文本，不显示该按钮。
+  - 近似范围：@提及、链接和表情依赖具体会话（成员、链接模式、图片解析），预览里按普通 Markdown 显示，并在页脚写明，避免给出“完全一致”的错觉。
+  - 改动文件：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/MessagePreviewView.kt`；`.../views/chat/SendMsgView.kt`（发送按钮所在行改为 `Row`，预览键放在发送键前面）；`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 `preview_message`、`preview_message_footer`）。
+  - 兼容性：纯客户端 UI，未改核心、未新增偏好与数据库写入、未加入 `AppSettings`；桌面端与 Android 共用同一套 Compose 代码。
+  - 文档：`spec/client/compose.md`（新增第 8 节 Message Preview，源文件表两行）、`product/views/chat.md`（Compose Bar 表新增 Preview button 行）、`product/rules.md`（新增第 18 节 RULE-30）、`product/concepts.md`（PC45）、`spec/impact.md`（PC45 与 `SendMsgView.kt`、`MessagePreviewView.kt` 行）、`product/README.md`、`plans/2026-11-03-message-preview.md`。
+  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/MessagePreviewTest.kt`（4 个用例：普通文本可预览、空白文本不可预览、发送过程中不可预览、Markdown 文本可预览），`./gradlew :common:desktopTest` 通过（24 个测试类无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
+
 ## mod:
 
 none

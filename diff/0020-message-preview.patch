@@ -1,0 +1,487 @@
+diff --git a/TODO.md b/TODO.md
+index ba1a4db1e..59582eb9c 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -158,6 +158,16 @@
+   - 文档：`spec/services/theme.md`（新增 Rainbow mode 小节与源文件表行）、`spec/state.md`（UI 偏好表新增 `rainbowThemeColors`）、`product/rules.md`（新增第 17 节 RULE-29）、`product/concepts.md`（PC44）、`spec/impact.md`（PC44 与 `ui/theme/Rainbow.kt`、`Theme.kt`、`Appearance.kt` 行）、`product/views/settings.md`（外观表新增 Rainbow mode 行）、`plans/2026-11-02-rainbow-theme-mode.md`。
+   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/RainbowTest.kt`（13 个用例：RGB→HSV 的三原色与灰色、HSV→RGB 往返、`shiftHue` 保持饱和度／明度／透明度、色相按度数移动、360° 为一圈且可逆、无彩色不变、相位整圈回到起点、步长与周期一致、相位 0 时调色板不变、只偏移有彩色、`AppColors` 六个字段全部偏移且原对象不变、默认关闭），`./gradlew :common:desktopTest` 通过（23 个测试类、159 个用例无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
+ 
++- [x] 消息输入框发送键旁边放一个预览键，点击后打开一个界面显示该信息发送后的样子（渲染）（编辑 Markdown 消息时很有用）
++  - 实现方法：新增 `views/chat/MessagePreviewView.kt`，`messagePreviewAvailable(text, inProgress)` 判断是否可以预览（有非空文本且不在发送中），`MessagePreviewButton` 是发送键左侧的 36dp 圆形眼睛图标（`ic_visibility`，次要色），点击后 `showMessagePreview(text)` 以全屏弹窗打开 `MessagePreviewView(text)`。
++  - 渲染方式：弹窗里用聊天消息同一个渲染器（`MarkdownText` + `parseToMarkdown`）在 `Surface` 气泡中显示文本，所以“预览到的”就是“发送后的”格式，不会出现两套 Markdown 实现不同步的问题；底部用 `preview_message_footer` 说明这只是近似效果。
++  - 只读、不发消息：预览只读取当前 `ComposeState.message.text` 的快照，不改输入框、不发消息、不写核心，关掉弹窗回到原来的草稿；语音消息（`ComposePreview.VoicePreview`）没有可渲染的文本，不显示该按钮。
++  - 近似范围：@提及、链接和表情依赖具体会话（成员、链接模式、图片解析），预览里按普通 Markdown 显示，并在页脚写明，避免给出“完全一致”的错觉。
++  - 改动文件：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/MessagePreviewView.kt`；`.../views/chat/SendMsgView.kt`（发送按钮所在行改为 `Row`，预览键放在发送键前面）；`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 `preview_message`、`preview_message_footer`）。
++  - 兼容性：纯客户端 UI，未改核心、未新增偏好与数据库写入、未加入 `AppSettings`；桌面端与 Android 共用同一套 Compose 代码。
++  - 文档：`spec/client/compose.md`（新增第 8 节 Message Preview，源文件表两行）、`product/views/chat.md`（Compose Bar 表新增 Preview button 行）、`product/rules.md`（新增第 18 节 RULE-30）、`product/concepts.md`（PC45）、`spec/impact.md`（PC45 与 `SendMsgView.kt`、`MessagePreviewView.kt` 行）、`product/README.md`、`plans/2026-11-03-message-preview.md`。
++  - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/MessagePreviewTest.kt`（4 个用例：普通文本可预览、空白文本不可预览、发送过程中不可预览、Markdown 文本可预览），`./gradlew :common:desktopTest` 通过（24 个测试类无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
++
+ ## mod:
+ 
+ none
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/MessagePreviewView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/MessagePreviewView.kt
+new file mode 100644
+index 000000000..092fe43df
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/MessagePreviewView.kt
+@@ -0,0 +1,93 @@
++package chat.simplex.common.views.chat
++
++import SectionBottomSpacer
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.interaction.MutableInteractionSource
++import androidx.compose.foundation.layout.*
++import androidx.compose.foundation.shape.CircleShape
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material.Icon
++import androidx.compose.material.MaterialTheme
++import androidx.compose.material.Surface
++import androidx.compose.material.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.remember
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
++import dev.icerock.moko.resources.compose.painterResource
++import chat.simplex.common.platform.*
++import chat.simplex.common.ui.theme.DEFAULT_PADDING
++import chat.simplex.common.views.chat.item.MarkdownText
++import chat.simplex.common.views.helpers.*
++import chat.simplex.res.*
++
++// Spec: spec/client/compose-view.md#message-preview
++
++/**
++ * Whether the compose view should offer the preview button: there has to be text to render, and the
++ * compose state has to be a plain text message (not an in-progress or voice composition).
++ */
++internal fun messagePreviewAvailable(text: String, inProgress: Boolean): Boolean =
++  !inProgress && text.isNotBlank()
++
++/** Renders the message as it will look once sent, using the same markdown renderer as the chat. */
++@Composable
++fun MessagePreviewView(text: String) {
++  ColumnWithScrollBar(horizontalAlignment = Alignment.CenterHorizontally) {
++    AppBarTitle(generalGetString(MR.strings.preview_message))
++    val bubbleShape = RoundedCornerShape(DEFAULT_PADDING * 1.5f)
++    Surface(
++      shape = bubbleShape,
++      color = MaterialTheme.colors.surface,
++      modifier = Modifier.fillMaxWidth().padding(horizontal = DEFAULT_PADDING)
++    ) {
++      Column(Modifier.padding(DEFAULT_PADDING)) {
++        MarkdownText(
++          text,
++          parseToMarkdown(text),
++          toggleSecrets = false,
++          linkMode = chatModel.simplexLinkMode.value,
++          style = MaterialTheme.typography.body1.copy(color = MaterialTheme.colors.onSurface, lineHeight = 22.sp),
++        )
++      }
++    }
++    SectionBottomSpacer()
++    Text(
++      generalGetString(MR.strings.preview_message_footer),
++      Modifier.fillMaxWidth().padding(horizontal = DEFAULT_PADDING),
++      color = MaterialTheme.colors.secondary,
++      textAlign = TextAlign.Center,
++      fontSize = 14.sp
++    )
++    SectionBottomSpacer()
++  }
++}
++
++fun showMessagePreview(text: String) {
++  if (text.isBlank()) return
++  ModalManager.fullscreen.showModal { MessagePreviewView(text) }
++}
++
++/** Round icon next to the send button that opens the message preview. */
++@Composable
++fun MessagePreviewButton(onClick: () -> Unit) {
++  val interactionSource = remember { MutableInteractionSource() }
++  Box(
++    modifier = Modifier
++      .size(36.dp)
++      .clip(CircleShape)
++      .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
++    contentAlignment = Alignment.Center
++  ) {
++    Icon(
++      painterResource(MR.images.ic_visibility),
++      generalGetString(MR.strings.preview_message),
++      tint = MaterialTheme.colors.secondary,
++      modifier = Modifier.size(22.dp)
++    )
++  }
++}
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt
+index 820507122..8a24e0790 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt
+@@ -242,18 +242,24 @@ fun SendMsgView(
+ 
+           if (!hideSendButton) {
+             val menuItems = MenuItems()
+-            if (menuItems.isNotEmpty()) {
+-              SendMsgButton(icon, sendButtonSize, sendButtonAlpha, sendButtonColor, !sendMsgButtonDisabled, sendToConnect, sendMessage) { showDropdown.value = true }
+-              DefaultDropdownMenu(showDropdown) {
+-                menuItems.forEach { composable -> composable() }
++            Row(verticalAlignment = Alignment.CenterVertically) {
++              val previewText = cs.message.text
++              if (messagePreviewAvailable(previewText, cs.inProgress) && cs.preview !is ComposePreview.VoicePreview) {
++                MessagePreviewButton { showMessagePreview(previewText) }
++              }
++              if (menuItems.isNotEmpty()) {
++                SendMsgButton(icon, sendButtonSize, sendButtonAlpha, sendButtonColor, !sendMsgButtonDisabled, sendToConnect, sendMessage) { showDropdown.value = true }
++                DefaultDropdownMenu(showDropdown) {
++                  menuItems.forEach { composable -> composable() }
++                }
++                CustomDisappearingMessageDialog(
++                  showCustomDisappearingMessageDialog,
++                  sendMessage = sendMessage,
++                  customDisappearingMessageTimePref = customDisappearingMessageTimePref
++                )
++              } else {
++                SendMsgButton(icon, sendButtonSize, sendButtonAlpha, sendButtonColor, !sendMsgButtonDisabled, sendToConnect, sendMessage)
+               }
+-              CustomDisappearingMessageDialog(
+-                showCustomDisappearingMessageDialog,
+-                sendMessage = sendMessage,
+-                customDisappearingMessageTimePref = customDisappearingMessageTimePref
+-              )
+-            } else {
+-              SendMsgButton(icon, sendButtonSize, sendButtonAlpha, sendButtonColor, !sendMsgButtonDisabled, sendToConnect, sendMessage)
+             }
+           }
+         }
+diff --git a/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml b/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml
+index a7d7f1a46..115a035b5 100644
+--- a/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/moko-resources/base/strings.xml
+@@ -767,6 +767,8 @@
+ 
+   <!-- Message Actions - SendMsgView.kt -->
+   <string name="icon_descr_send_message">Send Message</string>
++  <string name="preview_message">Preview message</string>
++  <string name="preview_message_footer">Formatting is shown the way it will be sent. Mentions, links and emoji depend on the chat and are only approximated here.</string>
+   <string name="icon_descr_record_voice_message">Record voice message</string>
+   <string name="allow_voice_messages_question">Allow voice messages?</string>
+   <string name="you_need_to_allow_to_send_voice">You need to allow your contact to send voice messages to be able to send them.</string>
+diff --git a/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml b/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml
+index a2df8806e..dbc22b2fc 100644
+--- a/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml
++++ b/apps/multiplatform/common/src/commonMain/moko-resources/zh-rCN/strings.xml
+@@ -716,6 +716,8 @@
+     <string name="ask_your_contact_to_enable_voice">请让你的联系人启用发送语音消息。</string>
+     <string name="icon_descr_record_voice_message">录制语音消息</string>
+     <string name="icon_descr_send_message">发消息</string>
++    <string name="preview_message">预览消息</string>
++    <string name="preview_message_footer">这里显示的是消息发送后的格式。@提及、链接和表情与具体会话有关，此处只是近似效果。</string>
+     <string name="reset_verb">重置</string>
+     <string name="send_verb">发送</string>
+     <string name="send_live_message_desc">发送实时消息——它会在你键入时为收件人更新</string>
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/MessagePreviewTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/MessagePreviewTest.kt
+new file mode 100644
+index 000000000..4c0a4df3d
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/MessagePreviewTest.kt
+@@ -0,0 +1,28 @@
++package chat.simplex.app
++
++import chat.simplex.common.views.chat.messagePreviewAvailable
++import kotlin.test.*
++
++class MessagePreviewTest {
++  @Test
++  fun testAvailableForRealText() {
++    assertTrue(messagePreviewAvailable("hello", inProgress = false))
++  }
++
++  @Test
++  fun testNotAvailableForBlankText() {
++    assertFalse(messagePreviewAvailable("", inProgress = false))
++    assertFalse(messagePreviewAvailable("   \n\t ", inProgress = false))
++  }
++
++  @Test
++  fun testNotAvailableWhileComposing() {
++    // In-progress compositions (attachments being prepared, voice) have nothing to preview yet
++    assertFalse(messagePreviewAvailable("hello", inProgress = true))
++  }
++
++  @Test
++  fun testMarkdownIsPreviewable() {
++    assertTrue(messagePreviewAvailable("**bold** and `code`", inProgress = false))
++  }
++}
+diff --git a/apps/multiplatform/product/README.md b/apps/multiplatform/product/README.md
+index 873c89430..9ea3ba8ec 100644
+--- a/apps/multiplatform/product/README.md
++++ b/apps/multiplatform/product/README.md
+@@ -73,6 +73,7 @@ Core message composition, delivery, and interaction features.
+ | Copy selected messages | Multi-select toolbar copies the selected messages as text, each with the sender name (local alias first), the send time and the latest version of the text | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SelectableChatItemToolbars.kt` |
+ | Time format | 12/24-hour convention for every time of day, following the system setting unless overridden in Settings | `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt` |
+ | Rainbow mode | Switch in *Customize theme > Interface colors* that cycles the hue of every interface color, swatches included; display-only, the saved colors are untouched | `common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt` |
++| Message preview | Eye button next to the send button: renders the composed text with the chat markdown renderer before it is sent; read-only | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/MessagePreviewView.kt` |
+ 
+ ### 2. Contacts
+ 
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index 61c590a60..f17bb1387 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -64,6 +64,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC42 | Time Format | [views/settings.md](views/settings.md) | [spec/client/chat-view.md](../spec/client/chat-view.md), [spec/state.md](../spec/state.md), [spec/architecture.md](../spec/architecture.md) | `common/.../model/SimpleXAPI.kt` (`TimeFormat`, `AppPreferences.timeFormat`), `common/.../model/ChatModel.kt` (`uses24HourFormat`, `timeOfDayPattern`, `getTimestampText`, `localTimestamp`), `common/.../platform/TimeFormat.kt` (+ `.android.kt`, `.desktop.kt`) (`systemUses24HourFormat`), `common/.../views/usersettings/SettingsView.kt` (dropdown) | N/A (client-only) |
+ | PC43 | Range Selection | [views/chat.md](views/chat.md) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../views/chat/ChatSelectionRange.kt` (`mergedItemChatItemIds`, `selectionRangeRows`, `selectionToHereIds`, `selectionToHereAddsItems`, `visibleEdgeRows`), `common/.../views/chat/ChatView.kt` (`selectionAnchor`, `SelectToHereButton`) | N/A (client-only) |
+ | PC44 | Rainbow Mode | [views/settings.md](views/settings.md) | [spec/services/theme.md](../spec/services/theme.md), [spec/state.md](../spec/state.md) | `common/.../ui/theme/Rainbow.kt` (`shiftHue`, `rainbowColors`, `rainbowAppColors`, `rememberRainbowPhase`), `common/.../ui/theme/Theme.kt` (`SimpleXTheme`), `common/.../views/usersettings/Appearance.kt` (`CustomizeThemeColorsSection`), `common/.../model/SimpleXAPI.kt` (`rainbowThemeColors`) | N/A (client-only) |
++| PC45 | Message Preview | [views/chat.md](views/chat.md) | [spec/client/compose.md](../spec/client/compose.md) | `common/.../views/chat/MessagePreviewView.kt` (`messagePreviewAvailable`, `MessagePreviewView`, `showMessagePreview`, `MessagePreviewButton`), `common/.../views/chat/SendMsgView.kt` (preview button next to the send button) | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
+ 
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index cf55bad04..bed468039 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -23,6 +23,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
+ 15. [Time Format (RULE-27)](#15-time-format)
+ 16. [Range Selection (RULE-28)](#16-range-selection)
+ 17. [Rainbow Mode (RULE-29)](#17-rainbow-mode)
++18. [Message Preview (RULE-30)](#18-message-preview)
+ 
+ ---
+ 
+@@ -676,3 +677,33 @@ Enforcement:
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/Appearance.kt`
+   (`CustomizeThemeColorsSection` toggle and swatches)
+ - Test: `common/src/commonTest/kotlin/chat/simplex/app/RainbowTest.kt`
++
++## 18. Message Preview
++
++### RULE-30: The Preview Renders, It Never Sends
++
++1. **Preview uses the chat renderer.** The preview modal MUST render the text with the same
++   `MarkdownText` + `parseToMarkdown` path as chat items, so what the user sees is what the message will
++   look like. A separate markdown implementation is not acceptable.
++
++2. **The preview is read-only.** Pressing the preview button MUST NOT modify `ComposeState`, send a
++   message, start a live message or otherwise reach the core. It is a snapshot of
++   `composeState.value.message.text` taken at press time.
++
++3. **Availability is a pure predicate.** `messagePreviewAvailable(text, inProgress)` decides whether the
++   button is shown (non-blank text, no in-progress composition); the view additionally hides it for
++   `ComposePreview.VoicePreview`, because voice messages have nothing to render.
++
++4. **Honest approximation.** Mentions, links and emoji resolution need chat context, so the preview shows
++   them as plain markdown and the footer says so (`preview_message_footer`). The preview MUST NOT claim to
++   be exact where it cannot be.
++
++5. **Client-side only.** The preview is UI-only: no core command, no database write, no preference, and
++   nothing in `AppSettings`.
++
++Enforcement:
++- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/MessagePreviewView.kt`
++  (`messagePreviewAvailable`, `MessagePreviewView`, `showMessagePreview`, `MessagePreviewButton`)
++- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt` (button placement next to
++  the send button)
++- Test: `common/src/commonTest/kotlin/chat/simplex/app/MessagePreviewTest.kt`
+diff --git a/apps/multiplatform/product/views/chat.md b/apps/multiplatform/product/views/chat.md
+index cde427117..e3670ec80 100644
+--- a/apps/multiplatform/product/views/chat.md
++++ b/apps/multiplatform/product/views/chat.md
+@@ -96,6 +96,7 @@ Bottom input area for composing messages:
+ | Text field | `PlatformTextField` with markdown support, `@mention` autocomplete, file paste support |
+ | Attachment button | Opens `ModalBottomSheetLayout` with options: camera, gallery (image/video), file |
+ | Emoji button | Desktop only (Android keyboards have their own emoji panel). Opens a popup with search and categories; a picked emoji is inserted at the cursor and the picker stays open. With text selected the emoji goes after it, as the text field drops its selection when the picker takes focus. Picked emoji are not remembered, for privacy. Esc, a click outside or the button closes it |
++| Preview button | Eye icon before the send button, shown while there is text to render and the composition is not a voice message. Opens a read-only modal with the message rendered by the same markdown renderer as the chat, so formatting can be checked before sending (RULE-30) |
+ | Send button | Sends message; changes to checkmark for reports; animated size/alpha |
+ | Voice record button | Shown when text is empty and voice allowed; hold to record, release to preview |
+ | Live message button | Start/update live typing message (if `liveMessageAlertShown`) |
+diff --git a/apps/multiplatform/spec/client/compose.md b/apps/multiplatform/spec/client/compose.md
+index 47565c2ff..61fed60c3 100644
+--- a/apps/multiplatform/spec/client/compose.md
++++ b/apps/multiplatform/spec/client/compose.md
+@@ -13,8 +13,9 @@ Source: `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ComposeView
+ 5. [SendMsgView](#5-sendmsgview)
+ 6. [Attachment Handling](#6-attachment-handling)
+ 7. [Draft Persistence](#7-draft-persistence)
+-8. [Source Files](#8-source-files)
++8. [Message Preview](#8-message-preview)
+ 9. [Emoji Picker](#9-emoji-picker)
++10. [Source Files](#10-source-files)
+ 
+ ---
+ 
+@@ -258,6 +259,7 @@ The view is a `Box` containing:
+      - `DisallowedVoiceButton`: Shown when voice is disabled by preferences.
+      - `VoiceButtonWithoutPermissionByPlatform`: Shown when microphone permission is not granted.
+    - **Live message button:** Bolt icon, starts streaming message (calls `sendLiveMessage`).
++   - **Preview button:** Eye icon (`MessagePreviewButton`) before the send button, shown while `messagePreviewAvailable(text, inProgress)` is true and the composition is not a voice message. Opens the rendered preview described in [Message Preview](#8-message-preview); it never sends anything.
+    - **Send button:** Arrow icon (new message) or checkmark (editing/live). Long-press opens dropdown:
+      - "Send live message" option
+      - Timed message options (1min, 5min, 1hr, 8hr, 1day, 1week, 1month, custom)
+@@ -394,25 +396,25 @@ When a draft exists for a chat, `ChatPreviewView` shows a pencil icon with the d
+ 
+ ---
+ 
+-## 8. Source Files
++## 8. Message Preview
+ 
+-| File | Description |
+-|---|---|
+-| `ComposeView.kt` | ComposeState, ComposePreview, ComposeContextItem, ComposeView composable, send logic, link preview, draft persistence |
+-| `SendMsgView.kt` | Text input field, send/voice/live/timed buttons, recording state |
+-| `ComposeFileView.kt` | File attachment preview (name, cancel) |
+-| `ComposeImageView.kt` | Media attachment preview (thumbnails, cancel) |
+-| `ComposeVoiceView.kt` | Voice recording preview (waveform, duration, play) |
+-| `ContextItemView.kt` | Reply/edit/forward/report context bar |
+-| `ComposeContextContactRequestActionsView.kt` | Contact request action buttons in compose area |
+-| `ComposeContextGroupDirectInvitationActionsView.kt` | Group direct invitation compose actions |
+-| `ComposeContextPendingMemberActionsView.kt` | Pending member compose actions |
+-| `ComposeContextProfilePickerView.kt` | Profile picker in compose context |
+-| `SelectableChatItemToolbars.kt` | Multi-select mode toolbar (delete, forward, moderate) |
+-| `ComposeEmojiPicker.kt` (+ `.android.kt`, `.desktop.kt`) | Desktop emoji button and picker, emoji insertion |
+-| `platform/PlatformTextField.desktop.kt` | Desktop `PlatformTextField` actual, including configurable send / newline Enter key handling (PC32) |
++**Location:** [`MessagePreviewView.kt`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/MessagePreviewView.kt)
+ 
+----
++The compose area can show how the message will be rendered before it is sent — mostly useful for
++markdown (`**bold**`, `` `code` ``, lists) and for checking that a long message reads well.
++
++- **Availability:** `internal fun messagePreviewAvailable(text: String, inProgress: Boolean): Boolean`
++  returns `true` only for non-blank text outside an in-progress composition. `SendMsgView` additionally
++  hides the button for `ComposePreview.VoicePreview`.
++- **Button:** `MessagePreviewButton(onClick)`, a 36 dp circular `ic_visibility` icon in secondary color,
++  placed immediately before the send button in the action `Row`.
++- **Modal:** `showMessagePreview(text)` opens `MessagePreviewView(text)` in a fullscreen modal. The view
++  renders the text with the same `MarkdownText` + `parseToMarkdown` used by chat items, inside a
++  `Surface` bubble, followed by the `preview_message_footer` note.
++- **Read-only:** the preview has no send action, no edit affordance and no side effects on `ComposeState`;
++  it is a snapshot of `composeState.value.message.text` taken when the button is pressed.
++- **Approximation:** mentions, links and emoji need chat context (members, link mode, image resolution)
++  and are rendered as plain markdown here. This is stated in the footer instead of pretending to be exact.
+ 
+ <a id="EmojiPicker"></a>
+ 
+@@ -434,3 +436,26 @@ An emoji button in [`ComposeActionButtons()`](../../common/src/commonMain/kotlin
+ Data: `desktopMain/resources/emoji/emoji.txt` is generated by `scripts/desktop/generate-emoji-data.py` from Unicode `emoji-test.txt` 15.0 (the version covered by the bundled NotoColorEmoji): fully-qualified emoji without skin tone variants, `@<group>` lines followed by `<emoji>\t<name>` lines. [`parseEmojiData()`](../../common/src/desktopMain/kotlin/chat/simplex/common/views/chat/ComposeEmojiPicker.desktop.kt#L59-L76) maps groups to `EmojiCategory` and fails on an unknown group; [`emojiSections`](../../common/src/desktopMain/kotlin/chat/simplex/common/views/chat/ComposeEmojiPicker.desktop.kt#L78-L82) loads it lazily. [`searchEmoji()`](../../common/src/desktopMain/kotlin/chat/simplex/common/views/chat/ComposeEmojiPicker.desktop.kt#L84-L87) matches the English name case-insensitively.
+ 
+ [GAP] No skin tone selection, and search uses English emoji names only.
++
++---
++
++## 10. Source Files
++
++| File | Description |
++|---|---|
++| `ComposeView.kt` | ComposeState, ComposePreview, ComposeContextItem, ComposeView composable, send logic, link preview, draft persistence |
++| `SendMsgView.kt` | Text input field, send/voice/live/timed buttons, recording state, preview button (PC45) |
++| `MessagePreviewView.kt` | Rendered message preview modal, `messagePreviewAvailable`, `MessagePreviewButton` (PC45) |
++| `ComposeFileView.kt` | File attachment preview (name, cancel) |
++| `ComposeImageView.kt` | Media attachment preview (thumbnails, cancel) |
++| `ComposeVoiceView.kt` | Voice recording preview (waveform, duration, play) |
++| `ContextItemView.kt` | Reply/edit/forward/report context bar |
++| `ComposeContextContactRequestActionsView.kt` | Contact request action buttons in compose area |
++| `ComposeContextGroupDirectInvitationActionsView.kt` | Group direct invitation compose actions |
++| `ComposeContextPendingMemberActionsView.kt` | Pending member compose actions |
++| `ComposeContextProfilePickerView.kt` | Profile picker in compose context |
++| `SelectableChatItemToolbars.kt` | Multi-select mode toolbar (delete, forward, moderate) |
++| `ComposeEmojiPicker.kt` (+ `.android.kt`, `.desktop.kt`) | Desktop emoji button and picker, emoji insertion |
++| `platform/PlatformTextField.desktop.kt` | Desktop `PlatformTextField` actual, including configurable send / newline Enter key handling (PC32) |
++
++---
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index 4b68dd95f..43aef3581 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -55,6 +55,7 @@
+ | PC42 | Time Format |
+ | PC43 | Range Selection |
+ | PC44 | Rainbow Mode |
++| PC45 | Message Preview |
+ 
+ ---
+ 
+@@ -127,7 +128,8 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `views/chat/ChatView.kt` | PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC11, PC32, PC37, PC43 | High | Core conversation UI — most messaging features; the chat title shows the dot of the open chat's connection; the multi-select overlay renders the "select to here" pills at both list edges and keeps `selectionAnchor` |
+ | `views/chat/ChatSelectionRange.kt` | PC43 | Low | Pure range helpers for "select to here": row-id expansion, range rows, ids to add and the visible top/bottom rows |
+ | `views/chat/ComposeView.kt` | PC4, PC6, PC9, PC10, PC11 | High | Message composition — send path for all messages |
+-| `views/chat/SendMsgView.kt` | PC4, PC9 | Medium | Send button and voice record toggle |
++| `views/chat/SendMsgView.kt` | PC4, PC9, PC45 | Medium | Send button and voice record toggle; the preview button sits before the send button |
++| `views/chat/MessagePreviewView.kt` | PC45 | Low | Read-only rendered message preview: availability predicate, modal and toolbar button |
+ | `views/chat/ComposeEmojiPicker.kt` | PC4 | Low | Emoji button expect declaration, emoji insertion |
+ | `views/chat/ComposeVoiceView.kt` | PC9 | Medium | Voice message recording UI |
+ | `views/chat/ComposeFileView.kt` | PC10 | Low | File attachment preview in compose area |
+diff --git a/plans/2026-11-03-message-preview.md b/plans/2026-11-03-message-preview.md
+new file mode 100644
+index 000000000..d87e495a0
+--- /dev/null
++++ b/plans/2026-11-03-message-preview.md
+@@ -0,0 +1,64 @@
++# Message preview next to the send button (feature 4 of the 2026-11-02 request)
++
++## Problem
++
++The composer formats text as markdown, but the user cannot see the result until the message is sent.
++For markdown-heavy messages (`**bold**`, `` `code` ``, lists, long paragraphs) this means sending and
++then editing. The request was a preview button next to the send button that opens a screen with the
++message rendered as it will look.
++
++## Solution
++
++- `views/chat/MessagePreviewView.kt` (new): `messagePreviewAvailable(text, inProgress)`,
++  `MessagePreviewView(text)` (a `Surface` bubble with `MarkdownText` + `parseToMarkdown`, then the
++  `preview_message_footer` note), `showMessagePreview(text)` (opens a fullscreen modal, no-op for blank
++  text) and `MessagePreviewButton(onClick)` (36 dp `ic_visibility` icon in secondary color).
++- `views/chat/SendMsgView.kt`: the action area now wraps the send button in a
++  `Row(verticalAlignment = Alignment.CenterVertically)` and puts `MessagePreviewButton` before it, shown
++  when `messagePreviewAvailable(cs.message.text, cs.inProgress)` and the composition is not a
++  `ComposePreview.VoicePreview`.
++- Strings `preview_message` ("Preview message" / 预览消息) and `preview_message_footer` (base + zh-rCN).
++
++## Design decisions
++
++- **Reuse the chat renderer.** `MarkdownText(text, parseToMarkdown(text), …)` is exactly what a text chat
++  item uses, so the preview cannot drift from the real rendering (RULE-30 invariant 1). It also gets
++  selection, link handling and secret toggling for free.
++- **Read-only snapshot.** Opening the preview reads `composeState.value.message.text` and shows it; no
++  send, no edit, no writes to `ComposeState`. The draft stays in the composer, so closing the preview
++  returns the user exactly where they were.
++- **Next to the send button, not in the toolbar.** The request asked for the send button's neighbour, and
++  that is where the eye icon is most discoverable. A `Row` keeps the send button's own dropdown menu and
++  the `BottomEnd` alignment untouched.
++- **Pure availability predicate.** `messagePreviewAvailable(text, inProgress)` is a top-level `internal`
++  function so it can be unit-tested without Compose, and so the SendMsgView condition stays one line.
++- **Voice compositions have no preview.** A voice message has no text to render; the check lives in
++  `SendMsgView` (the caller), keeping the predicate independent of preview types.
++- **Honest about approximations.** Mentions, links and emoji need chat context; the preview renders them
++  as plain markdown and the footer says so, rather than pretending to be exact.
++- **No preference, no core, no `AppSettings`.** The feature is always available and purely local.
++
++## Rejected alternatives
++
++- Rendering a synthetic `ChatItem` through `ChatItemView`: it would give a pixel-perfect bubble, but it
++  needs a fake `ChatItem` with `CIMeta`, chat direction and member data, and it pulls the whole item
++  pipeline (sizing, timestamps, reactions) into a screen that only needs text formatting.
++- A side-by-side editor/preview split in the composer: too much layout change in a small compose bar, and
++  the request explicitly asked for a separate screen.
++- Previewing attachments as well: out of scope, and images/files already show their own preview.
++
++## Steps
++
++1. `MessagePreviewView.kt`.
++2. `SendMsgView` action row.
++3. Strings (base + zh-rCN).
++4. `MessagePreviewTest.kt` (4 cases), `./gradlew :common:desktopTest`.
++5. `./gradlew :common:compileDebugKotlinAndroid`.
++6. Docs: `spec/client/compose.md` (§8 Message Preview), `product/views/chat.md`, `product/rules.md`
++   (RULE-30), `product/concepts.md` (PC45), `spec/impact.md`, `product/README.md`, `TODO.md`.
++7. Write `diff/0020-message-preview.patch` and commit.
++
++## Verification
++
++- `./gradlew :common:desktopTest` → `BUILD SUCCESSFUL`; `MessagePreviewTest` 4/4; 24 suites, no failures.
++- `./gradlew :common:compileDebugKotlinAndroid` → `BUILD SUCCESSFUL`.

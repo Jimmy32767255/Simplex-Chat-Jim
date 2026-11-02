@@ -242,18 +242,24 @@ fun SendMsgView(
 
           if (!hideSendButton) {
             val menuItems = MenuItems()
-            if (menuItems.isNotEmpty()) {
-              SendMsgButton(icon, sendButtonSize, sendButtonAlpha, sendButtonColor, !sendMsgButtonDisabled, sendToConnect, sendMessage) { showDropdown.value = true }
-              DefaultDropdownMenu(showDropdown) {
-                menuItems.forEach { composable -> composable() }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              val previewText = cs.message.text
+              if (messagePreviewAvailable(previewText, cs.inProgress) && cs.preview !is ComposePreview.VoicePreview) {
+                MessagePreviewButton { showMessagePreview(previewText) }
               }
-              CustomDisappearingMessageDialog(
-                showCustomDisappearingMessageDialog,
-                sendMessage = sendMessage,
-                customDisappearingMessageTimePref = customDisappearingMessageTimePref
-              )
-            } else {
-              SendMsgButton(icon, sendButtonSize, sendButtonAlpha, sendButtonColor, !sendMsgButtonDisabled, sendToConnect, sendMessage)
+              if (menuItems.isNotEmpty()) {
+                SendMsgButton(icon, sendButtonSize, sendButtonAlpha, sendButtonColor, !sendMsgButtonDisabled, sendToConnect, sendMessage) { showDropdown.value = true }
+                DefaultDropdownMenu(showDropdown) {
+                  menuItems.forEach { composable -> composable() }
+                }
+                CustomDisappearingMessageDialog(
+                  showCustomDisappearingMessageDialog,
+                  sendMessage = sendMessage,
+                  customDisappearingMessageTimePref = customDisappearingMessageTimePref
+                )
+              } else {
+                SendMsgButton(icon, sendButtonSize, sendButtonAlpha, sendButtonColor, !sendMsgButtonDisabled, sendToConnect, sendMessage)
+              }
             }
           }
         }

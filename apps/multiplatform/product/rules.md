@@ -23,6 +23,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
 15. [Time Format (RULE-27)](#15-time-format)
 16. [Range Selection (RULE-28)](#16-range-selection)
 17. [Rainbow Mode (RULE-29)](#17-rainbow-mode)
+18. [Message Preview (RULE-30)](#18-message-preview)
 
 ---
 
@@ -676,3 +677,33 @@ Enforcement:
 - `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/Appearance.kt`
   (`CustomizeThemeColorsSection` toggle and swatches)
 - Test: `common/src/commonTest/kotlin/chat/simplex/app/RainbowTest.kt`
+
+## 18. Message Preview
+
+### RULE-30: The Preview Renders, It Never Sends
+
+1. **Preview uses the chat renderer.** The preview modal MUST render the text with the same
+   `MarkdownText` + `parseToMarkdown` path as chat items, so what the user sees is what the message will
+   look like. A separate markdown implementation is not acceptable.
+
+2. **The preview is read-only.** Pressing the preview button MUST NOT modify `ComposeState`, send a
+   message, start a live message or otherwise reach the core. It is a snapshot of
+   `composeState.value.message.text` taken at press time.
+
+3. **Availability is a pure predicate.** `messagePreviewAvailable(text, inProgress)` decides whether the
+   button is shown (non-blank text, no in-progress composition); the view additionally hides it for
+   `ComposePreview.VoicePreview`, because voice messages have nothing to render.
+
+4. **Honest approximation.** Mentions, links and emoji resolution need chat context, so the preview shows
+   them as plain markdown and the footer says so (`preview_message_footer`). The preview MUST NOT claim to
+   be exact where it cannot be.
+
+5. **Client-side only.** The preview is UI-only: no core command, no database write, no preference, and
+   nothing in `AppSettings`.
+
+Enforcement:
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/MessagePreviewView.kt`
+  (`messagePreviewAvailable`, `MessagePreviewView`, `showMessagePreview`, `MessagePreviewButton`)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt` (button placement next to
+  the send button)
+- Test: `common/src/commonTest/kotlin/chat/simplex/app/MessagePreviewTest.kt`

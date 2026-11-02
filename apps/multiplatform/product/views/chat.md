@@ -96,6 +96,7 @@ Bottom input area for composing messages:
 | Text field | `PlatformTextField` with markdown support, `@mention` autocomplete, file paste support |
 | Attachment button | Opens `ModalBottomSheetLayout` with options: camera, gallery (image/video), file |
 | Emoji button | Desktop only (Android keyboards have their own emoji panel). Opens a popup with search and categories; a picked emoji is inserted at the cursor and the picker stays open. With text selected the emoji goes after it, as the text field drops its selection when the picker takes focus. Picked emoji are not remembered, for privacy. Esc, a click outside or the button closes it |
+| Preview button | Eye icon before the send button, shown while there is text to render and the composition is not a voice message. Opens a read-only modal with the message rendered by the same markdown renderer as the chat, so formatting can be checked before sending (RULE-30) |
 | Send button | Sends message; changes to checkmark for reports; animated size/alpha |
 | Voice record button | Shown when text is empty and voice allowed; hold to record, release to preview |
 | Live message button | Start/update live typing message (if `liveMessageAlertShown`) |
