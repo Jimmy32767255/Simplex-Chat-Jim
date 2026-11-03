@@ -667,9 +667,12 @@ Enforcement:
    it is handed to `MaterialTheme` / `LocalAppColors`; it MUST NOT write back to `CurrentColors`, to
    the theme overrides, or to the user's `uiThemes`.
 
-2. **One phase for the whole interface.** Every color is shifted by the same hue offset
-   (`rememberRainbowPhase()`), so the interface cycles as a whole and a swatch in the settings list
-   shows the same hue as the color it stands for (the swatches call `shiftHue` with the same phase).
+2. **One phase for the whole interface, from one timer.** Every color is shifted by the same hue
+   offset, so the interface cycles as a whole and a swatch in the settings list shows the same hue as
+   the color it stands for (the swatches call `shiftHue` with the same phase). `SimpleXTheme` runs the
+   only timer and publishes the value through `LocalRainbowPhase`; every other reader, including
+   `rememberRainbowPhase()` and the per-message `MarkdownText`, only reads it, so the phase can neither
+   drift between screens nor spawn a coroutine per chat item.
 
 3. **Achromatic colors keep their hue.** `shiftHue` returns greys, black and white unchanged
    (saturation `0`), so backgrounds, surfaces and text stay readable while the accents cycle.
@@ -684,7 +687,8 @@ Enforcement:
 6. **Speed is a preference, the cycle stays whole.** `rainbowSpeed` selects the cycle length
    (`SLOW` 32 s, `NORMAL` 16 s, `FAST` 8 s) and `rainbowLowPerformance` selects the update interval
    (`50` ms or `250` ms). The timer is the only one the mode starts, it restarts when either value
-   changes, and the phase MUST still wrap inside `0..360` so one cycle returns to the start.
+   changes, and the phase MUST still wrap inside `0..360` so one cycle returns to the start. No other
+   composable may start a rainbow timer.
 
 7. **Exactly one kind of rainbow.** Chat bubble rainbow (`rainbowChatColors`) and message text rainbow
    (`rainbowMessageText`) MUST never be active together: the bubbles carry the text, so two saturated
@@ -699,10 +703,13 @@ Enforcement:
 Enforcement:
 - `common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt` (`shiftHue`, `rainbowColors`,
   `rainbowAppColors`, `rainbowTextColor`, `rainbowCycleMillis`, `rainbowUpdateMillis`,
-  `rainbowChatColorsActive`, `rememberRainbowPhase`, `rememberRainbowChatColors`,
-  `rememberRainbowMessageTextColor`, `nextRainbowPhase`)
-- `common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt` (`SimpleXTheme` passes the
-  displayed colors and gates the bubble colors; `SimpleXThemeOverride` deliberately does not)
+  `rainbowChatColorsActive`, `LocalRainbowPhase`, `rememberRainbowPhaseTimer`,
+  `rememberRainbowPhase`, `rememberRainbowChatColors`, `rememberRainbowMessageTextColor`,
+  `nextRainbowPhase`)
+- `common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt` (`SimpleXTheme` runs the timer,
+  publishes `LocalRainbowPhase`, passes the displayed colors and gates the bubble colors;
+  `SimpleXThemeOverride`, which wraps a conversation, applies the same phase so a chat screen cycles
+  exactly like the settings preview)
 - `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/Appearance.kt`
   (`CustomizeThemeColorsSection`: toggle, speed dropdown, the two exclusive color options, low
   performance, swatches)

@@ -98,8 +98,8 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
 | `ui/theme/ThemeManager.kt` | PC24 | Medium | Theme resolution engine — all color and wallpaper logic |
-| `ui/theme/Theme.kt` | PC24, PC32, PC44 | Medium | Theme composables and `SimpleXTheme`; `SimpleXTheme` feeds the rainbow-shifted colors to `MaterialTheme` and `LocalAppColors` while `SimpleXThemeOverride` keeps the unshifted palette |
-| `ui/theme/Rainbow.kt` | PC44 | Low | Rainbow mode: `shiftHue`, `rainbowColors`, `rainbowAppColors`, `rememberRainbowPhase` (pure hue rotation, no saved state) |
+| `ui/theme/Theme.kt` | PC24, PC32, PC44 | Medium | Theme composables and `SimpleXTheme`; `SimpleXTheme` runs the single rainbow timer, publishes `LocalRainbowPhase` and feeds the shifted colors to `MaterialTheme` / `LocalAppColors`, and `SimpleXThemeOverride` (which wraps a conversation) applies the same phase to the per-chat palette |
+| `ui/theme/Rainbow.kt` | PC44 | Low | Rainbow mode: `shiftHue`, `rainbowColors`, `rainbowAppColors`, `rememberRainbowPhaseTimer`, `LocalRainbowPhase` (pure hue rotation, no saved state) |
 | `ui/theme/Color.kt` | PC24 | Low | Color palette definitions |
 | `ui/theme/Shape.kt` | PC24 | Low | Shape token definitions |
 | `ui/theme/Type.kt` | PC24 | Low | Typography definitions |

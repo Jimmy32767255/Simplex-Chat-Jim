@@ -1,0 +1,314 @@
+diff --git a/TODO.md b/TODO.md
+index 0448c0596..a69e0c780 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -194,6 +194,16 @@ none
+ 
+ ## bug fix:
+ 
++- [x] 彩虹模式：聊天页面里的气泡颜色不变色，只有自定义主题页面的预览会变色
++  - 原因：`SimpleXThemeOverride` 只把原始配色交给 `MaterialTheme` / `LocalAppColors`，完全没有套用彩虹相位；而聊天页面整体就包在它里面（`ChatView.kt` 用 `SimpleXThemeOverride(overrides ?: CurrentColors...)` 包住整个会话），所以设置页的色块会变色，真正进入聊天后气泡与界面色都不刷新。
++  - 附带问题：`rememberRainbowPhase()` 原来每个调用点各起一个计时器；`MarkdownText` 的默认文字色也调用它，于是聊天里每条消息都会各开一个协程，既不必要又会互相不同步，也与“手机端主页卡顿”有关。
++  - 修复方法：相位改为由 `SimpleXTheme` 统一提供——新增 `LocalRainbowPhase`（`compositionLocalOf { 0f }`），`SimpleXTheme` 里原来那个计时器改名为 `rememberRainbowPhaseTimer()`（内部函数，只此一处运行计时器），并把结果通过 `LocalRainbowPhase` 下发；`rememberRainbowPhase()` 变成只读该 CompositionLocal，不再起计时器。
++  - `SimpleXThemeOverride` 现在同样读取相位，并用 `rainbowColors` / `rainbowAppColors` 换算出本屏的 `displayedColors` / `displayedAppColors` 后再交给 `MaterialTheme` 与 `LocalAppColors`，因此会话页的界面色与气泡会像设置页预览一样实时循环；它仍然只改“显示”，不改每聊天的主题与已保存的 `ThemeOverrides`。
++  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt`（新增 `LocalRainbowPhase`、`rememberRainbowPhaseTimer`，`rememberRainbowPhase` 改为读 CompositionLocal）、`.../ui/theme/Theme.kt`（`SimpleXTheme` 下发相位，`SimpleXThemeOverride` 套用相位）。
++  - 兼容性：纯显示层修复，未改核心、未新增偏好或 `AppSettings` 字段，也不改变任何已保存颜色。
++  - 文档：`spec/services/theme.md`（Rainbow mode 表格新增 `LocalRainbowPhase` / `rememberRainbowPhaseTimer`，并说明相位必须来自唯一计时器、`SimpleXThemeOverride` 也套用相位）、`product/rules.md`（RULE-29 第 2、6 条与 Enforcement 更新）、`product/concepts.md`（PC44 源文件）、`spec/impact.md`（`Theme.kt`、`Rainbow.kt` 行）、`plans/2026-11-03-fix-rainbow-in-chat.md`。
++  - 测试：`./gradlew :common:desktopTest` 全部通过（25 个测试类、179 个用例无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
++
+ - [x] 群成员连接率似乎忘记排除自己了，导致永远无法达到百分之一百
+   - 原因：`groupMembersConnection` 原来写的是 `(members.count { it.ready } + if (currentMembership.ready) 1 else 0) to (members.size + 1)`。而 `GroupMember.ready` 等于 `activeConn?.connStatus == ConnStatus.Ready`，当前用户自己的 `GroupInfo.membership` 里通常没有 `activeConn`（连接信息只存在于成员列表的条目上，而成员列表里并不包含自己），所以分子里的 `+1` 永远是 0、分母里的 `+1` 却永远算上，比率就永远差一个人，最多只能到 `(N-1)/N`。
+   - 修复方法：把「自己」从成员列表里先过滤掉（`members.filter { it.groupMemberId != currentMembership.groupMemberId }`，这样即使某个列表里包含了自己也不会重复计数），总数仍然把自己算进去（保持与标题里的 `N members` 一致），而自己是否有连接改为：有 `activeConn` 时按严格的 `ready` 判断，没有 `activeConn` 时按 `memberActive`（成员状态是否活跃）判断——客户端能读到成员列表本身就说明自己已经连上了，所以合理的群在全员联通时会显示 `N/N (100%)`。
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt
+index eb173c0c8..a420481e1 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt
+@@ -144,12 +144,21 @@ internal fun rainbowMessageTextActive(enabled: Boolean, messageText: Boolean): B
+   enabled && messageText
+ 
+ /**
+- * The current hue phase, advanced by a timer while rainbow mode is on, and `0f` while it is off (so
+- * every caller falls back to the plain theme). The timer runs at the configured speed and update
+- * interval, and it is the only timer rainbow mode starts.
++ * The one hue phase of the whole interface. `SimpleXTheme` runs the only timer and provides the value
++ * here; every other reader (the settings swatches, the message text, `SimpleXThemeOverride`) just reads
++ * it, so the whole interface stays in step and no extra timer is started per message or per screen.
++ * It is a `compositionLocalOf` rather than a `staticCompositionLocalOf` because it changes every few
++ * milliseconds — only the composables that actually read it should recompose.
++ */
++internal val LocalRainbowPhase = compositionLocalOf { 0f }
++
++/**
++ * Starts and advances the rainbow phase while rainbow mode is on, and returns `0f` while it is off.
++ * Must be called once, by the theme provider (`SimpleXTheme`); the actual value is published through
++ * [LocalRainbowPhase] so the timer is not duplicated.
+  */
+ @Composable
+-fun rememberRainbowPhase(): Float {
++internal fun rememberRainbowPhaseTimer(): Float {
+   val enabled = remember { appPrefs.rainbowThemeColors.state }.value
+   if (!enabled) return 0f
+   val speed = remember { appPrefs.rainbowSpeed.state }.value
+@@ -166,6 +175,13 @@ fun rememberRainbowPhase(): Float {
+   return phase.value
+ }
+ 
++/**
++ * The current hue phase, or `0f` when rainbow mode is off. Reads the phase that the theme provider
++ * publishes, so this starts no timer of its own.
++ */
++@Composable
++fun rememberRainbowPhase(): Float = LocalRainbowPhase.current
++
+ /** Whether the chat bubble colors take part in rainbow mode. */
+ @Composable
+ fun rememberRainbowChatColors(): Boolean {
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt
+index fb910e431..81aea67b8 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt
+@@ -824,7 +824,8 @@ fun SimpleXTheme(darkTheme: Boolean? = null, content: @Composable () -> Unit) {
+   }
+   val theme by CurrentColors.collectAsState()
+   // Rainbow mode only changes what is displayed: `theme` keeps the saved colors.
+-  val rainbowPhase = rememberRainbowPhase()
++  // This is the only place the rainbow timer runs; the phase is published below for everyone else.
++  val rainbowPhase = rememberRainbowPhaseTimer()
+   val rainbowChatColors = rememberRainbowChatColors()
+   val displayedColors = remember(theme, rainbowPhase) { rainbowColors(theme.colors, rainbowPhase) }
+   val displayedAppColors = remember(theme, rainbowPhase, rainbowChatColors) {
+@@ -857,6 +858,7 @@ fun SimpleXTheme(darkTheme: Boolean? = null, content: @Composable () -> Unit) {
+         LocalContentColor provides MaterialTheme.colors.onBackground,
+         LocalAppColors provides rememberedAppColors,
+         LocalAppWallpaper provides rememberedWallpaper,
++        LocalRainbowPhase provides rainbowPhase,
+         LocalDensity provides density,
+         content = content
+       )
+@@ -866,16 +868,24 @@ fun SimpleXTheme(darkTheme: Boolean? = null, content: @Composable () -> Unit) {
+ 
+ @Composable
+ fun SimpleXThemeOverride(theme: ThemeManager.ActiveTheme, content: @Composable () -> Unit) {
++  // A screen with its own palette still takes part in rainbow mode: the phase comes from the theme
++  // provider, and only what is displayed changes (the saved per-chat theme is untouched).
++  val rainbowPhase = rememberRainbowPhase()
++  val rainbowChatColors = rememberRainbowChatColors()
++  val displayedColors = remember(theme, rainbowPhase) { rainbowColors(theme.colors, rainbowPhase) }
++  val displayedAppColors = remember(theme, rainbowPhase, rainbowChatColors) {
++    rainbowAppColors(theme.appColors, rainbowPhase, rainbowChatColors)
++  }
+   MaterialTheme(
+-    colors = theme.colors,
++    colors = displayedColors,
+     typography = Typography,
+     shapes = Shapes,
+     content = {
+       val rememberedAppColors = remember {
+         // Explicitly creating a new object here so we don't mutate the initial [appColors]
+         // provided, and overwrite the values set in it.
+-        theme.appColors.copy()
+-      }.apply { updateColorsFrom(theme.appColors) }
++        displayedAppColors.copy()
++      }.apply { updateColorsFrom(displayedAppColors) }
+       val rememberedWallpaper = remember {
+         // Explicitly creating a new object here so we don't mutate the initial [wallpaper]
+         // provided, and overwrite the values set in it.
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index 92c3b3217..e7637f36e 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -63,7 +63,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC41 | Selected Messages Copy | [README.md](README.md) (Messaging) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../model/ChatModel.kt` (`ciSenderName`, `canCopyChatItem`, `chatItemToText`, `chatItemsToText`, `selectedChatItemsInOrder`), `common/.../views/chat/SelectableChatItemToolbars.kt` (copy button), `common/.../views/chat/ChatView.kt` (`copyItems` lambda) | N/A (client-only) |
+ | PC42 | Time Format | [views/settings.md](views/settings.md) | [spec/client/chat-view.md](../spec/client/chat-view.md), [spec/state.md](../spec/state.md), [spec/architecture.md](../spec/architecture.md) | `common/.../model/SimpleXAPI.kt` (`TimeFormat`, `AppPreferences.timeFormat`), `common/.../model/ChatModel.kt` (`uses24HourFormat`, `timeOfDayPattern`, `getTimestampText`, `localTimestamp`), `common/.../platform/TimeFormat.kt` (+ `.android.kt`, `.desktop.kt`) (`systemUses24HourFormat`), `common/.../views/usersettings/SettingsView.kt` (dropdown) | N/A (client-only) |
+ | PC43 | Range Selection | [views/chat.md](views/chat.md) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../views/chat/ChatSelectionRange.kt` (`mergedItemChatItemIds`, `selectionRangeRows`, `selectionToHereIds`, `selectionToHereAddsItems`, `visibleEdgeRows`), `common/.../views/chat/ChatView.kt` (`selectionAnchor`, `SelectToHereButton`) | N/A (client-only) |
+-| PC44 | Rainbow Mode | [views/settings.md](views/settings.md) | [spec/services/theme.md](../spec/services/theme.md), [spec/state.md](../spec/state.md) | `common/.../ui/theme/Rainbow.kt` (`shiftHue`, `rainbowColors`, `rainbowAppColors`, `rainbowTextColor`, `rainbowCycleMillis`, `rainbowUpdateMillis`, `rainbowChatColorsActive`, `rememberRainbowPhase`, `rememberRainbowChatColors`, `rememberRainbowMessageTextColor`), `common/.../ui/theme/Theme.kt` (`SimpleXTheme`), `common/.../views/usersettings/Appearance.kt` (`CustomizeThemeColorsSection`), `common/.../views/chat/item/TextItemView.kt` (`MarkdownText` text color), `common/.../model/SimpleXAPI.kt` (`rainbowThemeColors`, `rainbowSpeed`, `rainbowChatColors`, `rainbowMessageText`, `rainbowLowPerformance`, `RainbowSpeed`) | N/A (client-only) |
++| PC44 | Rainbow Mode | [views/settings.md](views/settings.md) | [spec/services/theme.md](../spec/services/theme.md), [spec/state.md](../spec/state.md) | `common/.../ui/theme/Rainbow.kt` (`shiftHue`, `rainbowColors`, `rainbowAppColors`, `rainbowTextColor`, `rainbowCycleMillis`, `rainbowUpdateMillis`, `rainbowChatColorsActive`, `LocalRainbowPhase`, `rememberRainbowPhaseTimer`, `rememberRainbowPhase`, `rememberRainbowChatColors`, `rememberRainbowMessageTextColor`), `common/.../ui/theme/Theme.kt` (`SimpleXTheme` publishes the phase, `SimpleXThemeOverride` applies it), `common/.../views/usersettings/Appearance.kt` (`CustomizeThemeColorsSection`), `common/.../views/chat/item/TextItemView.kt` (`MarkdownText` text color), `common/.../model/SimpleXAPI.kt` (`rainbowThemeColors`, `rainbowSpeed`, `rainbowChatColors`, `rainbowMessageText`, `rainbowLowPerformance`, `RainbowSpeed`) | N/A (client-only) |
+ | PC45 | Message Preview | [views/chat.md](views/chat.md) | [spec/client/compose.md](../spec/client/compose.md) | `common/.../views/chat/MessagePreviewView.kt` (`messagePreviewAvailable`, `MessagePreviewView`, `showMessagePreview`, `MessagePreviewButton`), `common/.../views/chat/SendMsgView.kt` (preview button next to the send button) | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index 5173daf6f..3976e0b99 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -667,9 +667,12 @@ Enforcement:
+    it is handed to `MaterialTheme` / `LocalAppColors`; it MUST NOT write back to `CurrentColors`, to
+    the theme overrides, or to the user's `uiThemes`.
+ 
+-2. **One phase for the whole interface.** Every color is shifted by the same hue offset
+-   (`rememberRainbowPhase()`), so the interface cycles as a whole and a swatch in the settings list
+-   shows the same hue as the color it stands for (the swatches call `shiftHue` with the same phase).
++2. **One phase for the whole interface, from one timer.** Every color is shifted by the same hue
++   offset, so the interface cycles as a whole and a swatch in the settings list shows the same hue as
++   the color it stands for (the swatches call `shiftHue` with the same phase). `SimpleXTheme` runs the
++   only timer and publishes the value through `LocalRainbowPhase`; every other reader, including
++   `rememberRainbowPhase()` and the per-message `MarkdownText`, only reads it, so the phase can neither
++   drift between screens nor spawn a coroutine per chat item.
+ 
+ 3. **Achromatic colors keep their hue.** `shiftHue` returns greys, black and white unchanged
+    (saturation `0`), so backgrounds, surfaces and text stay readable while the accents cycle.
+@@ -684,7 +687,8 @@ Enforcement:
+ 6. **Speed is a preference, the cycle stays whole.** `rainbowSpeed` selects the cycle length
+    (`SLOW` 32 s, `NORMAL` 16 s, `FAST` 8 s) and `rainbowLowPerformance` selects the update interval
+    (`50` ms or `250` ms). The timer is the only one the mode starts, it restarts when either value
+-   changes, and the phase MUST still wrap inside `0..360` so one cycle returns to the start.
++   changes, and the phase MUST still wrap inside `0..360` so one cycle returns to the start. No other
++   composable may start a rainbow timer.
+ 
+ 7. **Exactly one kind of rainbow.** Chat bubble rainbow (`rainbowChatColors`) and message text rainbow
+    (`rainbowMessageText`) MUST never be active together: the bubbles carry the text, so two saturated
+@@ -699,10 +703,13 @@ Enforcement:
+ Enforcement:
+ - `common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt` (`shiftHue`, `rainbowColors`,
+   `rainbowAppColors`, `rainbowTextColor`, `rainbowCycleMillis`, `rainbowUpdateMillis`,
+-  `rainbowChatColorsActive`, `rememberRainbowPhase`, `rememberRainbowChatColors`,
+-  `rememberRainbowMessageTextColor`, `nextRainbowPhase`)
+-- `common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt` (`SimpleXTheme` passes the
+-  displayed colors and gates the bubble colors; `SimpleXThemeOverride` deliberately does not)
++  `rainbowChatColorsActive`, `LocalRainbowPhase`, `rememberRainbowPhaseTimer`,
++  `rememberRainbowPhase`, `rememberRainbowChatColors`, `rememberRainbowMessageTextColor`,
++  `nextRainbowPhase`)
++- `common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt` (`SimpleXTheme` runs the timer,
++  publishes `LocalRainbowPhase`, passes the displayed colors and gates the bubble colors;
++  `SimpleXThemeOverride`, which wraps a conversation, applies the same phase so a chat screen cycles
++  exactly like the settings preview)
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/Appearance.kt`
+   (`CustomizeThemeColorsSection`: toggle, speed dropdown, the two exclusive color options, low
+   performance, swatches)
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index e27c96cf0..d78abe25e 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -98,8 +98,8 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | Source File | Product Concepts Affected | Risk Level | Notes |
+ |-------------|--------------------------|------------|-------|
+ | `ui/theme/ThemeManager.kt` | PC24 | Medium | Theme resolution engine — all color and wallpaper logic |
+-| `ui/theme/Theme.kt` | PC24, PC32, PC44 | Medium | Theme composables and `SimpleXTheme`; `SimpleXTheme` feeds the rainbow-shifted colors to `MaterialTheme` and `LocalAppColors` while `SimpleXThemeOverride` keeps the unshifted palette |
+-| `ui/theme/Rainbow.kt` | PC44 | Low | Rainbow mode: `shiftHue`, `rainbowColors`, `rainbowAppColors`, `rememberRainbowPhase` (pure hue rotation, no saved state) |
++| `ui/theme/Theme.kt` | PC24, PC32, PC44 | Medium | Theme composables and `SimpleXTheme`; `SimpleXTheme` runs the single rainbow timer, publishes `LocalRainbowPhase` and feeds the shifted colors to `MaterialTheme` / `LocalAppColors`, and `SimpleXThemeOverride` (which wraps a conversation) applies the same phase to the per-chat palette |
++| `ui/theme/Rainbow.kt` | PC44 | Low | Rainbow mode: `shiftHue`, `rainbowColors`, `rainbowAppColors`, `rememberRainbowPhaseTimer`, `LocalRainbowPhase` (pure hue rotation, no saved state) |
+ | `ui/theme/Color.kt` | PC24 | Low | Color palette definitions |
+ | `ui/theme/Shape.kt` | PC24 | Low | Shape token definitions |
+ | `ui/theme/Type.kt` | PC24 | Low | Typography definitions |
+diff --git a/apps/multiplatform/spec/services/theme.md b/apps/multiplatform/spec/services/theme.md
+index 14eea7010..5c5d95645 100644
+--- a/apps/multiplatform/spec/services/theme.md
++++ b/apps/multiplatform/spec/services/theme.md
+@@ -371,9 +371,10 @@ The root theme composable that wraps all app content:
+    - `LocalContentColor` -- set to `MaterialTheme.colors.onBackground`
+    - `LocalAppColors` -- the `AppColors` instance (remembered and updated)
+    - `LocalAppWallpaper` -- the `AppWallpaper` instance (remembered and updated)
++   - `LocalRainbowPhase` -- the current [rainbow](#rainbow-mode) phase, `0` when the mode is off; this is where the single timer publishes its value
+    - `LocalDensity` -- scaled by `desktopDensityScaleMultiplier` and `fontSizeMultiplier`
+ 
+-4. **`SimpleXThemeOverride`** ([line 857](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt#L857)): A variant that accepts an explicit `ActiveTheme` for per-chat theme previews and overlays.
++4. **`SimpleXThemeOverride`** ([line 863](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt#L863)): A variant that accepts an explicit `ActiveTheme` for per-chat theme previews and overlays. It applies the rainbow phase to that palette the same way `SimpleXTheme` does.
+ 
+ ### CompositionLocal access
+ 
+@@ -416,7 +417,9 @@ touched, so turning the mode off restores the exact colors the user picked.
+ | `rainbowTextColor(phase, dark)` | The message-text color: hue from the phase, with a fixed saturation and brightness per theme so the text stays readable on a bubble |
+ | `rainbowChatColorsActive(enabled, chatColors, messageText)` | Whether the chat bubbles take part: only when rainbow mode, the chat-colors option are on and the message text is **not** rainbow |
+ | `rainbowMessageTextActive(enabled, messageText)` | Whether message text is rainbow |
+-| `rememberRainbowPhase(): Float` | The current offset, or `0` when `appPrefs.rainbowThemeColors` is off. It runs the only timer rainbow mode starts, at the configured speed and update interval |
++| `rememberRainbowPhaseTimer(): Float` (internal) | The only rainbow timer. Called once by `SimpleXTheme`, it advances the phase at the configured speed and update interval, or returns `0` when `appPrefs.rainbowThemeColors` is off |
++| `LocalRainbowPhase` | `compositionLocalOf { 0f }` publishing the phase of the running timer; readers get the same phase without starting another timer |
++| `rememberRainbowPhase(): Float` | The current offset, read from `LocalRainbowPhase` (so `0` when rainbow mode is off). Starts no timer |
+ | `rememberRainbowChatColors(): Boolean` | The resolved chat-colors decision, read from the three preferences |
+ | `rememberRainbowMessageTextColor(): Color?` | The message text color, or `null` when the text is not rainbow |
+ 
+@@ -437,8 +440,15 @@ instead. `MarkdownText` (`views/chat/item/TextItemView.kt`) resolves its default
+ `rememberRainbowMessageTextColor()`, which is why the option reaches chat items, quotes and the message
+ preview without touching any of their call sites.
+ 
+-`SimpleXThemeOverride`, used for per-chat theme previews and the color editor preview, deliberately does
+-not apply the phase: it shows the colors that are being edited.
++The phase must come from one place: `SimpleXTheme` runs the timer and publishes it via
++`LocalRainbowPhase`; every other reader (`rememberRainbowPhase`, the settings swatches, the message text)
++just reads it. Starting a timer per reader would both drift out of sync and, with `MarkdownText` reading
++it per message, cost a coroutine per chat item.
++
++`SimpleXThemeOverride` applies the phase as well. A chat screen is wrapped in it (`ChatView.kt`, which
++passes the per-chat theme or `CurrentColors`), so skipping the phase there would leave bubbles and
++chrome cycling in the settings preview but static inside an actual conversation. It only changes what is
++displayed; the per-chat theme and the saved `ThemeOverrides` stay as they are.
+ 
+ ---
+ 
+@@ -549,7 +559,7 @@ Uses the [kaml](https://github.com/charleskorn/kaml) YAML library for serializat
+ |---|---|---|---|
+ | `ThemeManager.kt` | [`common/src/commonMain/.../ui/theme/ThemeManager.kt`](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/ThemeManager.kt) | 241 | Theme resolution, persistence, color/wallpaper management |
+ | `Theme.kt` | [`common/src/commonMain/.../ui/theme/Theme.kt`](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Theme.kt) | 881 | Type definitions, color palettes, `SimpleXTheme` composable |
+-| `Rainbow.kt` | [`common/src/commonMain/.../ui/theme/Rainbow.kt`](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt) | 131 | Rainbow mode: hue rotation of `Colors` and `AppColors`, `rememberRainbowPhase()` |
++| `Rainbow.kt` | [`common/src/commonMain/.../ui/theme/Rainbow.kt`](../../common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt) | 202 | Rainbow mode: hue rotation of `Colors` and `AppColors`, `LocalRainbowPhase`, `rememberRainbowPhase()` |
+ | `Theme.android.kt` | [`common/src/androidMain/.../ui/theme/Theme.android.kt`](../../common/src/androidMain/kotlin/chat/simplex/common/ui/theme/Theme.android.kt) | 6 | Android `isSystemInDarkTheme` |
+ | `Theme.desktop.kt` | [`common/src/desktopMain/.../ui/theme/Theme.desktop.kt`](../../common/src/desktopMain/kotlin/chat/simplex/common/ui/theme/Theme.desktop.kt) | 25 | Desktop `isSystemInDarkTheme` via OsThemeDetector |
+ | `Files.kt` | [`common/src/commonMain/.../platform/Files.kt`](../../common/src/commonMain/kotlin/chat/simplex/common/platform/Files.kt) | 191 | `readThemeOverrides()` (L125), `writeThemeOverrides()` (L151) |
+diff --git a/plans/2026-11-03-fix-rainbow-in-chat.md b/plans/2026-11-03-fix-rainbow-in-chat.md
+new file mode 100644
+index 000000000..85cc84f82
+--- /dev/null
++++ b/plans/2026-11-03-fix-rainbow-in-chat.md
+@@ -0,0 +1,63 @@
++# Fix: rainbow mode did not cycle inside a conversation
++
++## Problem
++
++The settings page showed the color swatches cycling, but opening a chat showed static bubbles and
++chrome. Reported as "气泡颜色只有在自定义主题页面里面预览的时候是生效的，实际打开聊天页面看是不生效的".
++
++Root cause: a conversation is wrapped in `SimpleXThemeOverride` (`views/chat/ChatView.kt`:
++
++```kotlin
++SimpleXThemeOverride(overrides ?: CurrentColors.collectAsState().value) { ... }
++```
++
++), and `SimpleXThemeOverride` handed the untouched `theme.colors` / `theme.appColors` to `MaterialTheme`
++and `LocalAppColors`. Rainbow mode was only applied in `SimpleXTheme`, so every screen inside an override
++— that is, every open chat — was excluded. The settings preview worked because the swatches call
++`shiftHue` directly and the color-editor preview is a separate path.
++
++A second defect found while reading the code: `rememberRainbowPhase()` started its own timer at every
++call site. `MarkdownText`'s default text color calls it, so a chat with N messages ran N coroutines,
++each with its own drifting phase.
++
++## Solution
++
++- One timer for the whole interface. `SimpleXTheme` now calls `rememberRainbowPhaseTimer()` (internal)
++and publishes the value through a new `LocalRainbowPhase` (`compositionLocalOf { 0f }`).
++- `rememberRainbowPhase()` becomes a pure reader of that CompositionLocal, so the swatches, the message
++text and any other reader share exactly one phase and start nothing.
++- `SimpleXThemeOverride` reads the phase too and computes `displayedColors` / `displayedAppColors` with
++`rainbowColors` / `rainbowAppColors` before providing them, so a conversation cycles like every other
++screen.
++
++## Design decisions
++
++- **`compositionLocalOf`, not `staticCompositionLocalOf`.** The phase changes every 50 ms (250 ms in low
++performance mode); a static local would invalidate the whole subtree, which is precisely the jank the
++low-performance option exists to avoid. Only composables that read the phase recompose.
++- **The override keeps changing only what is displayed.** `SimpleXThemeOverride` receives the per-chat
++theme (`overrides`) or `CurrentColors`; the phase is applied on top and never written back, so a
++per-chat theme and the saved `ThemeOverrides` stay untouched (RULE-29 invariant 1).
++- **The timer stays in one place.** Putting the timer in the theme provider rather than in a
++CompositionLocal-based helper means the phase cannot drift between screens and cannot multiply per
++message — the second bug above.
++- **No behaviour change when rainbow mode is off.** `rememberRainbowPhaseTimer()` returns `0f`, both
++`rainbowColors` and `rainbowAppColors` are no-ops at phase 0, and the override behaves exactly as before.
++
++## Rejected alternatives
++
++- Applying the phase inside `SimpleXThemeOverride` by starting its own timer: two independent timers
++would drift, and every navigated screen would restart the cycle from zero.
++- Replacing `SimpleXThemeOverride` with `SimpleXTheme` inside `ChatView`: the override exists to apply a
++per-chat theme; removing it would break per-chat colors and wallpapers.
++- Passing the phase as a parameter to `MarkdownText`: it would leak rainbow concerns into a rendering
++primitive and still require every call site to be updated.
++
++## Verification
++
++`./gradlew :common:desktopTest` → 25 suites, 179 tests, no failures (the pure hue-rotation helpers in
++`RainbowTest` are unchanged by this fix, which only rewires who runs the timer and who applies the
++phase). `./gradlew :common:compileDebugKotlinAndroid` → `BUILD SUCCESSFUL`.
++
++Manual check: with rainbow mode on, the chat bubble colors and the surrounding chrome now cycle while a
++conversation is open, and the settings swatches show the same hue at the same moment.

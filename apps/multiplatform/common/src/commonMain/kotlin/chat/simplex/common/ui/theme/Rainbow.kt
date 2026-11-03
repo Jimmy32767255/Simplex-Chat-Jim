@@ -144,12 +144,21 @@ internal fun rainbowMessageTextActive(enabled: Boolean, messageText: Boolean): B
   enabled && messageText
 
 /**
- * The current hue phase, advanced by a timer while rainbow mode is on, and `0f` while it is off (so
- * every caller falls back to the plain theme). The timer runs at the configured speed and update
- * interval, and it is the only timer rainbow mode starts.
+ * The one hue phase of the whole interface. `SimpleXTheme` runs the only timer and provides the value
+ * here; every other reader (the settings swatches, the message text, `SimpleXThemeOverride`) just reads
+ * it, so the whole interface stays in step and no extra timer is started per message or per screen.
+ * It is a `compositionLocalOf` rather than a `staticCompositionLocalOf` because it changes every few
+ * milliseconds — only the composables that actually read it should recompose.
+ */
+internal val LocalRainbowPhase = compositionLocalOf { 0f }
+
+/**
+ * Starts and advances the rainbow phase while rainbow mode is on, and returns `0f` while it is off.
+ * Must be called once, by the theme provider (`SimpleXTheme`); the actual value is published through
+ * [LocalRainbowPhase] so the timer is not duplicated.
  */
 @Composable
-fun rememberRainbowPhase(): Float {
+internal fun rememberRainbowPhaseTimer(): Float {
   val enabled = remember { appPrefs.rainbowThemeColors.state }.value
   if (!enabled) return 0f
   val speed = remember { appPrefs.rainbowSpeed.state }.value
@@ -165,6 +174,13 @@ fun rememberRainbowPhase(): Float {
   }
   return phase.value
 }
+
+/**
+ * The current hue phase, or `0f` when rainbow mode is off. Reads the phase that the theme provider
+ * publishes, so this starts no timer of its own.
+ */
+@Composable
+fun rememberRainbowPhase(): Float = LocalRainbowPhase.current
 
 /** Whether the chat bubble colors take part in rainbow mode. */
 @Composable

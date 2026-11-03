@@ -194,6 +194,16 @@ none
 
 ## bug fix:
 
+- [x] 彩虹模式：聊天页面里的气泡颜色不变色，只有自定义主题页面的预览会变色
+  - 原因：`SimpleXThemeOverride` 只把原始配色交给 `MaterialTheme` / `LocalAppColors`，完全没有套用彩虹相位；而聊天页面整体就包在它里面（`ChatView.kt` 用 `SimpleXThemeOverride(overrides ?: CurrentColors...)` 包住整个会话），所以设置页的色块会变色，真正进入聊天后气泡与界面色都不刷新。
+  - 附带问题：`rememberRainbowPhase()` 原来每个调用点各起一个计时器；`MarkdownText` 的默认文字色也调用它，于是聊天里每条消息都会各开一个协程，既不必要又会互相不同步，也与“手机端主页卡顿”有关。
+  - 修复方法：相位改为由 `SimpleXTheme` 统一提供——新增 `LocalRainbowPhase`（`compositionLocalOf { 0f }`），`SimpleXTheme` 里原来那个计时器改名为 `rememberRainbowPhaseTimer()`（内部函数，只此一处运行计时器），并把结果通过 `LocalRainbowPhase` 下发；`rememberRainbowPhase()` 变成只读该 CompositionLocal，不再起计时器。
+  - `SimpleXThemeOverride` 现在同样读取相位，并用 `rainbowColors` / `rainbowAppColors` 换算出本屏的 `displayedColors` / `displayedAppColors` 后再交给 `MaterialTheme` 与 `LocalAppColors`，因此会话页的界面色与气泡会像设置页预览一样实时循环；它仍然只改“显示”，不改每聊天的主题与已保存的 `ThemeOverrides`。
+  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt`（新增 `LocalRainbowPhase`、`rememberRainbowPhaseTimer`，`rememberRainbowPhase` 改为读 CompositionLocal）、`.../ui/theme/Theme.kt`（`SimpleXTheme` 下发相位，`SimpleXThemeOverride` 套用相位）。
+  - 兼容性：纯显示层修复，未改核心、未新增偏好或 `AppSettings` 字段，也不改变任何已保存颜色。
+  - 文档：`spec/services/theme.md`（Rainbow mode 表格新增 `LocalRainbowPhase` / `rememberRainbowPhaseTimer`，并说明相位必须来自唯一计时器、`SimpleXThemeOverride` 也套用相位）、`product/rules.md`（RULE-29 第 2、6 条与 Enforcement 更新）、`product/concepts.md`（PC44 源文件）、`spec/impact.md`（`Theme.kt`、`Rainbow.kt` 行）、`plans/2026-11-03-fix-rainbow-in-chat.md`。
+  - 测试：`./gradlew :common:desktopTest` 全部通过（25 个测试类、179 个用例无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
+
 - [x] 群成员连接率似乎忘记排除自己了，导致永远无法达到百分之一百
   - 原因：`groupMembersConnection` 原来写的是 `(members.count { it.ready } + if (currentMembership.ready) 1 else 0) to (members.size + 1)`。而 `GroupMember.ready` 等于 `activeConn?.connStatus == ConnStatus.Ready`，当前用户自己的 `GroupInfo.membership` 里通常没有 `activeConn`（连接信息只存在于成员列表的条目上，而成员列表里并不包含自己），所以分子里的 `+1` 永远是 0、分母里的 `+1` 却永远算上，比率就永远差一个人，最多只能到 `(N-1)/N`。
   - 修复方法：把「自己」从成员列表里先过滤掉（`members.filter { it.groupMemberId != currentMembership.groupMemberId }`，这样即使某个列表里包含了自己也不会重复计数），总数仍然把自己算进去（保持与标题里的 `N members` 一致），而自己是否有连接改为：有 `activeConn` 时按严格的 `ready` 判断，没有 `activeConn` 时按 `memberActive`（成员状态是否活跃）判断——客户端能读到成员列表本身就说明自己已经连上了，所以合理的群在全员联通时会显示 `N/N (100%)`。

@@ -824,7 +824,8 @@ fun SimpleXTheme(darkTheme: Boolean? = null, content: @Composable () -> Unit) {
   }
   val theme by CurrentColors.collectAsState()
   // Rainbow mode only changes what is displayed: `theme` keeps the saved colors.
-  val rainbowPhase = rememberRainbowPhase()
+  // This is the only place the rainbow timer runs; the phase is published below for everyone else.
+  val rainbowPhase = rememberRainbowPhaseTimer()
   val rainbowChatColors = rememberRainbowChatColors()
   val displayedColors = remember(theme, rainbowPhase) { rainbowColors(theme.colors, rainbowPhase) }
   val displayedAppColors = remember(theme, rainbowPhase, rainbowChatColors) {
@@ -857,6 +858,7 @@ fun SimpleXTheme(darkTheme: Boolean? = null, content: @Composable () -> Unit) {
         LocalContentColor provides MaterialTheme.colors.onBackground,
         LocalAppColors provides rememberedAppColors,
         LocalAppWallpaper provides rememberedWallpaper,
+        LocalRainbowPhase provides rainbowPhase,
         LocalDensity provides density,
         content = content
       )
@@ -866,16 +868,24 @@ fun SimpleXTheme(darkTheme: Boolean? = null, content: @Composable () -> Unit) {
 
 @Composable
 fun SimpleXThemeOverride(theme: ThemeManager.ActiveTheme, content: @Composable () -> Unit) {
+  // A screen with its own palette still takes part in rainbow mode: the phase comes from the theme
+  // provider, and only what is displayed changes (the saved per-chat theme is untouched).
+  val rainbowPhase = rememberRainbowPhase()
+  val rainbowChatColors = rememberRainbowChatColors()
+  val displayedColors = remember(theme, rainbowPhase) { rainbowColors(theme.colors, rainbowPhase) }
+  val displayedAppColors = remember(theme, rainbowPhase, rainbowChatColors) {
+    rainbowAppColors(theme.appColors, rainbowPhase, rainbowChatColors)
+  }
   MaterialTheme(
-    colors = theme.colors,
+    colors = displayedColors,
     typography = Typography,
     shapes = Shapes,
     content = {
       val rememberedAppColors = remember {
         // Explicitly creating a new object here so we don't mutate the initial [appColors]
         // provided, and overwrite the values set in it.
-        theme.appColors.copy()
-      }.apply { updateColorsFrom(theme.appColors) }
+        displayedAppColors.copy()
+      }.apply { updateColorsFrom(displayedAppColors) }
       val rememberedWallpaper = remember {
         // Explicitly creating a new object here so we don't mutate the initial [wallpaper]
         // provided, and overwrite the values set in it.
