@@ -1,0 +1,146 @@
+diff --git a/TODO.md b/TODO.md
+index b48e60b6f..54c281d04 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -193,7 +193,7 @@
+   - 已实现（基于 7.0.4）：发送键旁翻译键——输入框发送键左侧新增 36dp 圆形翻译键（`ic_translate`）。单击把输入框当前文本翻译为默认目标语言（默认英语）；长按弹出语言选择菜单，选中后本次翻译为该语言（仅本次有效，不改默认设置）；翻译后再点一次撤销回原文，若翻译后又编辑了文本则不可撤销、此时点击改为重新翻译（是否可撤销由 `ComposeState` 新增的 `translateOriginal`/`translateResult` 字段判断）。
+   - 已实现（基于 7.0.4）：设置页——设置新增翻译设置界面（标题 `translation_settings`，即「翻译消息 / Translate messages」），可配置服务提供商 provider（Google 免费、Bing 免费、百度（需 API Key）、AI 翻译（OpenAI Responses 协议，默认 DeepSeek）、自定义（OpenAI 兼容端点，可自定义 base URL/模型/密钥））、默认目标语言 targetLang、自动翻译开关 autoTranslate，以及各提供商的 API Key。
+   - 已实现（基于 7.0.4）：密钥与端点——百度另存 AppID/密钥；AI 提供方默认 base URL `https://api.deepseek.com/v1`、模型 `deepseek-chat`，自定义方（custom）的 base URL/模型默认为空、由用户自填。所有密钥先用 `Cryptor` 加密再存本机，不随备份导出。
+-  - 已实现（基于 7.0.4）：自动翻译与限流——autoTranslate 只翻译当前视区可见消息，消息滚动离开视区即取消其未完成请求；按速率限制批量处理：请求间隔 `requestIntervalMs`（默认 600）、最大并发 `maxConcurrent`（默认 2）、单次批量上限 `batchLimit`（默认 20）；手动翻译同样受最小间隔约束，防止被服务商封禁或耗尽余额。
++  - 已实现（基于 7.0.4）：自动翻译与限流——autoTranslate 只翻译当前视区可见消息（由当前视区可见项集合的变化触发，带 400ms 防抖；已翻译或正在翻译的消息不重复请求）；按速率限制批量处理：请求间隔 `requestIntervalMs`（默认 600）、最大并发 `maxConcurrent`（默认 2）、单次批量上限 `batchLimit`（默认 20）；手动翻译同样受最小间隔约束，防止被服务商封禁或耗尽余额。
+   - 已实现（基于 7.0.4）：纯客户端本机存储——所有配置存本机 `AppPreferences`（JSON 字符串偏好 `translationConfig`，密钥加密存 `translationSecrets` + `translationSecretsIv`），**不进入 `AppSettings` 导出**；不修改核心（Haskell）与网络协议，便于日后跟随官方版本升级。
+   - 改动文件：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/`（`TranslationModels.kt`、`TranslationLang.kt`、`TranslationApi.kt`、`TranslationHttp.kt`（`expect` suspend httpGetText/httpPostJson）+ desktop/android actual、`TranslationService.kt`）；`.../model/SimpleXAPI.kt`（`AppPreferences` 的四个翻译偏好与 `SHARED_PREFS_*` 常量）、`.../views/chat/ComposeView.kt`（`ComposeState.translateOriginal`/`translateResult`）；聊天侧 UI（消息菜单项、发送键翻译键、气泡译文、自动翻译可见区）在 `.../views/chat/`（`SendMsgView.kt`、`ChatItemView.kt`、`FramedItemView.kt` 及翻译界面），设置侧在 `.../views/usersettings/SettingsView.kt` 与 `TranslationSettingsView.kt`；`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`。
+   - 文档：`product/concepts.md`（PC46）、`product/rules.md`（RULE-31）、`product/README.md`、`product/views/{chat,settings}.md`、`spec/impact.md`（PC46）、`spec/state.md`、`spec/client/{chat-view,compose,translation}.md`、`plans/2026-11-04-in-app-chat-translation.md`。
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt
+index e9f80cb80..bd9bfd847 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt
+@@ -35,6 +35,13 @@ object TranslationService {
+   private val rateMutex = Mutex()
+   private var lastRequestAt: Long = 0
+ 
++  /**
++   * In-flight automatic-translation jobs keyed by chat item id. Tracked so a request can be cancelled
++   * the moment its message scrolls out of the current viewport ("visible area only" contract). Only
++   * touched from the main thread (Compose callers), so a plain map is enough.
++   */
++  private val autoJobs = mutableMapOf<Long, Job>()
++
+   fun entry(itemId: Long): TranslationEntry? = results[itemId]
+ 
+   fun clear(itemId: Long) { results.remove(itemId) }
+@@ -154,31 +161,66 @@ object TranslationService {
+     val rate = cfg.rate.normalized()
+     val target = targetLang ?: cfg.targetLang
+     if (!isConfigured(cfg, secrets())) return
+-    scope.launch {
+-      val semaphore = Semaphore(rate.maxConcurrent)
+-      val queue = items
+-        .filter { (id, text) -> text.isNotBlank() && results[id]?.isDone != true && results[id]?.isLoading != true }
+-        .filter { (_, text) -> !isLikelyAlreadyInLanguage(text, target) }
+-        .take(rate.batchLimit)
+-      coroutineScope {
+-        for ((id, text) in queue) {
+-          launch {
+-            semaphore.withPermit {
+-              awaitRateSlot(rate)
+-              results[id] = TranslationEntry(TranslationStatus.LOADING, targetLang = target)
+-              val entry = try {
+-                translateNow(text, target, cfg, secrets())
+-              } catch (e: Exception) {
+-                TranslationEntry(TranslationStatus.ERROR, error = e.message ?: e.toString(), targetLang = target)
+-              }
+-              results[id] = entry
++    val queue = items
++      .filter { (id, text) -> text.isNotBlank() && results[id]?.isDone != true && results[id]?.isLoading != true && autoJobs[id]?.isActive != true }
++      .filter { (_, text) -> !isLikelyAlreadyInLanguage(text, target) }
++      .take(rate.batchLimit)
++    if (queue.isEmpty()) return
++    val visibleIds = items.map { it.first }.toSet()
++    // A message that already scrolled away must not keep an in-flight automatic request alive.
++    cancelAutomaticOutside(visibleIds)
++    val semaphore = Semaphore(rate.maxConcurrent)
++    for ((id, text) in queue) {
++      autoJobs[id] = scope.launch {
++        try {
++          semaphore.withPermit {
++            awaitRateSlot(rate)
++            // Re-check visibility right before spending a request: the viewport may have moved while
++            // this coroutine was queued behind the semaphore or the rate limiter.
++            if (id !in currentVisibleIds) return@withPermit
++            results[id] = TranslationEntry(TranslationStatus.LOADING, targetLang = target)
++            val entry = try {
++              translateNow(text, target, cfg, secrets())
++            } catch (e: CancellationException) {
++              throw e
++            } catch (e: Exception) {
++              TranslationEntry(TranslationStatus.ERROR, error = e.message ?: e.toString(), targetLang = target)
+             }
++            // If the item left the viewport while the request was in flight, drop the result.
++            if (id in currentVisibleIds) results[id] = entry else results.remove(id)
+           }
++        } finally {
++          if (autoJobs[id] === coroutineContext[Job]) autoJobs.remove(id)
+         }
+       }
+     }
+   }
+ 
++  /** Ids currently considered visible by the latest automatic-translation pass. */
++  private var currentVisibleIds: Set<Long> = emptySet()
++
++  /** Cancel every in-flight automatic translation whose item is no longer visible. */
++  fun cancelAutomaticOutside(visibleIds: Set<Long>) {
++    currentVisibleIds = visibleIds
++    val iterator = autoJobs.entries.iterator()
++    while (iterator.hasNext()) {
++      val (id, job) = iterator.next()
++      if (id !in visibleIds) {
++        job.cancel()
++        iterator.remove()
++        // Don't leave a permanent "translating" spinner for a message that is off-screen.
++        if (results[id]?.isLoading == true) results.remove(id)
++      }
++    }
++  }
++
++  /** Cancel all in-flight automatic translations (e.g. when leaving the chat or turning the switch off). */
++  fun cancelAllAutomatic() {
++    currentVisibleIds = emptySet()
++    autoJobs.values.forEach { it.cancel() }
++    autoJobs.clear()
++  }
++
+   // endregion
+ 
+   // region ---- provider dispatch ----
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
+index 4d6bc890d..531b1a6f1 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
+@@ -2533,7 +2533,13 @@ fun BoxScope.ChatItemsList(
+     }
+       .distinctUntilChanged()
+       .collectLatest { (enabled, visibleIds) ->
+-        if (!enabled) return@collectLatest
++        if (!enabled) {
++          TranslationService.cancelAllAutomatic()
++          return@collectLatest
++        }
++        // Cancel in-flight automatic requests for messages that just left the viewport immediately,
++        // before the debounce, so scrolling away never keeps a provider request alive.
++        TranslationService.cancelAutomaticOutside(visibleIds.toSet())
+         delay(400) // debounce: wait until the visible set settles
+         val merged = mergedItems.value
+         val items = visibleIds.mapNotNull { id ->
+@@ -2546,6 +2552,10 @@ fun BoxScope.ChatItemsList(
+         }
+       }
+   }
++  // Leaving the chat (or this list) must not leave automatic translation requests running.
++  DisposableEffect(Unit) {
++    onDispose { TranslationService.cancelAllAutomatic() }
++  }
+ 
+   LaunchedEffect(Unit) {
+     snapshotFlow { listState.value.isScrollInProgress }

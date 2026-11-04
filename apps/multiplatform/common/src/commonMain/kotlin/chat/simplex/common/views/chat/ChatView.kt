@@ -2533,7 +2533,13 @@ fun BoxScope.ChatItemsList(
     }
       .distinctUntilChanged()
       .collectLatest { (enabled, visibleIds) ->
-        if (!enabled) return@collectLatest
+        if (!enabled) {
+          TranslationService.cancelAllAutomatic()
+          return@collectLatest
+        }
+        // Cancel in-flight automatic requests for messages that just left the viewport immediately,
+        // before the debounce, so scrolling away never keeps a provider request alive.
+        TranslationService.cancelAutomaticOutside(visibleIds.toSet())
         delay(400) // debounce: wait until the visible set settles
         val merged = mergedItems.value
         val items = visibleIds.mapNotNull { id ->
@@ -2545,6 +2551,10 @@ fun BoxScope.ChatItemsList(
           TranslationService.autoTranslateVisible(items, scope)
         }
       }
+  }
+  // Leaving the chat (or this list) must not leave automatic translation requests running.
+  DisposableEffect(Unit) {
+    onDispose { TranslationService.cancelAllAutomatic() }
   }
 
   LaunchedEffect(Unit) {

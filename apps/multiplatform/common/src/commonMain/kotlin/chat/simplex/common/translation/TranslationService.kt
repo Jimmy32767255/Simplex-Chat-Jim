@@ -35,6 +35,13 @@ object TranslationService {
   private val rateMutex = Mutex()
   private var lastRequestAt: Long = 0
 
+  /**
+   * In-flight automatic-translation jobs keyed by chat item id. Tracked so a request can be cancelled
+   * the moment its message scrolls out of the current viewport ("visible area only" contract). Only
+   * touched from the main thread (Compose callers), so a plain map is enough.
+   */
+  private val autoJobs = mutableMapOf<Long, Job>()
+
   fun entry(itemId: Long): TranslationEntry? = results[itemId]
 
   fun clear(itemId: Long) { results.remove(itemId) }
@@ -154,29 +161,64 @@ object TranslationService {
     val rate = cfg.rate.normalized()
     val target = targetLang ?: cfg.targetLang
     if (!isConfigured(cfg, secrets())) return
-    scope.launch {
-      val semaphore = Semaphore(rate.maxConcurrent)
-      val queue = items
-        .filter { (id, text) -> text.isNotBlank() && results[id]?.isDone != true && results[id]?.isLoading != true }
-        .filter { (_, text) -> !isLikelyAlreadyInLanguage(text, target) }
-        .take(rate.batchLimit)
-      coroutineScope {
-        for ((id, text) in queue) {
-          launch {
-            semaphore.withPermit {
-              awaitRateSlot(rate)
-              results[id] = TranslationEntry(TranslationStatus.LOADING, targetLang = target)
-              val entry = try {
-                translateNow(text, target, cfg, secrets())
-              } catch (e: Exception) {
-                TranslationEntry(TranslationStatus.ERROR, error = e.message ?: e.toString(), targetLang = target)
-              }
-              results[id] = entry
+    val queue = items
+      .filter { (id, text) -> text.isNotBlank() && results[id]?.isDone != true && results[id]?.isLoading != true && autoJobs[id]?.isActive != true }
+      .filter { (_, text) -> !isLikelyAlreadyInLanguage(text, target) }
+      .take(rate.batchLimit)
+    if (queue.isEmpty()) return
+    val visibleIds = items.map { it.first }.toSet()
+    // A message that already scrolled away must not keep an in-flight automatic request alive.
+    cancelAutomaticOutside(visibleIds)
+    val semaphore = Semaphore(rate.maxConcurrent)
+    for ((id, text) in queue) {
+      autoJobs[id] = scope.launch {
+        try {
+          semaphore.withPermit {
+            awaitRateSlot(rate)
+            // Re-check visibility right before spending a request: the viewport may have moved while
+            // this coroutine was queued behind the semaphore or the rate limiter.
+            if (id !in currentVisibleIds) return@withPermit
+            results[id] = TranslationEntry(TranslationStatus.LOADING, targetLang = target)
+            val entry = try {
+              translateNow(text, target, cfg, secrets())
+            } catch (e: CancellationException) {
+              throw e
+            } catch (e: Exception) {
+              TranslationEntry(TranslationStatus.ERROR, error = e.message ?: e.toString(), targetLang = target)
             }
+            // If the item left the viewport while the request was in flight, drop the result.
+            if (id in currentVisibleIds) results[id] = entry else results.remove(id)
           }
+        } finally {
+          if (autoJobs[id] === coroutineContext[Job]) autoJobs.remove(id)
         }
       }
     }
+  }
+
+  /** Ids currently considered visible by the latest automatic-translation pass. */
+  private var currentVisibleIds: Set<Long> = emptySet()
+
+  /** Cancel every in-flight automatic translation whose item is no longer visible. */
+  fun cancelAutomaticOutside(visibleIds: Set<Long>) {
+    currentVisibleIds = visibleIds
+    val iterator = autoJobs.entries.iterator()
+    while (iterator.hasNext()) {
+      val (id, job) = iterator.next()
+      if (id !in visibleIds) {
+        job.cancel()
+        iterator.remove()
+        // Don't leave a permanent "translating" spinner for a message that is off-screen.
+        if (results[id]?.isLoading == true) results.remove(id)
+      }
+    }
+  }
+
+  /** Cancel all in-flight automatic translations (e.g. when leaving the chat or turning the switch off). */
+  fun cancelAllAutomatic() {
+    currentVisibleIds = emptySet()
+    autoJobs.values.forEach { it.cancel() }
+    autoJobs.clear()
   }
 
   // endregion
