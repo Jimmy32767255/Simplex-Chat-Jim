@@ -19,6 +19,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.*
 import chat.simplex.common.model.*
+import chat.simplex.common.translation.*
 import chat.simplex.common.ui.theme.*
 import chat.simplex.common.views.chat.item.ItemAction
 import chat.simplex.common.views.helpers.*
@@ -247,6 +248,9 @@ fun SendMsgView(
               if (messagePreviewAvailable(previewText, cs.inProgress) && cs.preview !is ComposePreview.VoicePreview) {
                 MessagePreviewButton { showMessagePreview(previewText) }
               }
+              if (cs.message.text.isNotBlank()) {
+                TranslateInputButton(composeState)
+              }
               if (menuItems.isNotEmpty()) {
                 SendMsgButton(icon, sendButtonSize, sendButtonAlpha, sendButtonColor, !sendMsgButtonDisabled, sendToConnect, sendMessage) { showDropdown.value = true }
                 DefaultDropdownMenu(showDropdown) {
@@ -324,6 +328,120 @@ private fun BoxScope.DeleteTextButton(composeState: MutableState<ComposeState>) 
     Modifier.align(Alignment.TopEnd).size(36.dp)
   ) {
     Icon(painterResource(MR.images.ic_close), null, Modifier.padding(7.dp).size(36.dp), tint = MaterialTheme.colors.secondary)
+  }
+}
+
+/**
+ * Translation key next to the send button.
+ *
+ * Single click: undo the last inserted translation (if the text was not edited since), otherwise
+ * translate the current input and replace it with the result. Long click: pick a target language
+ * for this session only (does not change the global default).
+ */
+@Composable
+private fun TranslateInputButton(composeState: MutableState<ComposeState>) {
+  val scope = rememberCoroutineScope()
+  val interactionSource = remember { MutableInteractionSource() }
+  var selectedLang by remember { mutableStateOf<String?>(null) }
+  val showLangMenu = remember { mutableStateOf(false) }
+  var translating by remember { mutableStateOf(false) }
+
+  fun doTranslate() {
+    val cs = composeState.value
+    val text = cs.message.text
+    if (text.isBlank()) return
+    if (!TranslationService.isConfigured()) {
+      AlertManager.shared.showAlertMsg(title = TranslationStrings.notConfigured)
+      return
+    }
+    if (translating) return
+    translating = true
+    scope.launch {
+      try {
+        val entry = TranslationService.translateTextNow(text, selectedLang)
+        val translated = entry.translatedText
+        if (entry.isDone && translated != null) {
+          composeState.value = composeState.value.copy(
+            message = ComposeMessage(translated),
+            translateResult = translated,
+            translateOriginal = text,
+          )
+        } else {
+          AlertManager.shared.showAlertMsg(
+            title = TranslationStrings.translationFailed,
+            text = entry.error,
+          )
+        }
+      } catch (e: Exception) {
+        AlertManager.shared.showAlertMsg(
+          title = TranslationStrings.translationFailed,
+          text = e.message,
+        )
+      } finally {
+        translating = false
+      }
+    }
+  }
+
+  Box {
+    Box(
+      modifier = Modifier
+        .size(36.dp)
+        .clip(CircleShape)
+        .combinedClickable(
+          interactionSource = interactionSource,
+          indication = null,
+          onClick = {
+            val cs = composeState.value
+            val original = canUndoTranslation(cs.translateOriginal, cs.translateResult, cs.message.text)
+            if (original != null) {
+              composeState.value = composeState.value.copy(
+                message = ComposeMessage(original),
+                translateOriginal = null,
+                translateResult = null,
+              )
+            } else {
+              doTranslate()
+            }
+          },
+          onLongClick = { showLangMenu.value = true },
+        ),
+      contentAlignment = Alignment.Center
+    ) {
+      if (translating) {
+        CircularProgressIndicator(
+          modifier = Modifier.size(20.dp),
+          strokeWidth = 2.dp,
+          color = MaterialTheme.colors.secondary,
+        )
+      } else {
+        Icon(
+          painterResource(MR.images.ic_translate),
+          contentDescription = TranslationStrings.translateVerb,
+          tint = MaterialTheme.colors.secondary,
+          modifier = Modifier.size(22.dp),
+        )
+      }
+    }
+    DefaultDropdownMenu(showLangMenu) {
+      Text(
+        TranslationStrings.chooseLanguage,
+        Modifier.padding(vertical = DEFAULT_PADDING_HALF, horizontal = DEFAULT_PADDING * 1.5f),
+        fontSize = 16.sp,
+        color = MaterialTheme.colors.secondary,
+      )
+      val currentCode = selectedLang ?: TranslationService.config().targetLang
+      translationLanguages.forEach { lang ->
+        ItemAction(
+          text = if (lang.code == currentCode) "${lang.displayName} ✓" else lang.displayName,
+          onClick = {
+            selectedLang = lang.code
+            showLangMenu.value = false
+            doTranslate()
+          },
+        )
+      }
+    }
   }
 }
 

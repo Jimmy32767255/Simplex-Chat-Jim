@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import chat.simplex.common.model.*
+import chat.simplex.common.translation.*
 import chat.simplex.common.platform.*
 import chat.simplex.common.ui.theme.*
 import chat.simplex.common.views.chat.*
@@ -480,6 +481,7 @@ fun FramedItemView(
             inlineMeta()
           }
         }
+        TranslationUnderBubble(ci, linkMode)
       }
     }
   }
@@ -527,6 +529,60 @@ fun CIMarkdownText(
       blockLayout = true,
       cardColor = if (ci.chatDir.sent) MaterialTheme.appColors.sentQuote else MaterialTheme.appColors.receivedQuote
     )
+  }
+}
+
+/**
+ * Renders the translation of a received/sent message underneath its bubble (bilingual, non-destructive).
+ * Shares the observable [TranslationService] registry with both manual (context menu) and automatic
+ * translation, so it needs no extra wiring. Renders nothing when there is no entry yet.
+ */
+@Composable
+fun TranslationUnderBubble(ci: ChatItem, linkMode: SimplexLinkMode) {
+  if (ci.id < 0 || ci.content.text.isEmpty()) return
+  val entry = TranslationService.entry(ci.id) ?: return
+  val scope = rememberCoroutineScope()
+  val secondary = MaterialTheme.colors.secondary
+  Column(
+    Modifier
+      .widthIn(min = 80.dp)
+      .padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
+  ) {
+    when {
+      entry.isLoading -> {
+        Text(
+          TranslationStrings.translating,
+          style = MaterialTheme.typography.body1.copy(color = secondary, lineHeight = 22.sp),
+        )
+      }
+      entry.isDone -> {
+        val translated = entry.translatedText
+        if (translated != null) {
+          MarkdownText(
+            translated,
+            parseToMarkdown(translated),
+            toggleSecrets = true,
+            linkMode = linkMode,
+            style = MaterialTheme.typography.body1.copy(color = secondary, lineHeight = 22.sp),
+          )
+        }
+      }
+      entry.status == TranslationStatus.ERROR -> {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Text(
+            "${TranslationStrings.translationFailed} ",
+            style = MaterialTheme.typography.body1.copy(color = secondary, lineHeight = 22.sp),
+          )
+          Text(
+            TranslationStrings.retry,
+            Modifier.clickable {
+              TranslationService.translateChatItem(ci.id, ci.content.text, scope = scope)
+            },
+            style = MaterialTheme.typography.body1.copy(color = MaterialTheme.colors.primary, lineHeight = 22.sp),
+          )
+        }
+      }
+    }
   }
 }
 

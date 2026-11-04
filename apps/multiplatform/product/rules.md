@@ -24,6 +24,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
 16. [Range Selection (RULE-28)](#16-range-selection)
 17. [Rainbow Mode (RULE-29)](#17-rainbow-mode)
 18. [Message Preview (RULE-30)](#18-message-preview)
+19. [Chat Translation (RULE-31)](#19-chat-translation)
 
 ---
 
@@ -746,3 +747,49 @@ Enforcement:
 - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt` (button placement next to
   the send button)
 - Test: `common/src/commonTest/kotlin/chat/simplex/app/MessagePreviewTest.kt`
+
+## 19. Chat Translation
+
+### RULE-31: Translation Is a Client-Side, Rate-Limited, Non-Exportable Service
+
+1. **Pure-client and pluggable.** Translation is implemented entirely in the Kotlin client. The
+   `TranslationProvider` is a pluggable choice (`GOOGLE`, `BING`, `BAIDU`, `AI`, `CUSTOM`) dispatched
+   through `TranslationService`; the Haskell core and the network protocol MUST NOT be changed. A
+   provider is added by describing its request/response in `TranslationApi` and its HTTP in
+   `TranslationHttp` — never by touching the core.
+
+2. **Configuration is local only.** The provider, target language, keys and endpoints live in
+   `AppPreferences` as the JSON string `translationConfig` (plus the auto-translate flag). They MUST NOT
+   be added to the `AppSettings` import/export structure, so a backup/device migration never carries the
+   translation service configuration or credentials.
+
+3. **Secrets are encrypted at rest.** Every API key (and the Baidu AppID/secret) MUST be encrypted with
+   `Cryptor` and stored in `translationSecrets` together with its IV in `translationSecretsIv`. Secrets
+   MUST never be exported and MUST never be written unencrypted.
+
+4. **Translation never mutates the message.** A message-menu translation appends the translated text
+   below the original as a two-line bubble; it MUST NOT edit or replace the `ChatItem` content. The
+   compose-bar translation keeps the original in `ComposeState.translateOriginal` and the translation in
+   `translateResult`, and can be undone only while the two agree with the current text (editing the text
+   after translating disables undo and the button re-translates instead).
+
+5. **Automatic translation is rate-limited and scoped.** `autoTranslate` MUST translate only the
+   messages currently visible in the viewport and MUST cancel a message's in-flight request as soon as it
+   scrolls out of view. Both automatic and manual translation go through the same limiter:
+   `requestIntervalMs` (default 600), `maxConcurrent` (default 2) and `batchLimit` (default 20), so the
+   client never floods a provider and cannot be banned or drain its balance.
+
+Enforcement:
+- `common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt`
+  (`TranslationService.translateChatItem`/`translateTextNow`/`autoTranslateVisible`, the rate limiter,
+  `canUndoTranslation`)
+- `common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationModels.kt`
+  (`TranslationProvider`, `TranslationConfig`, `TranslationSecrets`, `TranslationRateConfig`)
+- `common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationApi.kt` and `TranslationHttp.kt`
+  (request/response builders and the `httpGetText`/`httpPostJson` expect/actual)
+- `common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`
+  (`AppPreferences.translationConfig`, `translationSecrets`, `translationSecretsIv`,
+  `translationAutoTranslate`)
+- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ComposeView.kt`
+  (`ComposeState.translateOriginal`, `translateResult`)
+- Test: `common/src/commonTest/kotlin/chat/simplex/app/Translation*.kt`

@@ -245,11 +245,38 @@ Rendered only when `appPlatform.isDesktop`. Both rows offer the same four combin
 
 The two combinations are always kept distinct: choosing the combination already used by the other row swaps the two values. Any other Enter combination, including `Cmd`/`Win` + `Enter`, does nothing; a plain `Enter` (no modifier) always inserts a newline when it is not the send key, so a newline is never unreachable.
 
+### Chat Translation Section (`TranslationSettingsView`)
+
+A translation sub-page reached from the main settings list (title string `translation_settings`, shown as
+「翻译消息 / Translate messages」, with summary `translation_settings_summary`). It configures the in-app
+translation service (see `product/rules.md` RULE-31). Every value is stored locally in `AppPreferences`
+(JSON string `translationConfig`, plus `translationAutoTranslate`) and is **not** part of the
+`AppSettings` backup; secrets are encrypted with `Cryptor` and stored in `translationSecrets` +
+`translationSecretsIv`.
+
+| Row | Preference Key | Default | Description |
+|---|---|---|---|
+| Provider | `provider` (`TranslationProvider`) | `GOOGLE` | `GOOGLE` (free), `BING` (free), `BAIDU` (needs an API Key), `AI` (OpenAI Responses protocol, DeepSeek default) or `CUSTOM` (OpenAI-compatible endpoint) |
+| Default target language | `targetLang` | `English` | Language used by a single tap on the compose-bar translate button |
+| Auto-translate | `translationAutoTranslate` | Off | Translate the messages currently visible in the viewport; a message's in-flight request is cancelled as soon as it scrolls out of view |
+| Request interval (ms) | `requestIntervalMs` | `600` | Minimum spacing between translation requests |
+| Max concurrent | `maxConcurrent` | `2` | Maximum number of translation requests in flight |
+| Batch limit | `batchLimit` | `20` | Maximum number of visible messages handled per batch |
+
+Provider-specific fields appear only for the selected provider:
+
+| Field | Provider | Description |
+|---|---|---|
+| API Key | Baidu / AI / Custom | Encrypted with `Cryptor` before it is written to `translationSecrets` (Google and Bing use keyless public endpoints) |
+| Baidu AppID + secret | Baidu | Baidu translate credentials |
+| Base URL + model + API Key | AI / Custom | `AI` defaults to base URL `https://api.deepseek.com/v1` and model `deepseek-chat`; `CUSTOM` defaults are empty and must be filled by the user (OpenAI-compatible endpoint) |
+
 ## Source Files
 
 | File | Path |
 |---|---|
 | `SettingsView.kt` | `views/usersettings/SettingsView.kt` |
+| `TranslationSettingsView.kt` | `views/usersettings/TranslationSettingsView.kt` (chat-translation settings page) |
 | `Appearance.kt` | `views/usersettings/Appearance.kt` |
 | `PrivacySettings.kt` | `views/usersettings/PrivacySettings.kt` |
 | `NetworkAndServers.kt` | `views/usersettings/networkAndServers/NetworkAndServers.kt` |

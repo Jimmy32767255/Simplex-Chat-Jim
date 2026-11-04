@@ -117,7 +117,12 @@ data class ComposeState(
   val mentions: MentionedMembers = emptyMap(),
   // the max file size the user may attach, raised by their active badge unless the chat is incognito; kept in sync on chat switch
   val maxFileSize: Long = getMaxFileSize(FileProtocol.XFTP),
-  val sendIncognito: Boolean = false
+  val sendIncognito: Boolean = false,
+  // In-app translation: the original text before the last translation was applied, and the translated
+  // text that replaced it. Used to undo the translation (only while the text is unchanged). Both are
+  // transient UI state and default to null, so old serialized drafts remain compatible.
+  val translateOriginal: String? = null,
+  val translateResult: String? = null,
 ) {
   constructor(editingItem: ChatItem, liveMessage: LiveMessage? = null, useLinkPreviews: Boolean): this(
     ComposeMessage(

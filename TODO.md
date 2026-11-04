@@ -188,6 +188,16 @@
   - 文档：`product/rules.md`（RULE-26 新增第 6 条）、`spec/client/chat-view.md`（复制小节）、`product/views/chat.md`（单条 Copy 与多选 Copy 两行）、`spec/impact.md`（`ChatItemView.kt` 行）、`plans/2026-11-03-copy-with-quote.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/CopiedQuoteTest.kt`（10 个用例：引用行在正文前、引用行在多选复制里位于名字时间之后、引用自己的消息用自己名字、群引用用成员显示名、引用文本折叠成一行、没有引用时行为不变、引用为空文本时跳过、频道引用没有作者、多选复制整体格式、标记来自字符串资源），`./gradlew :common:desktopTest` 通过（25 个测试类无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
 
+- [x] 应用内聊天翻译：长按任意消息气泡即可翻译并以双语对照显示，输入框发送键旁新增翻译键，设置页可选翻译服务商并配置密钥，自动翻译当前视区消息并按速率限制批量处理
+  - 已实现（基于 7.0.4）：消息菜单翻译——长按/右键任意消息气泡，弹出菜单新增「翻译」项（图标 `ic_translate`），点击后自动识别源语言并翻译；译文以「原文 + 译文」双语气泡在该消息下方追加显示，属非破坏性展示，不修改原消息内容。
+  - 已实现（基于 7.0.4）：发送键旁翻译键——输入框发送键左侧新增 36dp 圆形翻译键（`ic_translate`）。单击把输入框当前文本翻译为默认目标语言（默认英语）；长按弹出语言选择菜单，选中后本次翻译为该语言（仅本次有效，不改默认设置）；翻译后再点一次撤销回原文，若翻译后又编辑了文本则不可撤销、此时点击改为重新翻译（是否可撤销由 `ComposeState` 新增的 `translateOriginal`/`translateResult` 字段判断）。
+  - 已实现（基于 7.0.4）：设置页——设置新增翻译设置界面（标题 `translation_settings`，即「翻译消息 / Translate messages」），可配置服务提供商 provider（Google 免费、Bing 免费、百度（需 API Key）、AI 翻译（OpenAI Responses 协议，默认 DeepSeek）、自定义（OpenAI 兼容端点，可自定义 base URL/模型/密钥））、默认目标语言 targetLang、自动翻译开关 autoTranslate，以及各提供商的 API Key。
+  - 已实现（基于 7.0.4）：密钥与端点——百度另存 AppID/密钥；AI 提供方默认 base URL `https://api.deepseek.com/v1`、模型 `deepseek-chat`，自定义方（custom）的 base URL/模型默认为空、由用户自填。所有密钥先用 `Cryptor` 加密再存本机，不随备份导出。
+  - 已实现（基于 7.0.4）：自动翻译与限流——autoTranslate 只翻译当前视区可见消息，消息滚动离开视区即取消其未完成请求；按速率限制批量处理：请求间隔 `requestIntervalMs`（默认 600）、最大并发 `maxConcurrent`（默认 2）、单次批量上限 `batchLimit`（默认 20）；手动翻译同样受最小间隔约束，防止被服务商封禁或耗尽余额。
+  - 已实现（基于 7.0.4）：纯客户端本机存储——所有配置存本机 `AppPreferences`（JSON 字符串偏好 `translationConfig`，密钥加密存 `translationSecrets` + `translationSecretsIv`），**不进入 `AppSettings` 导出**；不修改核心（Haskell）与网络协议，便于日后跟随官方版本升级。
+  - 改动文件：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/`（`TranslationModels.kt`、`TranslationLang.kt`、`TranslationApi.kt`、`TranslationHttp.kt`（`expect` suspend httpGetText/httpPostJson）+ desktop/android actual、`TranslationService.kt`）；`.../model/SimpleXAPI.kt`（`AppPreferences` 的四个翻译偏好与 `SHARED_PREFS_*` 常量）、`.../views/chat/ComposeView.kt`（`ComposeState.translateOriginal`/`translateResult`）；聊天侧 UI（消息菜单项、发送键翻译键、气泡译文、自动翻译可见区）在 `.../views/chat/`（`SendMsgView.kt`、`ChatItemView.kt`、`FramedItemView.kt` 及翻译界面），设置侧在 `.../views/usersettings/SettingsView.kt` 与 `TranslationSettingsView.kt`；`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`。
+  - 文档：`product/concepts.md`（PC46）、`product/rules.md`（RULE-31）、`product/README.md`、`product/views/{chat,settings}.md`、`spec/impact.md`（PC46）、`spec/state.md`、`spec/client/{chat-view,compose,translation}.md`、`plans/2026-11-04-in-app-chat-translation.md`。
+
 ## mod:
 
 none

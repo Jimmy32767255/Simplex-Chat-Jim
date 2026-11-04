@@ -504,6 +504,24 @@ Desktop-only Enter key bindings for the compose field. Values are `ChatEnterKeyC
 | `messageSendKey` | `ChatEnterKeyCombination` | `ENTER` | Enter combination that sends the message |
 | `messageNewlineKey` | `ChatEnterKeyCombination` | `SHIFT_ENTER` | Enter combination that inserts a newline |
 
+#### Chat Translation (client-only)
+
+In-app chat translation configuration (see [client/translation.md](client/translation.md) and
+`product/rules.md` RULE-31). None of these keys is part of the `AppSettings` import/export structure; the
+secrets are encrypted with `Cryptor` before they are stored.
+
+| Key | Pref name | Type | Default | Purpose |
+|---|---|---|---|---|
+| `translationConfig` | `"TranslationConfig"` | `SharedPreference<TranslationConfig>` (stored as JSON) | `TranslationConfig()` | `provider` (`GOOGLE` default), `targetLang` (`"en"`), `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), `baiduAppId`, `aiBaseUrl` (`https://api.deepseek.com/v1`) / `aiModel` (`deepseek-chat`), `customBaseUrl` / `customModel` |
+| `translationSecrets` | `"TranslationSecrets"` | `SharedPreference<String?>` | `null` | `TranslationSecrets` JSON (`baiduKey`, `aiApiKey`, `customApiKey`) encrypted with `Cryptor.encryptText` (plaintext fallback if the cryptor is unavailable) |
+| `translationSecretsIv` | `"TranslationSecretsIv"` | `SharedPreference<String?>` | `null` | Base64 IV used to encrypt `translationSecrets` |
+| `translationAutoTranslate` | `"TranslationAutoTranslate"` | `SharedPreference<Boolean>` | `false` | Automatically translate the messages visible in the viewport, rate-limited |
+
+The compose-bar translation state lives on `ComposeState` (see [client/compose.md](client/compose.md) §2):
+`translateOriginal` holds the text before translation and `translateResult` the translated text. Undo is
+allowed only while `translateResult` matches the current message text (`canUndoTranslation`); editing the
+text after translating drops that match, so the button re-translates instead of restoring.
+
 #### Server Metadata (client-only)
 
 Group and note for the user's manually added servers. Deliberately *not* part of `UserServer`, which

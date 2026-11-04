@@ -56,6 +56,7 @@
 | PC43 | Range Selection |
 | PC44 | Rainbow Mode |
 | PC45 | Message Preview |
+| PC46 | Chat Translation |
 
 ---
 
@@ -70,7 +71,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `App.kt` | PC1 through PC32 | High | Root composable — navigation scaffold for all features |
 | `AppLock.kt` | PC22 | Medium | App lock state and authorization lifecycle |
 | `model/ChatModel.kt` | PC1 through PC42 | High | Central state object — every feature reads or writes here; also holds the session-local per-connection status map (`connectionSubStatuses`) with its resolvers (`connectionSubStatus`, `ChatModel.connectionStatus`), the set of connections whose stats were already requested (`connectionStatusRequested`) and its selector (`chatsForConnectionStatus`), and the session-local chat-list cache of group member lists (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`), and the favorites-first ordering helpers (`isFavoriteChat`, `favoritesPinnedFirst`), the selected-messages copy formatters (`ciSenderName`, `canCopyChatItem`, `chatItemToText`, `chatItemsToText`, `selectedChatItemsInOrder`), and the time-of-day formatting (`uses24HourFormat`, `timeOfDayPattern`, `timeOfDayPatternWithSeconds`, `getTimestampText`, `localTimestamp`) |
-| `model/SimpleXAPI.kt` | PC1 through PC44 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` and the chat-list member cache from `CR.GroupMemberUpdated` |
+| `model/SimpleXAPI.kt` | PC1 through PC46 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` and the chat-list member cache from `CR.GroupMemberUpdated`; hosts the translation preferences (`translationConfig`, `translationSecrets`, `translationSecretsIv`, `translationAutoTranslate`) that stay out of `AppSettings` |
 | `model/CryptoFile.kt` | PC10, PC23 | Medium | Encrypted file read/write helpers |
 | `platform/Core.kt` | PC1 through PC32 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
 | `platform/AppCommon.kt` | PC1 through PC32 | Medium | Shared app initialization logic |
@@ -128,7 +129,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `views/chat/ChatView.kt` | PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC11, PC32, PC37, PC43 | High | Core conversation UI — most messaging features; the chat title shows the dot of the open chat's connection; the multi-select overlay renders the "select to here" pills at both list edges and keeps `selectionAnchor` |
 | `views/chat/ChatSelectionRange.kt` | PC43 | Low | Pure range helpers for "select to here": row-id expansion, range rows, ids to add and the visible top/bottom rows |
 | `views/chat/ComposeView.kt` | PC4, PC6, PC9, PC10, PC11 | High | Message composition — send path for all messages |
-| `views/chat/SendMsgView.kt` | PC4, PC9, PC45 | Medium | Send button and voice record toggle; the preview button sits before the send button |
+| `views/chat/SendMsgView.kt` | PC4, PC9, PC45, PC46 | Medium | Send button and voice record toggle; the preview button sits before the send button and the translation button sits to its left |
 | `views/chat/MessagePreviewView.kt` | PC45 | Low | Read-only rendered message preview: availability predicate, modal and toolbar button |
 | `views/chat/ComposeEmojiPicker.kt` | PC4 | Low | Emoji button expect declaration, emoji insertion |
 | `views/chat/ComposeVoiceView.kt` | PC9 | Medium | Voice message recording UI |
@@ -153,10 +154,10 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/chat/item/ChatItemView.kt` | PC2, PC3, PC5, PC6, PC7, PC8, PC32, PC41 | High | Root chat item renderer with context menus; the single-message Copy action passes `ciTextWithQuote` to `copyItemToClipboard` |
+| `views/chat/item/ChatItemView.kt` | PC2, PC3, PC5, PC6, PC7, PC8, PC32, PC41, PC46 | High | Root chat item renderer with context menus; the single-message Copy action passes `ciTextWithQuote` to `copyItemToClipboard`, and the context menu adds a Translate action |
 | `views/chat/item/TextItemView.kt` | PC2, PC3, PC4, PC32, PC44 | Medium | Text message bubble rendering; `MarkdownText` resolves its default text color through `rememberRainbowMessageTextColor`, so rainbow message text reaches every markdown surface |
 | `views/chat/item/MarkdownBlocks.kt` | PC4, PC32 | Medium | Block Markdown rendering; terminal block gaps and headings |
-| `views/chat/item/FramedItemView.kt` | PC4, PC6, PC10, PC11, PC32 | Medium | Framed (quoted/forwarded) message container |
+| `views/chat/item/FramedItemView.kt` | PC4, PC6, PC10, PC11, PC32, PC46 | Medium | Framed (quoted/forwarded) message container; renders the bilingual translation line under a translated message |
 | `views/chat/item/TerminalItemView.kt` | PC2, PC3, PC32 | Medium | Terminal layout rows, sender rows, time placement |
 | `views/chat/item/CIImageView.kt` | PC10 | Medium | Image message rendering |
 | `views/chat/item/CIVideoView.kt` | PC10 | Medium | Video message rendering |
@@ -227,7 +228,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29, PC32, PC40, PC42 | Medium | Settings navigation hub, incl. the desktop message-sending section, the "Chat list" section with the favorites-as-pinned switch and the time-format dropdown |
+| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29, PC32, PC40, PC42, PC46 | Medium | Settings navigation hub, incl. the desktop message-sending section, the "Chat list" section with the favorites-as-pinned switch, the time-format dropdown and the chat-translation entry |
 | `views/usersettings/Appearance.kt` | PC24, PC32, PC44 | Low | Theme and appearance customization; `CustomizeThemeColorsSection` holds the rainbow toggle and animates the color swatches |
 | `views/usersettings/PrivacySettings.kt` | PC20, PC22 | Medium | Privacy and lock settings |
 | `views/usersettings/UserProfileView.kt` | PC19 | Medium | Profile display name and image editing |
@@ -339,6 +340,19 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `views/WelcomeView.kt` | PC1 | Low | Empty-state welcome |
 | `views/Preview.kt` | — | Low | Compose preview utilities |
 
+### 1.15 Translation
+
+Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+
+| Source File | Product Concepts Affected | Risk Level | Notes |
+|-------------|--------------------------|------------|-------|
+| `translation/TranslationService.kt` | PC46 | High | Compose-observable translation registry: `translateChatItem`/`translateTextNow`/`autoTranslateVisible`, provider dispatch in `translateNow`, rate limiting (`requestIntervalMs`/`maxConcurrent`/`batchLimit`), and `canUndoTranslation` |
+| `translation/TranslationModels.kt` | PC46 | Medium | `TranslationProvider`, `TranslationConfig`, `TranslationSecrets`, `TranslationRateConfig`, `TranslationEntry`/status |
+| `translation/TranslationLang.kt` | PC46 | Low | Language table and `detectLanguage` pure function |
+| `translation/TranslationApi.kt` | PC46 | Medium | Per-provider request-body builders and response parsers (pure, incl. Baidu MD5 signing) |
+| `translation/TranslationHttp.kt` | PC46 | Low | `HttpResult` + `expect suspend httpGetText/httpPostJson` for the translation provider calls (+ Android/desktop actuals) |
+| `views/usersettings/TranslationSettingsView.kt` | PC46 | Medium | Chat-translation settings page: provider, keys, target language, auto-translate and rate limits |
+
 ---
 
 ## 2. Android Sources
@@ -374,6 +388,7 @@ Path prefix: `common/src/androidMain/kotlin/chat/simplex/common/`
 | `platform/Images.android.kt` | PC10, PC19, PC35 | Low | Android bitmap processing, incl. the FileProvider-backed image clipboard |
 | `platform/PlatformTextField.android.kt` | PC4 | Low | Android native text field actual implementation |
 | `platform/Share.android.kt` | PC10 | Low | Android share intent actual implementation |
+| `translation/TranslationHttp.android.kt` | PC46 | Low | Android actual of the translation `httpGetText`/`httpPostJson` expect |
 | `platform/Back.android.kt` | PC1 | Low | Android back press handler |
 | `platform/UI.android.kt` | PC24 | Low | Android density and locale |
 | `platform/ScrollableColumn.android.kt` | PC1 | Low | Android lazy list actual implementation |
@@ -458,6 +473,7 @@ Path prefix: `common/src/desktopMain/kotlin/chat/simplex/common/`
 | `platform/AnimatedImage.desktop.kt` | PC10 | Low | Desktop animated image frame decoding (bounded) |
 | `platform/PlatformTextField.desktop.kt` | PC4, PC32 | Low | Desktop text field actual implementation |
 | `platform/Share.desktop.kt` | PC10 | Low | Desktop clipboard/share |
+| `translation/TranslationHttp.desktop.kt` | PC46 | Low | Desktop actual of the translation `httpGetText`/`httpPostJson` expect |
 | `platform/Back.desktop.kt` | PC1 | Low | Desktop back navigation |
 | `platform/UI.desktop.kt` | PC24 | Low | Desktop density and locale |
 | `platform/ScrollableColumn.desktop.kt` | PC1 | Low | Desktop lazy list |

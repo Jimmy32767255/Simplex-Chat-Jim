@@ -1,0 +1,2553 @@
+diff --git a/TODO.md b/TODO.md
+index a69e0c780..b48e60b6f 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -188,6 +188,16 @@
+   - 文档：`product/rules.md`（RULE-26 新增第 6 条）、`spec/client/chat-view.md`（复制小节）、`product/views/chat.md`（单条 Copy 与多选 Copy 两行）、`spec/impact.md`（`ChatItemView.kt` 行）、`plans/2026-11-03-copy-with-quote.md`。
+   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/CopiedQuoteTest.kt`（10 个用例：引用行在正文前、引用行在多选复制里位于名字时间之后、引用自己的消息用自己名字、群引用用成员显示名、引用文本折叠成一行、没有引用时行为不变、引用为空文本时跳过、频道引用没有作者、多选复制整体格式、标记来自字符串资源），`./gradlew :common:desktopTest` 通过（25 个测试类无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
+ 
++- [x] 应用内聊天翻译：长按任意消息气泡即可翻译并以双语对照显示，输入框发送键旁新增翻译键，设置页可选翻译服务商并配置密钥，自动翻译当前视区消息并按速率限制批量处理
++  - 已实现（基于 7.0.4）：消息菜单翻译——长按/右键任意消息气泡，弹出菜单新增「翻译」项（图标 `ic_translate`），点击后自动识别源语言并翻译；译文以「原文 + 译文」双语气泡在该消息下方追加显示，属非破坏性展示，不修改原消息内容。
++  - 已实现（基于 7.0.4）：发送键旁翻译键——输入框发送键左侧新增 36dp 圆形翻译键（`ic_translate`）。单击把输入框当前文本翻译为默认目标语言（默认英语）；长按弹出语言选择菜单，选中后本次翻译为该语言（仅本次有效，不改默认设置）；翻译后再点一次撤销回原文，若翻译后又编辑了文本则不可撤销、此时点击改为重新翻译（是否可撤销由 `ComposeState` 新增的 `translateOriginal`/`translateResult` 字段判断）。
++  - 已实现（基于 7.0.4）：设置页——设置新增翻译设置界面（标题 `translation_settings`，即「翻译消息 / Translate messages」），可配置服务提供商 provider（Google 免费、Bing 免费、百度（需 API Key）、AI 翻译（OpenAI Responses 协议，默认 DeepSeek）、自定义（OpenAI 兼容端点，可自定义 base URL/模型/密钥））、默认目标语言 targetLang、自动翻译开关 autoTranslate，以及各提供商的 API Key。
++  - 已实现（基于 7.0.4）：密钥与端点——百度另存 AppID/密钥；AI 提供方默认 base URL `https://api.deepseek.com/v1`、模型 `deepseek-chat`，自定义方（custom）的 base URL/模型默认为空、由用户自填。所有密钥先用 `Cryptor` 加密再存本机，不随备份导出。
++  - 已实现（基于 7.0.4）：自动翻译与限流——autoTranslate 只翻译当前视区可见消息，消息滚动离开视区即取消其未完成请求；按速率限制批量处理：请求间隔 `requestIntervalMs`（默认 600）、最大并发 `maxConcurrent`（默认 2）、单次批量上限 `batchLimit`（默认 20）；手动翻译同样受最小间隔约束，防止被服务商封禁或耗尽余额。
++  - 已实现（基于 7.0.4）：纯客户端本机存储——所有配置存本机 `AppPreferences`（JSON 字符串偏好 `translationConfig`，密钥加密存 `translationSecrets` + `translationSecretsIv`），**不进入 `AppSettings` 导出**；不修改核心（Haskell）与网络协议，便于日后跟随官方版本升级。
++  - 改动文件：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/`（`TranslationModels.kt`、`TranslationLang.kt`、`TranslationApi.kt`、`TranslationHttp.kt`（`expect` suspend httpGetText/httpPostJson）+ desktop/android actual、`TranslationService.kt`）；`.../model/SimpleXAPI.kt`（`AppPreferences` 的四个翻译偏好与 `SHARED_PREFS_*` 常量）、`.../views/chat/ComposeView.kt`（`ComposeState.translateOriginal`/`translateResult`）；聊天侧 UI（消息菜单项、发送键翻译键、气泡译文、自动翻译可见区）在 `.../views/chat/`（`SendMsgView.kt`、`ChatItemView.kt`、`FramedItemView.kt` 及翻译界面），设置侧在 `.../views/usersettings/SettingsView.kt` 与 `TranslationSettingsView.kt`；`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`。
++  - 文档：`product/concepts.md`（PC46）、`product/rules.md`（RULE-31）、`product/README.md`、`product/views/{chat,settings}.md`、`spec/impact.md`（PC46）、`spec/state.md`、`spec/client/{chat-view,compose,translation}.md`、`plans/2026-11-04-in-app-chat-translation.md`。
++
+ ## mod:
+ 
+ none
+diff --git a/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/translation/TranslationHttp.android.kt b/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/translation/TranslationHttp.android.kt
+new file mode 100644
+index 000000000..42254446d
+--- /dev/null
++++ b/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/translation/TranslationHttp.android.kt
+@@ -0,0 +1,53 @@
++package chat.simplex.common.translation
++
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.withContext
++import java.io.ByteArrayOutputStream
++import java.io.InputStream
++import java.net.HttpURLConnection
++import java.net.URL
++
++actual suspend fun httpGetText(url: String, headers: Map<String, String>): HttpResult = withContext(Dispatchers.IO) {
++  request("GET", url, headers, null)
++}
++
++actual suspend fun httpPostJson(url: String, headers: Map<String, String>, body: String): HttpResult = withContext(Dispatchers.IO) {
++  request("POST", url, headers, body.toByteArray(Charsets.UTF_8))
++}
++
++private fun request(method: String, url: String, headers: Map<String, String>, body: ByteArray?): HttpResult {
++  var conn: HttpURLConnection? = null
++  return try {
++    conn = (URL(url).openConnection() as HttpURLConnection).apply {
++      requestMethod = method
++      connectTimeout = 20_000
++      readTimeout = 30_000
++      instanceFollowRedirects = true
++      headers.forEach { (k, v) -> setRequestProperty(k, v) }
++      if (body != null) {
++        doOutput = true
++        setRequestProperty("Content-Type", "application/json; charset=utf-8")
++        outputStream.use { it.write(body) }
++      }
++    }
++    val code = conn.responseCode
++    val stream: InputStream = if (code in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
++    val text = stream.use { it.readBytesToString() }
++    if (code in 200..299) HttpResult.ok(text) else HttpResult.fail("HTTP $code", text)
++  } catch (e: Exception) {
++    HttpResult.fail(e.message ?: e.toString())
++  } finally {
++    conn?.disconnect()
++  }
++}
++
++private fun InputStream.readBytesToString(): String {
++  val out = ByteArrayOutputStream()
++  val buf = ByteArray(8192)
++  while (true) {
++    val n = read(buf)
++    if (n < 0) break
++    out.write(buf, 0, n)
++  }
++  return out.toString("UTF-8")
++}
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
+index 3c739362d..a2371d8b6 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt
+@@ -40,6 +40,9 @@ import chat.simplex.common.views.onboarding.OnboardingStage
+ import chat.simplex.common.views.usersettings.*
+ import chat.simplex.common.views.usersettings.networkAndServers.defaultConditionsLink
+ import chat.simplex.common.views.usersettings.networkAndServers.serverHostname
++import chat.simplex.common.translation.TranslationConfig
++import kotlinx.serialization.decodeFromString
++import kotlinx.serialization.encodeToString
+ import com.charleskorn.kaml.Yaml
+ import com.charleskorn.kaml.YamlConfiguration
+ import chat.simplex.res.*
+@@ -372,6 +375,18 @@ class AppPreferences {
+   // which keeps the home screen smooth on slower phones.
+   val rainbowLowPerformance = mkBoolPreference(SHARED_PREFS_RAINBOW_LOW_PERFORMANCE, false)
+ 
++  // In-app chat translation. Purely client-side: the whole configuration (including the rate limits)
++  // is stored as JSON in the local preferences and is never part of the exported AppSettings.
++  // API keys are additionally encrypted (see TranslationService) and stored in `translationSecrets`.
++  private val translationConfigJson = mkStrPreference(SHARED_PREFS_TRANSLATION_CONFIG, null)
++  val translationConfig: SharedPreference<TranslationConfig> = SharedPreference(
++    get = fun() = translationConfigJson.get()?.let { runCatching { jsonShort.decodeFromString<TranslationConfig>(it) }.getOrNull() } ?: TranslationConfig(),
++    set = fun(value) = translationConfigJson.set(jsonShort.encodeToString(value)),
++  )
++  val translationSecrets = mkStrPreference(SHARED_PREFS_TRANSLATION_SECRETS, null)
++  val translationSecretsIv = mkStrPreference(SHARED_PREFS_TRANSLATION_SECRETS_IV, null)
++  val translationAutoTranslate = mkBoolPreference(SHARED_PREFS_TRANSLATION_AUTO_TRANSLATE, false)
++
+   val hintPreferences: List<HintPref> = listOf(
+     hintPref(laNoticeShown, false),
+     hintPref(oneHandUICardShown, false),
+@@ -601,6 +616,10 @@ class AppPreferences {
+     private const val SHARED_PREFS_RAINBOW_CHAT_COLORS = "RainbowChatColors"
+     private const val SHARED_PREFS_RAINBOW_MESSAGE_TEXT = "RainbowMessageText"
+     private const val SHARED_PREFS_RAINBOW_LOW_PERFORMANCE = "RainbowLowPerformance"
++    private const val SHARED_PREFS_TRANSLATION_CONFIG = "TranslationConfig"
++    private const val SHARED_PREFS_TRANSLATION_SECRETS = "TranslationSecrets"
++    private const val SHARED_PREFS_TRANSLATION_SECRETS_IV = "TranslationSecretsIv"
++    private const val SHARED_PREFS_TRANSLATION_AUTO_TRANSLATE = "TranslationAutoTranslate"
+     private const val SHARED_PREFS_SELF_DESTRUCT = "LocalAuthenticationSelfDestruct"
+     private const val SHARED_PREFS_SELF_DESTRUCT_DISPLAY_NAME = "LocalAuthenticationSelfDestructDisplayName"
+     private const val SHARED_PREFS_PQ_EXPERIMENTAL_ENABLED = "PQExperimentalEnabled" // no longer used
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationApi.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationApi.kt
+new file mode 100644
+index 000000000..be60132a0
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationApi.kt
+@@ -0,0 +1,267 @@
++package chat.simplex.common.translation
++
++import kotlinx.serialization.json.*
++
++/**
++ * Pure functions that build provider request URLs/bodies and parse provider responses.
++ *
++ * Everything here is deliberately free of platform/network dependencies so it can be unit-tested on
++ * `commonTest` (see `TranslationApiTest`). The network layer lives in [TranslationHttp] and the
++ * orchestration in [TranslationService].
++ */
++
++// region ---- URL encoding (no java.net in commonMain) ----
++
++internal fun urlEncode(s: String): String {
++  val sb = StringBuilder()
++  for (b in s.encodeToByteArray()) {
++    val c = b.toInt() and 0xFF
++    if ((c in 'A'.code..'Z'.code) || (c in 'a'.code..'z'.code) || (c in '0'.code..'9'.code) ||
++        c == '-'.code || c == '_'.code || c == '.'.code || c == '~'.code) {
++      sb.append(c.toChar())
++    } else {
++      sb.append('%').append(HEX[c shr 4]).append(HEX[c and 0x0F])
++    }
++  }
++  return sb.toString()
++}
++
++private val HEX = "0123456789ABCDEF".toCharArray()
++
++/** 32-bit left rotation (Kotlin stdlib lacks Integer.rotateLeft in commonMain). */
++private fun rotl(x: Int, n: Int): Int = (x shl (n and 31)) or (x ushr (32 - (n and 31)).let { if (it == 32) 0 else it })
++
++// endregion
++
++// region ---- MD5 (Baidu signing; no java.security in commonMain) ----
++
++/** Standard MD5 hex digest of the UTF-8 bytes of [input] (lower-case hex). */
++internal fun md5Hex(input: String): String {
++  val msg = input.encodeToByteArray()
++  val originalLenBits = msg.size.toLong() * 8
++  // Padding: append 0x80, then zeros until length % 64 == 56, then 8-byte little-endian bit length.
++  val padLen = ((56 - (msg.size + 1) % 64) + 64) % 64
++  val total = msg.size + 1 + padLen + 8
++  val buf = ByteArray(total)
++  msg.copyInto(buf)
++  buf[msg.size] = 0x80.toByte()
++  for (i in 0 until 8) {
++    buf[total - 8 + i] = ((originalLenBits ushr (8 * i)) and 0xFF).toByte()
++  }
++
++  var a0 = 0x67452301
++  var b0 = 0xefcdab89.toInt()
++  var c0 = 0x98badcfe.toInt()
++  var d0 = 0x10325476
++
++  val s = intArrayOf(
++    7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
++    5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
++    4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
++    6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21
++  )
++  val k = IntArray(64) { i -> (kotlin.math.floor(kotlin.math.abs(kotlin.math.sin(i + 1.0)) * 4294967296.0).toLong() and 0xFFFFFFFFL).toInt() }
++
++  var offset = 0
++  while (offset < total) {
++    val m = IntArray(16)
++    for (i in 0 until 16) {
++      m[i] = (buf[offset + i * 4].toInt() and 0xFF) or
++        ((buf[offset + i * 4 + 1].toInt() and 0xFF) shl 8) or
++        ((buf[offset + i * 4 + 2].toInt() and 0xFF) shl 16) or
++        ((buf[offset + i * 4 + 3].toInt() and 0xFF) shl 24)
++    }
++    var a = a0
++    var b = b0
++    var c = c0
++    var d = d0
++    for (i in 0 until 64) {
++      var f: Int
++      var g: Int
++      when {
++        i < 16 -> { f = (b and c) or (b.inv() and d); g = i }
++        i < 32 -> { f = (d and b) or (d.inv() and c); g = (5 * i + 1) % 16 }
++        i < 48 -> { f = b xor c xor d; g = (3 * i + 5) % 16 }
++        else -> { f = c xor (b or d.inv()); g = (7 * i) % 16 }
++      }
++      val tmp = d
++      d = c
++      c = b
++      val sum = a + f + k[i] + m[g]
++      b = b + rotl(sum, s[i])
++      a = tmp
++    }
++    a0 += a; b0 += b; c0 += c; d0 += d
++    offset += 64
++  }
++
++  fun le(x: Int): String {
++    val sb = StringBuilder()
++    for (i in 0 until 4) sb.append(HEX[(x ushr (8 * i + 4)) and 0x0F]).append(HEX[(x ushr (8 * i)) and 0x0F])
++    return sb.toString()
++  }
++  return (le(a0) + le(b0) + le(c0) + le(d0)).lowercase()
++}
++
++// endregion
++
++// region ---- Google (free endpoint) ----
++
++internal fun googleTranslateUrl(text: String, targetLang: String): String =
++  "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${urlEncode(targetLang)}&dt=t&q=${urlEncode(text)}"
++
++internal fun parseGoogleResponse(body: String): TranslationEntry {
++  return try {
++    val root = Json.parseToJsonElement(body).jsonArray
++    val segments = root[0].jsonArray
++    val sb = StringBuilder()
++    for (seg in segments) {
++      val arr = seg.jsonArray
++      if (arr.size > 0 && arr[0] is JsonPrimitive && arr[0].jsonPrimitive.isString) {
++        sb.append(arr[0].jsonPrimitive.content)
++      }
++    }
++    val detected = if (root.size > 2 && root[2] is JsonPrimitive) root[2].jsonPrimitive.contentOrNull else null
++    TranslationEntry(TranslationStatus.DONE, sb.toString(), detectedLang = detected)
++  } catch (e: Exception) {
++    TranslationEntry(TranslationStatus.ERROR, error = "Google response parse error: ${e.message}")
++  }
++}
++
++// endregion
++
++// region ---- Bing (free edge endpoint; needs a short-lived bearer token) ----
++
++internal fun bingAuthUrl(): String = "https://edge.microsoft.com/translate/auth"
++
++internal fun bingTranslateUrl(targetLang: String): String =
++  "https://api-edge.cognitive.microsofttranslator.com/translate?api-version=3.0&from=&to=${urlEncode(targetLang)}"
++
++internal fun bingTranslateBody(text: String): String =
++  buildJsonArray { add(buildJsonObject { put("Text", text) }) }.toString()
++
++internal fun parseBingResponse(body: String): TranslationEntry {
++  return try {
++    val root = Json.parseToJsonElement(body).jsonArray
++    val first = root[0].jsonObject
++    val translated = first["translations"]?.jsonArray?.firstOrNull()?.jsonObject?.get("text")?.jsonPrimitive?.contentOrNull
++    val detected = first["detectedLanguage"]?.jsonObject?.get("language")?.jsonPrimitive?.contentOrNull
++    if (translated != null) TranslationEntry(TranslationStatus.DONE, translated, detectedLang = detected)
++    else TranslationEntry(TranslationStatus.ERROR, error = "Bing response has no translation")
++  } catch (e: Exception) {
++    TranslationEntry(TranslationStatus.ERROR, error = "Bing response parse error: ${e.message}")
++  }
++}
++
++// endregion
++
++// region ---- Baidu (API key; MD5 signed) ----
++
++internal fun baiduSign(appId: String, q: String, salt: String, key: String): String = md5Hex(appId + q + salt + key)
++
++internal fun baiduTranslateUrl(appId: String, q: String, salt: String, key: String, targetLang: String): String {
++  val sign = baiduSign(appId, q, salt, key)
++  // Baidu uses its own language codes: zh, en, jp, kor, fra, de, spa, ru, ara, th, vie, ...
++  val baiduLang = baiduLangCode(targetLang)
++  return "https://fanyi-api.baidu.com/api/trans/vip/translate?q=${urlEncode(q)}&from=auto&to=${urlEncode(baiduLang)}&appid=${urlEncode(appId)}&salt=${urlEncode(salt)}&sign=$sign"
++}
++
++internal fun baiduLangCode(code: String): String = when (code) {
++  "ja" -> "jp"
++  "ko" -> "kor"
++  "fr" -> "fra"
++  "es" -> "spa"
++  "vi" -> "vie"
++  "ar" -> "ara"
++  "th" -> "th"
++  "ru" -> "ru"
++  "en" -> "en"
++  "zh" -> "zh"
++  else -> code
++}
++
++internal fun parseBaiduResponse(body: String): TranslationEntry {
++  return try {
++    val root = Json.parseToJsonElement(body).jsonObject
++    val errCode = root["error_code"]?.jsonPrimitive?.contentOrNull
++    if (errCode != null && errCode != "0" && errCode != "52000") {
++      return TranslationEntry(TranslationStatus.ERROR, error = "Baidu error $errCode: ${root["error_msg"]?.jsonPrimitive?.contentOrNull ?: ""}")
++    }
++    val from = root["from"]?.jsonPrimitive?.contentOrNull
++    val results = root["trans_result"]?.jsonArray
++    val sb = StringBuilder()
++    results?.forEach { item ->
++      item.jsonObject["dst"]?.jsonPrimitive?.contentOrNull?.let { sb.append(it) }
++    }
++    TranslationEntry(TranslationStatus.DONE, sb.toString(), detectedLang = from)
++  } catch (e: Exception) {
++    TranslationEntry(TranslationStatus.ERROR, error = "Baidu response parse error: ${e.message}")
++  }
++}
++
++// endregion
++
++// region ---- AI / Custom (OpenAI Responses protocol) ----
++
++internal fun aiResponsesUrl(baseUrl: String): String {
++  val b = baseUrl.trim().trimEnd('/')
++  val path = if (b.endsWith("/responses")) b else "$b/responses"
++  return path
++}
++
++internal fun aiSystemPrompt(targetLang: String): String {
++  val langName = translationLanguages.firstOrNull { it.code == targetLang }?.displayName ?: targetLang
++  return "You are a professional translation engine. Translate the user's text into $langName. " +
++    "Preserve the original meaning, tone and formatting. Output ONLY the translation, without quotes, " +
++    "explanations or any extra text."
++}
++
++internal fun aiResponsesBody(model: String, text: String, targetLang: String): String =
++  buildJsonObject {
++    put("model", model)
++    put("input", buildJsonArray {
++      add(buildJsonObject {
++        put("role", "system")
++        put("content", aiSystemPrompt(targetLang))
++      })
++      add(buildJsonObject {
++        put("role", "user")
++        put("content", text)
++      })
++    })
++  }.toString()
++
++/** Parse an OpenAI Responses payload, tolerating chat-completions-style fallbacks. */
++internal fun parseAiResponsesResponse(body: String): TranslationEntry {
++  return try {
++    val root = Json.parseToJsonElement(body).jsonObject
++    // 1. top-level convenience field
++    (root["output_text"]?.jsonPrimitive?.contentOrNull ?: "").let { if (it.isNotBlank()) return TranslationEntry(TranslationStatus.DONE, it) }
++    // 2. Responses API: output[].content[].text (type output_text)
++    val output = root["output"]?.jsonArray
++    if (output != null) {
++      val sb = StringBuilder()
++      for (item in output) {
++        val content = item.jsonObject["content"]?.jsonArray ?: continue
++        for (part in content) {
++          val t = part.jsonObject["text"]?.jsonPrimitive?.contentOrNull
++          if (!t.isNullOrBlank()) sb.append(t)
++        }
++      }
++      if (sb.isNotBlank()) return TranslationEntry(TranslationStatus.DONE, sb.toString())
++    }
++    // 3. chat completions fallback: choices[].message.content
++    val choices = root["choices"]?.jsonArray
++    if (choices != null && choices.isNotEmpty()) {
++      val t = choices[0].jsonObject["message"]?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
++      if (!t.isNullOrBlank()) return TranslationEntry(TranslationStatus.DONE, t)
++    }
++    // 4. surface an API error if present
++    val err = root["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
++    TranslationEntry(TranslationStatus.ERROR, error = err ?: "AI response has no text")
++  } catch (e: Exception) {
++    TranslationEntry(TranslationStatus.ERROR, error = "AI response parse error: ${e.message}")
++  }
++}
++
++// endregion
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationHttp.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationHttp.kt
+new file mode 100644
+index 000000000..bf7f80104
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationHttp.kt
+@@ -0,0 +1,24 @@
++package chat.simplex.common.translation
++
++/**
++ * Minimal cross-platform HTTP surface used by the translation service.
++ *
++ * `desktopMain` implements it with OkHttp (already a dependency in the desktop source set);
++ * `androidMain` implements it with `java.net.HttpURLConnection` (no new dependency). Both are
++ * `suspend` and run off the main thread.
++ */
++
++data class HttpResult(
++  val success: Boolean,
++  val body: String,
++  val error: String? = null,
++) {
++  companion object {
++    fun ok(body: String) = HttpResult(true, body)
++    fun fail(error: String, body: String = "") = HttpResult(false, body, error)
++  }
++}
++
++expect suspend fun httpGetText(url: String, headers: Map<String, String> = emptyMap()): HttpResult
++
++expect suspend fun httpPostJson(url: String, headers: Map<String, String>, body: String): HttpResult
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationLang.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationLang.kt
+new file mode 100644
+index 000000000..28d556065
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationLang.kt
+@@ -0,0 +1,96 @@
++package chat.simplex.common.translation
++
++/**
++ * Lightweight, dependency-free language detection and the list of languages offered in the UI.
++ *
++ * This is intentionally a heuristic (script based): it is enough to (a) pick the target language for
++ * "auto" translation and (b) skip translating a message that is already in the target language. It is a
++ * pure function so it can be unit-tested without any platform / network dependency.
++ */
++
++data class Language(val code: String, val displayName: String)
++
++/** Languages offered in the target-language picker and the per-message language menu. */
++val translationLanguages: List<Language> = listOf(
++  Language("en", "English"),
++  Language("zh", "中文 (Chinese)"),
++  Language("ja", "日本語 (Japanese)"),
++  Language("ko", "한국어 (Korean)"),
++  Language("ru", "Русский (Russian)"),
++  Language("fr", "Français (French)"),
++  Language("de", "Deutsch (German)"),
++  Language("es", "Español (Spanish)"),
++  Language("pt", "Português (Portuguese)"),
++  Language("it", "Italiano (Italian)"),
++  Language("ar", "العربية (Arabic)"),
++  Language("hi", "हिन्दी (Hindi)"),
++  Language("th", "ไทย (Thai)"),
++  Language("vi", "Tiếng Việt (Vietnamese)"),
++  Language("id", "Bahasa Indonesia"),
++  Language("tr", "Türkçe (Turkish)"),
++  Language("nl", "Nederlands (Dutch)"),
++  Language("pl", "Polski (Polish)"),
++  Language("uk", "Українська (Ukrainian)"),
++  Language("he", "עברית (Hebrew)"),
++  Language("el", "Ελληνικά (Greek)"),
++)
++
++fun languageDisplayName(code: String): String =
++  translationLanguages.firstOrNull { it.code == code }?.displayName ?: code
++
++/**
++ * Best-effort detection of the dominant script/language of [text]. Returns a language code from
++ * [translationLanguages], defaulting to "en" for Latin-script text (European languages can't be
++ * separated cheaply and English is a safe default for the skip check).
++ */
++fun detectLanguage(text: String): String {
++  if (text.isBlank()) return "en"
++  var cjk = 0
++  var hiraKata = 0
++  var hangul = 0
++  var cyrillic = 0
++  var arabic = 0
++  var hebrew = 0
++  var greek = 0
++  var thai = 0
++  var devanagari = 0
++  var latin = 0
++  var other = 0
++  for (ch in text) {
++    val c = ch.code
++    when {
++      c in 0x3040..0x30FF -> hiraKata++
++      c in 0x4E00..0x9FFF || c in 0x3400..0x4DBF -> cjk++
++      c in 0xAC00..0xD7A3 || c in 0x1100..0x11FF -> hangul++
++      c in 0x0400..0x04FF -> cyrillic++
++      c in 0x0600..0x06FF || c in 0x0750..0x077F -> arabic++
++      c in 0x0590..0x05FF -> hebrew++
++      c in 0x0370..0x03FF -> greek++
++      c in 0x0E00..0x0E7F -> thai++
++      c in 0x0900..0x097F -> devanagari++
++      c in 0x0041..0x005A || c in 0x0061..0x007A || c in 0x00C0..0x024F -> latin++
++      else -> if (!ch.isWhitespace() && !ch.isDigit() && ch.isLetterOrDigit()) other++
++    }
++  }
++  // Japanese uses kana alongside kanji; presence of kana is decisive.
++  if (hiraKata > 0) return "ja"
++  if (hangul > 0) return "ko"
++  if (cyrillic > 0 && cyrillic >= latin) return "ru"
++  if (arabic > 0) return "ar"
++  if (hebrew > 0) return "he"
++  if (greek > 0) return "el"
++  if (thai > 0) return "th"
++  if (devanagari > 0) return "hi"
++  if (cjk > 0) return "zh"
++  return "en"
++}
++
++/**
++ * Whether [text] already appears to be in [targetLang], in which case automatic translation should
++ * skip it. Only the strong signals (non-Latin scripts and CJK) are used; Latin-script target
++ * languages are always translated because we cannot reliably detect them.
++ */
++fun isLikelyAlreadyInLanguage(text: String, targetLang: String): Boolean {
++  val detected = detectLanguage(text)
++  return detected == targetLang && detected != "en"
++}
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationModels.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationModels.kt
+new file mode 100644
+index 000000000..8393ab6f9
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationModels.kt
+@@ -0,0 +1,97 @@
++package chat.simplex.common.translation
++
++import kotlinx.serialization.Serializable
++
++/**
++ * Translation feature: models and configuration.
++ *
++ * This is a purely client-side feature: the configuration is stored only in the local
++ * [chat.simplex.common.model.AppPreferences] (never in the exported `AppSettings`), and the
++ * API keys are encrypted with the platform [chat.simplex.common.platform.cryptor] before being saved.
++ */
++
++/** Machine-translation / AI providers supported by the translation feature. */
++@Serializable
++enum class TranslationProvider {
++  /** Google Translate free public endpoint (no key). */
++  GOOGLE,
++  /** Bing / Microsoft Translator free public endpoint (no key). */
++  BING,
++  /** Baidu Translate API (requires AppID + secret key). */
++  BAIDU,
++  /** AI translation over the OpenAI Responses protocol (default provider: DeepSeek). */
++  AI,
++  /** User-defined OpenAI-compatible Responses endpoint. */
++  CUSTOM;
++
++  val displayName: String
++    get() = when (this) {
++      GOOGLE -> "Google (free)"
++      BING -> "Bing (free)"
++      BAIDU -> "Baidu (API key)"
++      AI -> "AI (OpenAI Responses)"
++      CUSTOM -> "Custom (OpenAI-compatible)"
++    }
++}
++
++/** Rate-limiting parameters for automatic (and manual) translation requests. */
++@Serializable
++data class TranslationRateConfig(
++  /** Minimum delay between two consecutive requests, in milliseconds. */
++  val requestIntervalMs: Long = 600,
++  /** Maximum number of requests that may be in flight at the same time. */
++  val maxConcurrent: Int = 2,
++  /** Maximum number of messages translated in one automatic batch. */
++  val batchLimit: Int = 20,
++) {
++  fun normalized(): TranslationRateConfig = TranslationRateConfig(
++    requestIntervalMs = requestIntervalMs.coerceIn(0, 60_000),
++    maxConcurrent = maxConcurrent.coerceIn(1, 8),
++    batchLimit = batchLimit.coerceIn(1, 100),
++  )
++}
++
++/**
++ * Translation configuration, serialized to JSON and stored in the local preferences.
++ * Non-secret fields only; secrets live in [TranslationSecrets].
++ */
++@Serializable
++data class TranslationConfig(
++  val provider: TranslationProvider = TranslationProvider.GOOGLE,
++  /** Default target language code, e.g. "en". */
++  val targetLang: String = "en",
++  val rate: TranslationRateConfig = TranslationRateConfig(),
++  /** Baidu AppID (not secret, but provider-specific). */
++  val baiduAppId: String = "",
++  /** AI (Responses protocol) base URL, e.g. https://api.deepseek.com/v1 */
++  val aiBaseUrl: String = "https://api.deepseek.com/v1",
++  val aiModel: String = "deepseek-chat",
++  /** Custom OpenAI-compatible base URL / model. */
++  val customBaseUrl: String = "",
++  val customModel: String = "",
++)
++
++/** Secret material, encrypted as a whole and stored in the local preferences. */
++@Serializable
++data class TranslationSecrets(
++  val baiduKey: String = "",
++  val aiApiKey: String = "",
++  val customApiKey: String = "",
++)
++
++/** Status of a single translation entry (per chat item / per compose text). */
++@Serializable
++enum class TranslationStatus { IDLE, LOADING, DONE, ERROR }
++
++/** Result of translating one piece of text. */
++@Serializable
++data class TranslationEntry(
++  val status: TranslationStatus = TranslationStatus.IDLE,
++  val translatedText: String? = null,
++  val targetLang: String? = null,
++  val detectedLang: String? = null,
++  val error: String? = null,
++) {
++  val isLoading: Boolean get() = status == TranslationStatus.LOADING
++  val isDone: Boolean get() = status == TranslationStatus.DONE && !translatedText.isNullOrBlank()
++}
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt
+new file mode 100644
+index 000000000..e9f80cb80
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt
+@@ -0,0 +1,259 @@
++package chat.simplex.common.translation
++
++import androidx.compose.runtime.mutableStateMapOf
++import chat.simplex.common.model.*
++import chat.simplex.common.platform.Log
++import chat.simplex.common.platform.cryptor
++import chat.simplex.common.views.helpers.toBase64StringForPassphrase
++import chat.simplex.common.views.helpers.toByteArrayFromBase64ForPassphrase
++import kotlinx.coroutines.*
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.Semaphore
++import kotlinx.coroutines.sync.withLock
++import kotlinx.coroutines.sync.withPermit
++import kotlinx.datetime.Clock
++import kotlinx.serialization.json.Json
++import kotlinx.serialization.decodeFromString
++import kotlinx.serialization.encodeToString
++
++/**
++ * Orchestrates translation: holds the observable per-chat-item result registry, dispatches requests
++ * to the configured provider, and enforces the rate limit for automatic translation.
++ *
++ * This is a singleton object backed by Compose snapshot state so the UI recomposes when a translation
++ * arrives. It is a purely client-side feature and never talks to anything but the user-configured
++ * translation provider.
++ */
++object TranslationService {
++  private const val TAG = "TranslationService"
++
++  private val prefs: AppPreferences get() = ChatController.appPrefs
++
++  /** Observable registry of translations keyed by chat item id. */
++  private val results = mutableStateMapOf<Long, TranslationEntry>()
++
++  private val rateMutex = Mutex()
++  private var lastRequestAt: Long = 0
++
++  fun entry(itemId: Long): TranslationEntry? = results[itemId]
++
++  fun clear(itemId: Long) { results.remove(itemId) }
++
++  fun clearAll() { results.clear() }
++
++  // region ---- configuration access ----
++
++  fun config(): TranslationConfig = prefs.translationConfig.get()
++
++  fun secrets(): TranslationSecrets = decodeSecrets(prefs.translationSecrets.get())
++
++  fun saveConfig(c: TranslationConfig) {
++    prefs.translationConfig.set(c)
++  }
++
++  fun saveSecrets(s: TranslationSecrets) {
++    prefs.translationSecrets.set(encodeSecrets(s))
++  }
++
++  /** Whether the current provider already has everything it needs to translate. */
++  fun isConfigured(c: TranslationConfig = config(), s: TranslationSecrets = secrets()): Boolean =
++    when (c.provider) {
++      TranslationProvider.GOOGLE -> true
++      TranslationProvider.BING -> true
++      TranslationProvider.BAIDU -> c.baiduAppId.isNotBlank() && s.baiduKey.isNotBlank()
++      TranslationProvider.AI -> c.aiBaseUrl.isNotBlank() && c.aiModel.isNotBlank() && s.aiApiKey.isNotBlank()
++      TranslationProvider.CUSTOM -> c.customBaseUrl.isNotBlank() && c.customModel.isNotBlank() && s.customApiKey.isNotBlank()
++    }
++
++  // endregion
++
++  // region ---- secrets encryption (best-effort; falls back to plaintext if cryptor unavailable) ----
++
++  private const val SECRETS_ALIAS = "translationSecrets"
++
++  private fun encodeSecrets(s: TranslationSecrets): String {
++    val plain = jsonShort.encodeToString(s)
++    return try {
++      val (data, iv) = cryptor.encryptText(plain, SECRETS_ALIAS)
++      val ivB64 = iv.toBase64StringForPassphrase()
++      prefs.translationSecretsIv.set(ivB64)
++      data.toBase64StringForPassphrase()
++    } catch (e: Exception) {
++      Log.e(TAG, "secrets encryption failed, storing plaintext: ${e.message}")
++      prefs.translationSecretsIv.set(null)
++      plain
++    }
++  }
++
++  private fun decodeSecrets(stored: String?): TranslationSecrets {
++    if (stored.isNullOrBlank()) return TranslationSecrets()
++    val iv = prefs.translationSecretsIv.get()
++    if (iv != null) {
++      try {
++        val plain = cryptor.decryptData(
++          stored.toByteArrayFromBase64ForPassphrase(),
++          iv.toByteArrayFromBase64ForPassphrase(),
++          SECRETS_ALIAS,
++        )
++        if (plain != null) return jsonShort.decodeFromString<TranslationSecrets>(plain)
++      } catch (e: Exception) {
++        Log.e(TAG, "secrets decryption failed: ${e.message}")
++      }
++    }
++    // Backward/fallback: maybe plaintext JSON
++    return runCatching { jsonShort.decodeFromString<TranslationSecrets>(stored) }.getOrElse { TranslationSecrets() }
++  }
++
++  // endregion
++
++  // region ---- rate limiting ----
++
++  private suspend fun awaitRateSlot(cfg: TranslationRateConfig) {
++    rateMutex.withLock {
++      val interval = cfg.normalized().requestIntervalMs
++      if (interval > 0) {
++        val now = Clock.System.now().toEpochMilliseconds()
++        val wait = lastRequestAt + interval - now
++        if (wait > 0) delay(wait)
++        lastRequestAt = Clock.System.now().toEpochMilliseconds()
++      }
++    }
++  }
++
++  // endregion
++
++  // region ---- public translation entry points ----
++
++  /** Translate a chat item, storing the result in the observable registry under its id. */
++  fun translateChatItem(itemId: Long, text: String, targetLang: String? = null, scope: CoroutineScope) {
++    if (text.isBlank()) return
++    val cfg = config()
++    val target = targetLang ?: cfg.targetLang
++    results[itemId] = TranslationEntry(TranslationStatus.LOADING, targetLang = target)
++    scope.launch {
++      val entry = try {
++        translateNow(text, target, cfg, secrets())
++      } catch (e: Exception) {
++        TranslationEntry(TranslationStatus.ERROR, error = e.message ?: e.toString(), targetLang = target)
++      }
++      results[itemId] = entry
++    }
++  }
++
++  /** Suspend translation used by the compose translation key (returns the entry directly). */
++  suspend fun translateTextNow(text: String, targetLang: String? = null): TranslationEntry {
++    if (text.isBlank()) return TranslationEntry(TranslationStatus.ERROR, error = "empty text")
++    val cfg = config()
++    val target = targetLang ?: cfg.targetLang
++    return translateNow(text, target, cfg, secrets())
++  }
++
++  /** Sequentially translate the currently visible messages with rate limiting (automatic mode). */
++  fun autoTranslateVisible(items: List<Pair<Long, String>>, scope: CoroutineScope, targetLang: String? = null) {
++    val cfg = config()
++    val rate = cfg.rate.normalized()
++    val target = targetLang ?: cfg.targetLang
++    if (!isConfigured(cfg, secrets())) return
++    scope.launch {
++      val semaphore = Semaphore(rate.maxConcurrent)
++      val queue = items
++        .filter { (id, text) -> text.isNotBlank() && results[id]?.isDone != true && results[id]?.isLoading != true }
++        .filter { (_, text) -> !isLikelyAlreadyInLanguage(text, target) }
++        .take(rate.batchLimit)
++      coroutineScope {
++        for ((id, text) in queue) {
++          launch {
++            semaphore.withPermit {
++              awaitRateSlot(rate)
++              results[id] = TranslationEntry(TranslationStatus.LOADING, targetLang = target)
++              val entry = try {
++                translateNow(text, target, cfg, secrets())
++              } catch (e: Exception) {
++                TranslationEntry(TranslationStatus.ERROR, error = e.message ?: e.toString(), targetLang = target)
++              }
++              results[id] = entry
++            }
++          }
++        }
++      }
++    }
++  }
++
++  // endregion
++
++  // region ---- provider dispatch ----
++
++  private suspend fun translateNow(text: String, target: String, cfg: TranslationConfig, s: TranslationSecrets): TranslationEntry {
++    return when (cfg.provider) {
++      TranslationProvider.GOOGLE -> {
++        val res = httpGetText(googleTranslateUrl(text, target))
++        if (!res.success) TranslationEntry(TranslationStatus.ERROR, error = res.error ?: res.body)
++        else parseGoogleResponse(res.body).copy(targetLang = target)
++      }
++      TranslationProvider.BING -> {
++        val token = httpGetText(bingAuthUrl())
++        if (!token.success) return TranslationEntry(TranslationStatus.ERROR, error = "Bing auth failed: ${token.error}", targetLang = target)
++        val res = httpPostJson(
++          bingTranslateUrl(target),
++          mapOf(
++            "Authorization" to "Bearer ${token.body.trim()}",
++            "Content-Type" to "application/json",
++          ),
++          bingTranslateBody(text),
++        )
++        if (!res.success) TranslationEntry(TranslationStatus.ERROR, error = res.error ?: res.body, targetLang = target)
++        else parseBingResponse(res.body).copy(targetLang = target)
++      }
++      TranslationProvider.BAIDU -> {
++        val salt = Clock.System.now().toEpochMilliseconds().toString()
++        val url = baiduTranslateUrl(cfg.baiduAppId, text, salt, s.baiduKey, target)
++        val res = httpGetText(url)
++        if (!res.success) TranslationEntry(TranslationStatus.ERROR, error = res.error ?: res.body, targetLang = target)
++        else parseBaiduResponse(res.body).copy(targetLang = target)
++      }
++      TranslationProvider.AI -> {
++        val url = aiResponsesUrl(cfg.aiBaseUrl)
++        val res = httpPostJson(
++          url,
++          mapOf(
++            "Authorization" to "Bearer ${s.aiApiKey}",
++            "Content-Type" to "application/json",
++          ),
++          aiResponsesBody(cfg.aiModel, text, target),
++        )
++        if (!res.success) TranslationEntry(TranslationStatus.ERROR, error = res.error ?: res.body, targetLang = target)
++        else parseAiResponsesResponse(res.body).copy(targetLang = target)
++      }
++      TranslationProvider.CUSTOM -> {
++        val url = aiResponsesUrl(cfg.customBaseUrl)
++        val res = httpPostJson(
++          url,
++          mapOf(
++            "Authorization" to "Bearer ${s.customApiKey}",
++            "Content-Type" to "application/json",
++          ),
++          aiResponsesBody(cfg.customModel, text, target),
++        )
++        if (!res.success) TranslationEntry(TranslationStatus.ERROR, error = res.error ?: res.body, targetLang = target)
++        else parseAiResponsesResponse(res.body).copy(targetLang = target)
++      }
++    }
++  }
++
++  // endregion
++}
++
++/**
++ * Decide whether the compose translation key can undo a previous translation back to the original.
++ *
++ * Undo is possible only when:
++ *  - a translation was just inserted into the compose box (`translateResult != null`), AND
++ *  - the user has not edited the text since (current text still equals the translated text).
++ * Returns the original text to restore, or null if undo is not available.
++ */
++internal fun canUndoTranslation(translateOriginal: String?, translateResult: String?, currentMessageText: String): String? {
++  val original = translateOriginal ?: return null
++  val result = translateResult ?: return null
++  if (result.isBlank()) return null
++  return if (currentMessageText == result) original else null
++}
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationStrings.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationStrings.kt
+new file mode 100644
+index 000000000..5c255e981
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationStrings.kt
+@@ -0,0 +1,61 @@
++package chat.simplex.common.translation
++
++import chat.simplex.common.model.ChatController
++
++/**
++ * Localized strings for the in-app translation feature.
++ *
++ * They are deliberately kept out of the shared `MR.strings` resources: the moko-resources plugin
++ * generates one giant `MR$strings.<clinit>` method holding every string, and at ~3000 strings it is
++ * already close to the JVM 64 KiB per-method limit — adding more there breaks the whole build with
++ * "Method too large". Keeping the (few dozen) translation strings here avoids that and keeps the
++ * feature self-contained. Language is inferred from the app's interface language preference.
++ */
++object TranslationStrings {
++  private fun isZh(): Boolean {
++    val lang = runCatching { ChatController.appPrefs.appLanguage.get() }.getOrNull()
++    return lang?.startsWith("zh") == true
++  }
++
++  fun t(en: String, zh: String): String = if (isZh()) zh else en
++
++  // Generic
++  val translateVerb get() = t("Translate", "翻译")
++  val translating get() = t("Translating…", "正在翻译…")
++  val translationFailed get() = t("Translation failed", "翻译失败")
++  val retry get() = t("Retry", "重试")
++  val hideTranslation get() = t("Hide translation", "隐藏译文")
++  val showOriginal get() = t("Show original", "显示原文")
++  val undoTranslation get() = t("Undo translation", "撤销翻译")
++  val chooseLanguage get() = t("Translate to…", "翻译为…")
++  val original get() = t("Original", "原文")
++  val notConfigured get() = t("Translation is not configured. Set it up in Settings.", "翻译尚未配置，请在设置中配置。")
++  val apiKeyRequired get() = t("API key required", "需要 API 密钥")
++
++  // Settings screen
++  val settingsSummary get() = t("Provider, API keys, languages and automatic translation", "服务提供商、API 密钥、语言与自动翻译")
++  val provider get() = t("Service provider", "服务提供商")
++  val targetLanguage get() = t("Translate to", "翻译为")
++  val autoTranslate get() = t("Auto-translate messages in view", "自动翻译当前视图中的消息")
++  val autoTranslateFooter get() = t(
++    "When on, messages in the current view are translated automatically. Requests are rate-limited to avoid bans or draining your balance.",
++    "开启后，当前视图中的消息会被自动翻译。请求已限速，以避免被封禁或耗尽余额。",
++  )
++  val rateLimits get() = t("Rate limits", "速率限制")
++  val requestInterval get() = t("Interval between requests (ms)", "请求间隔（毫秒）")
++  val maxConcurrent get() = t("Max concurrent requests", "最大并发请求数")
++  val batchLimit get() = t("Max messages per batch", "每批最多消息数")
++  val baiduAppId get() = t("Baidu App ID", "百度 App ID")
++  val baiduKey get() = t("Baidu secret key", "百度密钥")
++  val aiBaseUrl get() = t("API base URL", "API 地址")
++  val aiModel get() = t("Model", "模型")
++  val aiApiKey get() = t("API key", "API 密钥")
++  val customBaseUrl get() = t("Custom API base URL", "自定义 API 地址")
++  val customModel get() = t("Custom model", "自定义模型")
++  val customApiKey get() = t("Custom API key", "自定义 API 密钥")
++  val providerSetup get() = t("Configure the fields below for the selected provider.", "请为所选提供商配置下方字段。")
++  val googleFreeNote get() = t("Google Translate (free) uses a public endpoint and needs no key.", "谷歌翻译（免费）使用公开接口，无需密钥。")
++  val bingFreeNote get() = t("Bing Translator (free) uses a public endpoint and needs no key.", "必应翻译（免费）使用公开接口，无需密钥。")
++  val deepseekDefault get() = t("Default endpoint is DeepSeek (OpenAI Responses protocol).", "默认端点为 DeepSeek（OpenAI Responses 协议）。")
++  val detectLanguageAuto get() = t("Detect language", "自动识别语言")
++}
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
+index 7379d94ea..4d6bc890d 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatView.kt
+@@ -30,6 +30,7 @@ import androidx.compose.ui.text.*
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.*
+ import chat.simplex.common.model.*
++import chat.simplex.common.translation.*
+ import chat.simplex.common.model.CIDirection.GroupRcv
+ import chat.simplex.common.model.ChatController.appPrefs
+ import chat.simplex.common.model.ChatModel.activeCall
+@@ -2520,6 +2521,32 @@ fun BoxScope.ChatItemsList(
+     modifier = Modifier.padding(bottom = composeViewHeight.value + DEFAULT_PADDING).align(Alignment.BottomCenter)
+   )
+ 
++  // Auto-translate the messages currently in view when the setting is on. Rate limiting and
++  // concurrency are handled inside TranslationService.autoTranslateVisible. The effect re-runs only
++  // when the setting flips or the set of visible item ids changes (not on unrelated layout updates),
++  // and debounces briefly so a fast scroll does not fire a burst of requests.
++  val autoTranslatePref = remember { appPrefs.translationAutoTranslate.state }
++  LaunchedEffect(Unit) {
++    snapshotFlow {
++      val visibleIds = listState.value.layoutInfo.visibleItemsInfo.mapNotNull { (it.key as? ChatViewItemKey)?.first }
++      autoTranslatePref.value to visibleIds
++    }
++      .distinctUntilChanged()
++      .collectLatest { (enabled, visibleIds) ->
++        if (!enabled) return@collectLatest
++        delay(400) // debounce: wait until the visible set settles
++        val merged = mergedItems.value
++        val items = visibleIds.mapNotNull { id ->
++          val index = merged.indexInParentItems[id] ?: return@mapNotNull null
++          val ci = merged.items.getOrNull(index)?.newest()?.item ?: return@mapNotNull null
++          if (ci.id >= 0 && ci.content.msgContent != null && ci.content.text.isNotEmpty()) ci.id to ci.content.text else null
++        }
++        if (items.isNotEmpty()) {
++          TranslationService.autoTranslateVisible(items, scope)
++        }
++      }
++  }
++
+   LaunchedEffect(Unit) {
+     snapshotFlow { listState.value.isScrollInProgress }
+       .onCompletion { chatViewScrollState.value = false }
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ComposeView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ComposeView.kt
+index b98e1e683..bfa8f9a9f 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ComposeView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ComposeView.kt
+@@ -117,7 +117,12 @@ data class ComposeState(
+   val mentions: MentionedMembers = emptyMap(),
+   // the max file size the user may attach, raised by their active badge unless the chat is incognito; kept in sync on chat switch
+   val maxFileSize: Long = getMaxFileSize(FileProtocol.XFTP),
+-  val sendIncognito: Boolean = false
++  val sendIncognito: Boolean = false,
++  // In-app translation: the original text before the last translation was applied, and the translated
++  // text that replaced it. Used to undo the translation (only while the text is unchanged). Both are
++  // transient UI state and default to null, so old serialized drafts remain compatible.
++  val translateOriginal: String? = null,
++  val translateResult: String? = null,
+ ) {
+   constructor(editingItem: ChatItem, liveMessage: LiveMessage? = null, useLinkPreviews: Boolean): this(
+     ComposeMessage(
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt
+index 8a24e0790..e17b1172c 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt
+@@ -19,6 +19,7 @@ import androidx.compose.ui.semantics.Role
+ import androidx.compose.ui.text.TextStyle
+ import androidx.compose.ui.unit.*
+ import chat.simplex.common.model.*
++import chat.simplex.common.translation.*
+ import chat.simplex.common.ui.theme.*
+ import chat.simplex.common.views.chat.item.ItemAction
+ import chat.simplex.common.views.helpers.*
+@@ -247,6 +248,9 @@ fun SendMsgView(
+               if (messagePreviewAvailable(previewText, cs.inProgress) && cs.preview !is ComposePreview.VoicePreview) {
+                 MessagePreviewButton { showMessagePreview(previewText) }
+               }
++              if (cs.message.text.isNotBlank()) {
++                TranslateInputButton(composeState)
++              }
+               if (menuItems.isNotEmpty()) {
+                 SendMsgButton(icon, sendButtonSize, sendButtonAlpha, sendButtonColor, !sendMsgButtonDisabled, sendToConnect, sendMessage) { showDropdown.value = true }
+                 DefaultDropdownMenu(showDropdown) {
+@@ -327,6 +331,120 @@ private fun BoxScope.DeleteTextButton(composeState: MutableState<ComposeState>)
+   }
+ }
+ 
++/**
++ * Translation key next to the send button.
++ *
++ * Single click: undo the last inserted translation (if the text was not edited since), otherwise
++ * translate the current input and replace it with the result. Long click: pick a target language
++ * for this session only (does not change the global default).
++ */
++@Composable
++private fun TranslateInputButton(composeState: MutableState<ComposeState>) {
++  val scope = rememberCoroutineScope()
++  val interactionSource = remember { MutableInteractionSource() }
++  var selectedLang by remember { mutableStateOf<String?>(null) }
++  val showLangMenu = remember { mutableStateOf(false) }
++  var translating by remember { mutableStateOf(false) }
++
++  fun doTranslate() {
++    val cs = composeState.value
++    val text = cs.message.text
++    if (text.isBlank()) return
++    if (!TranslationService.isConfigured()) {
++      AlertManager.shared.showAlertMsg(title = TranslationStrings.notConfigured)
++      return
++    }
++    if (translating) return
++    translating = true
++    scope.launch {
++      try {
++        val entry = TranslationService.translateTextNow(text, selectedLang)
++        val translated = entry.translatedText
++        if (entry.isDone && translated != null) {
++          composeState.value = composeState.value.copy(
++            message = ComposeMessage(translated),
++            translateResult = translated,
++            translateOriginal = text,
++          )
++        } else {
++          AlertManager.shared.showAlertMsg(
++            title = TranslationStrings.translationFailed,
++            text = entry.error,
++          )
++        }
++      } catch (e: Exception) {
++        AlertManager.shared.showAlertMsg(
++          title = TranslationStrings.translationFailed,
++          text = e.message,
++        )
++      } finally {
++        translating = false
++      }
++    }
++  }
++
++  Box {
++    Box(
++      modifier = Modifier
++        .size(36.dp)
++        .clip(CircleShape)
++        .combinedClickable(
++          interactionSource = interactionSource,
++          indication = null,
++          onClick = {
++            val cs = composeState.value
++            val original = canUndoTranslation(cs.translateOriginal, cs.translateResult, cs.message.text)
++            if (original != null) {
++              composeState.value = composeState.value.copy(
++                message = ComposeMessage(original),
++                translateOriginal = null,
++                translateResult = null,
++              )
++            } else {
++              doTranslate()
++            }
++          },
++          onLongClick = { showLangMenu.value = true },
++        ),
++      contentAlignment = Alignment.Center
++    ) {
++      if (translating) {
++        CircularProgressIndicator(
++          modifier = Modifier.size(20.dp),
++          strokeWidth = 2.dp,
++          color = MaterialTheme.colors.secondary,
++        )
++      } else {
++        Icon(
++          painterResource(MR.images.ic_translate),
++          contentDescription = TranslationStrings.translateVerb,
++          tint = MaterialTheme.colors.secondary,
++          modifier = Modifier.size(22.dp),
++        )
++      }
++    }
++    DefaultDropdownMenu(showLangMenu) {
++      Text(
++        TranslationStrings.chooseLanguage,
++        Modifier.padding(vertical = DEFAULT_PADDING_HALF, horizontal = DEFAULT_PADDING * 1.5f),
++        fontSize = 16.sp,
++        color = MaterialTheme.colors.secondary,
++      )
++      val currentCode = selectedLang ?: TranslationService.config().targetLang
++      translationLanguages.forEach { lang ->
++        ItemAction(
++          text = if (lang.code == currentCode) "${lang.displayName} ✓" else lang.displayName,
++          onClick = {
++            selectedLang = lang.code
++            showLangMenu.value = false
++            doTranslate()
++          },
++        )
++      }
++    }
++  }
++}
++
+ @Composable
+ private fun RecordVoiceView(recState: MutableState<RecordingState>, stopRecOnNextClick: MutableState<Boolean>) {
+   val rec: RecorderInterface = remember { RecorderNative() }
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.kt
+index aa9223861..669b41515 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.kt
+@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.*
+ import chat.simplex.common.model.*
++import chat.simplex.common.translation.*
+ import chat.simplex.common.model.ChatModel.controller
+ import chat.simplex.common.model.ChatModel.currentUser
+ import chat.simplex.common.platform.*
+@@ -453,6 +454,20 @@ fun ChatItemView(
+                         showMenu.value = false
+                       })
+                     }
++                    if (cItem.content.text.isNotEmpty()) {
++                      val translateScope = rememberCoroutineScope()
++                      if (TranslationService.entry(cItem.id)?.isDone == true) {
++                        ItemAction(TranslationStrings.hideTranslation, painterResource(MR.images.ic_translate), onClick = {
++                          TranslationService.clear(cItem.id)
++                          showMenu.value = false
++                        })
++                      } else {
++                        ItemAction(TranslationStrings.translateVerb, painterResource(MR.images.ic_translate), onClick = {
++                          TranslationService.translateChatItem(cItem.id, cItem.content.text, scope = translateScope)
++                          showMenu.value = false
++                        })
++                      }
++                    }
+                     if (cItem.file != null && (getLoadedFilePath(cItem.file) != null || (chatModel.connectedToRemote() && cachedRemoteReqs[cItem.file.fileSource] != false && cItem.file.loaded))) {
+                       SaveContentItemAction(cItem, saveFileLauncher, showMenu)
+                     } else if (cItem.file != null && cItem.file.fileStatus is CIFileStatus.RcvInvitation && fileSizeValid(cItem.file)) {
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt
+index 391c70c4c..39312e937 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt
+@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontStyle
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.*
+ import chat.simplex.common.model.*
++import chat.simplex.common.translation.*
+ import chat.simplex.common.platform.*
+ import chat.simplex.common.ui.theme.*
+ import chat.simplex.common.views.chat.*
+@@ -480,6 +481,7 @@ fun FramedItemView(
+             inlineMeta()
+           }
+         }
++        TranslationUnderBubble(ci, linkMode)
+       }
+     }
+   }
+@@ -530,6 +532,60 @@ fun CIMarkdownText(
+   }
+ }
+ 
++/**
++ * Renders the translation of a received/sent message underneath its bubble (bilingual, non-destructive).
++ * Shares the observable [TranslationService] registry with both manual (context menu) and automatic
++ * translation, so it needs no extra wiring. Renders nothing when there is no entry yet.
++ */
++@Composable
++fun TranslationUnderBubble(ci: ChatItem, linkMode: SimplexLinkMode) {
++  if (ci.id < 0 || ci.content.text.isEmpty()) return
++  val entry = TranslationService.entry(ci.id) ?: return
++  val scope = rememberCoroutineScope()
++  val secondary = MaterialTheme.colors.secondary
++  Column(
++    Modifier
++      .widthIn(min = 80.dp)
++      .padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
++  ) {
++    when {
++      entry.isLoading -> {
++        Text(
++          TranslationStrings.translating,
++          style = MaterialTheme.typography.body1.copy(color = secondary, lineHeight = 22.sp),
++        )
++      }
++      entry.isDone -> {
++        val translated = entry.translatedText
++        if (translated != null) {
++          MarkdownText(
++            translated,
++            parseToMarkdown(translated),
++            toggleSecrets = true,
++            linkMode = linkMode,
++            style = MaterialTheme.typography.body1.copy(color = secondary, lineHeight = 22.sp),
++          )
++        }
++      }
++      entry.status == TranslationStatus.ERROR -> {
++        Row(verticalAlignment = Alignment.CenterVertically) {
++          Text(
++            "${TranslationStrings.translationFailed} ",
++            style = MaterialTheme.typography.body1.copy(color = secondary, lineHeight = 22.sp),
++          )
++          Text(
++            TranslationStrings.retry,
++            Modifier.clickable {
++              TranslationService.translateChatItem(ci.id, ci.content.text, scope = scope)
++            },
++            style = MaterialTheme.typography.body1.copy(color = MaterialTheme.colors.primary, lineHeight = 22.sp),
++          )
++        }
++      }
++    }
++  }
++}
++
+ fun sendCommandMsg(chatsCtx: ChatModel.ChatsContext, chat: Chat, msg: String) {
+   if (chat.chatInfo.sndReady) {
+     withLongRunningApi(slow = 60_000) {
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt
+index 110fcfd6c..5c3510a4e 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/SettingsView.kt
+@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.*
+ import chat.simplex.common.model.*
+ import chat.simplex.common.model.ChatController.appPrefs
++import chat.simplex.common.translation.TranslationStrings
+ import chat.simplex.common.platform.*
+ import chat.simplex.common.ui.theme.*
+ import chat.simplex.common.views.badges.BadgesView
+@@ -148,6 +149,12 @@ fun SettingsLayout(
+     }
+     SectionDividerSpaced()
+ 
++    SectionView {
++      SettingsActionItem(painterResource(MR.images.ic_translate), TranslationStrings.translateVerb, showCustomModal { _, close -> TranslationSettingsView(close) })
++      SectionTextFooter(TranslationStrings.settingsSummary)
++    }
++    SectionDividerSpaced()
++
+     SectionView(stringResource(MR.strings.advanced_settings)) {
+       SettingsActionItem(painterResource(MR.images.ic_wifi_tethering), stringResource(MR.strings.network_and_servers), showCustomModal { _, close -> NetworkAndServersView(close) }, disabled = stopped)
+       if (appPlatform == AppPlatform.ANDROID) {
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/TranslationSettingsView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/TranslationSettingsView.kt
+new file mode 100644
+index 000000000..bd8eb0fd1
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/TranslationSettingsView.kt
+@@ -0,0 +1,268 @@
++package chat.simplex.common.views.usersettings
++
++import SectionBottomSpacer
++import SectionDividerSpaced
++import SectionTextFooter
++import SectionView
++import androidx.compose.foundation.layout.*
++import androidx.compose.foundation.text.KeyboardActions
++import androidx.compose.material.*
++import androidx.compose.runtime.*
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.input.ImeAction
++import androidx.compose.ui.text.input.KeyboardType
++import androidx.compose.ui.text.input.TextFieldValue
++import chat.simplex.common.model.ChatController.appPrefs
++import chat.simplex.common.platform.ColumnWithScrollBar
++import chat.simplex.common.translation.*
++import chat.simplex.common.ui.theme.DEFAULT_PADDING
++import chat.simplex.common.views.helpers.*
++import chat.simplex.res.*
++import dev.icerock.moko.resources.compose.painterResource
++import kotlinx.coroutines.flow.distinctUntilChanged
++import kotlinx.coroutines.flow.drop
++
++/**
++ * Settings screen for the in-app translation feature.
++ *
++ * All copy comes from [TranslationStrings] (deliberately kept out of `MR.strings`, whose generated
++ * `MR$strings.<clinit>` is already near the JVM 64 KiB per-method limit). Every edit is persisted
++ * immediately through [TranslationService.saveConfig] / [TranslationService.saveSecrets].
++ *
++ * The shell is provided by the caller: [close] is invoked by the app bar / back gesture.
++ */
++@Composable
++fun TranslationSettingsView(close: () -> Unit) {
++  val initialConfig = remember { TranslationService.config() }
++  val initialSecrets = remember { TranslationService.secrets() }
++
++  val provider = remember { mutableStateOf(initialConfig.provider) }
++  val targetLang = remember { mutableStateOf(initialConfig.targetLang) }
++
++  val requestInterval = remember { mutableStateOf(TextFieldValue(initialConfig.rate.requestIntervalMs.toString())) }
++  val maxConcurrent = remember { mutableStateOf(TextFieldValue(initialConfig.rate.maxConcurrent.toString())) }
++  val batchLimit = remember { mutableStateOf(TextFieldValue(initialConfig.rate.batchLimit.toString())) }
++
++  val baiduAppId = remember { mutableStateOf(TextFieldValue(initialConfig.baiduAppId)) }
++  val aiBaseUrl = remember { mutableStateOf(TextFieldValue(initialConfig.aiBaseUrl)) }
++  val aiModel = remember { mutableStateOf(TextFieldValue(initialConfig.aiModel)) }
++  val customBaseUrl = remember { mutableStateOf(TextFieldValue(initialConfig.customBaseUrl)) }
++  val customModel = remember { mutableStateOf(TextFieldValue(initialConfig.customModel)) }
++
++  val baiduKey = remember { mutableStateOf(TextFieldValue(initialSecrets.baiduKey)) }
++  val aiApiKey = remember { mutableStateOf(TextFieldValue(initialSecrets.aiApiKey)) }
++  val customApiKey = remember { mutableStateOf(TextFieldValue(initialSecrets.customApiKey)) }
++
++  // Parse the numeric rate fields, falling back to the last saved value on empty/invalid input,
++  // then clamp to the valid range with normalized().
++  fun currentRate(): TranslationRateConfig {
++    val saved = TranslationService.config().rate
++    return TranslationRateConfig(
++      requestIntervalMs = requestInterval.value.text.toLongOrNull() ?: saved.requestIntervalMs,
++      maxConcurrent = maxConcurrent.value.text.toIntOrNull() ?: saved.maxConcurrent,
++      batchLimit = batchLimit.value.text.toIntOrNull() ?: saved.batchLimit,
++    ).normalized()
++  }
++
++  fun saveAll() {
++    TranslationService.saveConfig(
++      TranslationConfig(
++        provider = provider.value,
++        targetLang = targetLang.value,
++        rate = currentRate(),
++        baiduAppId = baiduAppId.value.text.trim(),
++        aiBaseUrl = aiBaseUrl.value.text.trim(),
++        aiModel = aiModel.value.text.trim(),
++        customBaseUrl = customBaseUrl.value.text.trim(),
++        customModel = customModel.value.text.trim(),
++      )
++    )
++    TranslationService.saveSecrets(
++      TranslationSecrets(
++        baiduKey = baiduKey.value.text.trim(),
++        aiApiKey = aiApiKey.value.text.trim(),
++        customApiKey = customApiKey.value.text.trim(),
++      )
++    )
++  }
++
++  // Persist on every change (skip the initial composition snapshot).
++  LaunchedEffect(Unit) {
++    snapshotFlow {
++      listOf(
++        provider.value, targetLang.value,
++        requestInterval.value.text, maxConcurrent.value.text, batchLimit.value.text,
++        baiduAppId.value.text, aiBaseUrl.value.text, aiModel.value.text,
++        customBaseUrl.value.text, customModel.value.text,
++        baiduKey.value.text, aiApiKey.value.text, customApiKey.value.text,
++      )
++    }
++      .drop(1)
++      .distinctUntilChanged()
++      .collect { saveAll() }
++  }
++
++  ModalView(close = close, cardScreen = true) {
++    ColumnWithScrollBar {
++      AppBarTitle(TranslationStrings.translateVerb)
++
++      // ---- Provider ----
++      SectionView(TranslationStrings.provider) {
++        val providers = remember { TranslationProvider.entries.map { it to it.displayName } }
++        ExposedDropDownSettingRow(TranslationStrings.provider, providers, provider) {
++          provider.value = it
++        }
++      }
++      SectionDividerSpaced()
++
++      // ---- Target language ----
++      SectionView(TranslationStrings.targetLanguage) {
++        val langs = remember { translationLanguages.map { it.code to it.displayName } }
++        ExposedDropDownSettingRow(TranslationStrings.targetLanguage, langs, targetLang) {
++          targetLang.value = it
++        }
++      }
++      SectionDividerSpaced()
++
++      // ---- Automatic translation ----
++      SectionView(TranslationStrings.autoTranslate) {
++        SettingsPreferenceItem(
++          painterResource(MR.images.ic_translate),
++          TranslationStrings.autoTranslate,
++          appPrefs.translationAutoTranslate,
++        )
++        SectionTextFooter(TranslationStrings.autoTranslateFooter)
++      }
++      SectionDividerSpaced()
++
++      // ---- Rate limits ----
++      SectionView(TranslationStrings.rateLimits) {
++        Column(Modifier.padding(horizontal = DEFAULT_PADDING)) {
++          DefaultConfigurableTextField(
++            requestInterval,
++            TranslationStrings.requestInterval,
++            modifier = Modifier.fillMaxWidth(),
++            isValid = { it.toLongOrNull()?.let { v -> v in 0..60_000 } == true },
++            keyboardActions = KeyboardActions(onDone = { defaultKeyboardAction(ImeAction.Done) }),
++            keyboardType = KeyboardType.Number,
++          )
++          DefaultConfigurableTextField(
++            maxConcurrent,
++            TranslationStrings.maxConcurrent,
++            modifier = Modifier.fillMaxWidth(),
++            isValid = { it.toIntOrNull()?.let { v -> v in 1..8 } == true },
++            keyboardActions = KeyboardActions(onDone = { defaultKeyboardAction(ImeAction.Done) }),
++            keyboardType = KeyboardType.Number,
++          )
++          DefaultConfigurableTextField(
++            batchLimit,
++            TranslationStrings.batchLimit,
++            modifier = Modifier.fillMaxWidth(),
++            isValid = { it.toIntOrNull()?.let { v -> v in 1..100 } == true },
++            keyboardActions = KeyboardActions(onDone = { defaultKeyboardAction(ImeAction.Done) }),
++            keyboardType = KeyboardType.Number,
++          )
++        }
++      }
++      SectionDividerSpaced()
++
++      // ---- Provider-specific fields ----
++      when (provider.value) {
++        TranslationProvider.GOOGLE -> {
++          SectionView(TranslationStrings.provider) {
++            SectionTextFooter(TranslationStrings.googleFreeNote)
++          }
++        }
++        TranslationProvider.BING -> {
++          SectionView(TranslationStrings.provider) {
++            SectionTextFooter(TranslationStrings.bingFreeNote)
++          }
++        }
++        TranslationProvider.BAIDU -> {
++          SectionView(TranslationStrings.providerSetup) {
++            Column(Modifier.padding(horizontal = DEFAULT_PADDING)) {
++              DefaultConfigurableTextField(
++                baiduAppId,
++                TranslationStrings.baiduAppId,
++                modifier = Modifier.fillMaxWidth(),
++                isValid = { true },
++                keyboardActions = KeyboardActions(onNext = { defaultKeyboardAction(ImeAction.Next) }),
++                keyboardType = KeyboardType.Text,
++              )
++              DefaultConfigurableTextField(
++                baiduKey,
++                TranslationStrings.baiduKey,
++                modifier = Modifier.fillMaxWidth(),
++                isValid = { true },
++                keyboardActions = KeyboardActions(onDone = { defaultKeyboardAction(ImeAction.Done) }),
++                keyboardType = KeyboardType.Password,
++              )
++            }
++          }
++        }
++        TranslationProvider.AI -> {
++          SectionView(TranslationStrings.providerSetup) {
++            Column(Modifier.padding(horizontal = DEFAULT_PADDING)) {
++              DefaultConfigurableTextField(
++                aiBaseUrl,
++                TranslationStrings.aiBaseUrl,
++                modifier = Modifier.fillMaxWidth(),
++                isValid = { true },
++                keyboardActions = KeyboardActions(onNext = { defaultKeyboardAction(ImeAction.Next) }),
++                keyboardType = KeyboardType.Text,
++              )
++              DefaultConfigurableTextField(
++                aiModel,
++                TranslationStrings.aiModel,
++                modifier = Modifier.fillMaxWidth(),
++                isValid = { true },
++                keyboardActions = KeyboardActions(onNext = { defaultKeyboardAction(ImeAction.Next) }),
++                keyboardType = KeyboardType.Text,
++              )
++              DefaultConfigurableTextField(
++                aiApiKey,
++                TranslationStrings.aiApiKey,
++                modifier = Modifier.fillMaxWidth(),
++                isValid = { true },
++                keyboardActions = KeyboardActions(onDone = { defaultKeyboardAction(ImeAction.Done) }),
++                keyboardType = KeyboardType.Password,
++              )
++            }
++            SectionTextFooter(TranslationStrings.deepseekDefault)
++          }
++        }
++        TranslationProvider.CUSTOM -> {
++          SectionView(TranslationStrings.providerSetup) {
++            Column(Modifier.padding(horizontal = DEFAULT_PADDING)) {
++              DefaultConfigurableTextField(
++                customBaseUrl,
++                TranslationStrings.customBaseUrl,
++                modifier = Modifier.fillMaxWidth(),
++                isValid = { true },
++                keyboardActions = KeyboardActions(onNext = { defaultKeyboardAction(ImeAction.Next) }),
++                keyboardType = KeyboardType.Text,
++              )
++              DefaultConfigurableTextField(
++                customModel,
++                TranslationStrings.customModel,
++                modifier = Modifier.fillMaxWidth(),
++                isValid = { true },
++                keyboardActions = KeyboardActions(onNext = { defaultKeyboardAction(ImeAction.Next) }),
++                keyboardType = KeyboardType.Text,
++              )
++              DefaultConfigurableTextField(
++                customApiKey,
++                TranslationStrings.customApiKey,
++                modifier = Modifier.fillMaxWidth(),
++                isValid = { true },
++                keyboardActions = KeyboardActions(onDone = { defaultKeyboardAction(ImeAction.Done) }),
++                keyboardType = KeyboardType.Password,
++              )
++            }
++          }
++        }
++      }
++      SectionBottomSpacer()
++    }
++  }
++}
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TranslationApiTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TranslationApiTest.kt
+new file mode 100644
+index 000000000..e50b5ebdb
+--- /dev/null
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TranslationApiTest.kt
+@@ -0,0 +1,205 @@
++package chat.simplex.app
++
++import chat.simplex.common.translation.*
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertNotEquals
++import kotlin.test.assertNull
++import kotlin.test.assertTrue
++
++class TranslationApiTest {
++  // ---- MD5 (used for Baidu signing) ----
++  @Test
++  fun testMd5KnownVectors() {
++    assertEquals("d41d8cd98f00b204e9800998ecf8427e", md5Hex(""))
++    assertEquals("900150983cd24fb0d6963f7d28e17f72", md5Hex("abc"))
++    assertEquals("9e107d9d372bb6826bd81d3542a419d6", md5Hex("The quick brown fox jumps over the lazy dog"))
++    assertEquals("e4d909c290d0fb1ca068ffaddf22cbd0", md5Hex("The quick brown fox jumps over the lazy dog."))
++  }
++
++  // ---- URL encoding ----
++  @Test
++  fun testUrlEncode() {
++    assertEquals("hello%20world", urlEncode("hello world"))
++    assertEquals("%E4%BD%A0%E5%A5%BD", urlEncode("你好"))
++    assertEquals("a-_.~", urlEncode("a-_.~"))
++    assertEquals("%26%3D%3F", urlEncode("&=?"))
++  }
++
++  // ---- Language detection ----
++  @Test
++  fun testDetectLanguage() {
++    assertEquals("en", detectLanguage("hello world"))
++    assertEquals("zh", detectLanguage("你好世界"))
++    assertEquals("ja", detectLanguage("こんにちは"))
++    assertEquals("ja", detectLanguage("日本語です"))
++    assertEquals("ko", detectLanguage("안녕하세요"))
++    assertEquals("ru", detectLanguage("Привет мир"))
++    assertEquals("ar", detectLanguage("مرحبا"))
++    assertEquals("he", detectLanguage("שלום"))
++    assertEquals("el", detectLanguage("Γειά σου"))
++    assertEquals("th", detectLanguage("สวัสดี"))
++    assertEquals("hi", detectLanguage("नमस्ते"))
++    assertEquals("en", detectLanguage(""))
++  }
++
++  @Test
++  fun testIsLikelyAlreadyInLanguage() {
++    assertTrue(isLikelyAlreadyInLanguage("你好世界", "zh"))
++    assertTrue(isLikelyAlreadyInLanguage("こんにちは", "ja"))
++    // English is never skipped (Latin scripts are not reliably detectable).
++    assertEquals(false, isLikelyAlreadyInLanguage("hello", "en"))
++    // Wrong target is not skipped.
++    assertEquals(false, isLikelyAlreadyInLanguage("你好", "ja"))
++  }
++
++  // ---- Rate config normalization ----
++  @Test
++  fun testRateConfigNormalized() {
++    val extreme = TranslationRateConfig(requestIntervalMs = -5, maxConcurrent = 999, batchLimit = 9999).normalized()
++    assertEquals(0L, extreme.requestIntervalMs)
++    assertEquals(8, extreme.maxConcurrent)
++    assertEquals(100, extreme.batchLimit)
++    val ok = TranslationRateConfig(requestIntervalMs = 500, maxConcurrent = 2, batchLimit = 20).normalized()
++    assertEquals(TranslationRateConfig(500, 2, 20), ok)
++  }
++
++  // ---- Google ----
++  @Test
++  fun testGoogleUrl() {
++    val url = googleTranslateUrl("hello world", "zh")
++    assertTrue(url.startsWith("https://translate.googleapis.com/translate_a/single"))
++    assertTrue(url.contains("tl=zh"))
++    assertTrue(url.contains("q=hello%20world"))
++  }
++
++  @Test
++  fun testParseGoogleResponse() {
++    val body = """[[["你好世界","hello world",null,null]],null,"en"]"""
++    val e = parseGoogleResponse(body)
++    assertEquals(TranslationStatus.DONE, e.status)
++    assertEquals("你好世界", e.translatedText)
++    assertEquals("en", e.detectedLang)
++  }
++
++  @Test
++  fun testParseGoogleMultiSegment() {
++    val body = """[[["Hello ","hi ",null,null],["world","there",null,null]],null,"en"]"""
++    assertEquals("Hello world", parseGoogleResponse(body).translatedText)
++  }
++
++  // ---- Bing ----
++  @Test
++  fun testParseBingResponse() {
++    val body = """[{"detectedLanguage":{"language":"en","score":1.0},"translations":[{"text":"你好","to":"zh-Hans"}]}]"""
++    val e = parseBingResponse(body)
++    assertEquals(TranslationStatus.DONE, e.status)
++    assertEquals("你好", e.translatedText)
++    assertEquals("en", e.detectedLang)
++  }
++
++  @Test
++  fun testBingBody() {
++    assertEquals("""[{"Text":"hi"}]""", bingTranslateBody("hi"))
++  }
++
++  // ---- Baidu ----
++  @Test
++  fun testBaiduSign() {
++    // sign = md5(appId + q + salt + key)
++    assertEquals(md5Hex("appq123key"), baiduSign("app", "q", "123", "key"))
++  }
++
++  @Test
++  fun testBaiduLangCode() {
++    assertEquals("jp", baiduLangCode("ja"))
++    assertEquals("kor", baiduLangCode("ko"))
++    assertEquals("fra", baiduLangCode("fr"))
++    assertEquals("spa", baiduLangCode("es"))
++    assertEquals("en", baiduLangCode("en"))
++    assertEquals("de", baiduLangCode("de"))
++  }
++
++  @Test
++  fun testParseBaiduResponse() {
++    val body = """{"from":"en","to":"zh","trans_result":[{"src":"hello","dst":"你好"}]}"""
++    val e = parseBaiduResponse(body)
++    assertEquals(TranslationStatus.DONE, e.status)
++    assertEquals("你好", e.translatedText)
++    assertEquals("en", e.detectedLang)
++  }
++
++  @Test
++  fun testParseBaiduError() {
++    val body = """{"error_code":"54001","error_msg":"Invalid Sign"}"""
++    val e = parseBaiduResponse(body)
++    assertEquals(TranslationStatus.ERROR, e.status)
++    assertTrue(e.error!!.contains("54001"))
++  }
++
++  // ---- AI / Custom (OpenAI Responses) ----
++  @Test
++  fun testAiResponsesUrl() {
++    assertEquals("https://api.deepseek.com/v1/responses", aiResponsesUrl("https://api.deepseek.com/v1"))
++    assertEquals("https://api.deepseek.com/v1/responses", aiResponsesUrl("https://api.deepseek.com/v1/"))
++    // Already ends with /responses: keep as-is.
++    assertEquals("https://x/responses", aiResponsesUrl("https://x/responses"))
++  }
++
++  @Test
++  fun testParseAiResponsesOutputText() {
++    val body = """{"output_text":"你好"}"""
++    assertEquals("你好", parseAiResponsesResponse(body).translatedText)
++  }
++
++  @Test
++  fun testParseAiResponsesOutputArray() {
++    val body = """{"output":[{"type":"message","content":[{"type":"output_text","text":"你好世界"}]}]}"""
++    val e = parseAiResponsesResponse(body)
++    assertEquals(TranslationStatus.DONE, e.status)
++    assertEquals("你好世界", e.translatedText)
++  }
++
++  @Test
++  fun testParseAiResponsesChatCompletionsFallback() {
++    val body = """{"choices":[{"message":{"content":"你好"}}]}"""
++    assertEquals("你好", parseAiResponsesResponse(body).translatedText)
++  }
++
++  @Test
++  fun testParseAiResponsesError() {
++    val body = """{"error":{"message":"invalid api key"}}"""
++    val e = parseAiResponsesResponse(body)
++    assertEquals(TranslationStatus.ERROR, e.status)
++    assertEquals("invalid api key", e.error)
++  }
++
++  @Test
++  fun testAiBodyContainsInput() {
++    val body = aiResponsesBody("deepseek-chat", "hello", "zh")
++    assertTrue(body.contains("\"model\":\"deepseek-chat\""))
++    assertTrue(body.contains("\"role\":\"system\""))
++    assertTrue(body.contains("\"role\":\"user\""))
++    assertTrue(body.contains("hello"))
++  }
++
++  // ---- Compose translation undo logic ----
++  @Test
++  fun testCanUndoTranslation() {
++    // No translation -> nothing to undo.
++    assertNull(canUndoTranslation(null, null, "hello"))
++    // Translate "hi" -> "你好"; text still equals the translation -> can undo to "hi".
++    assertEquals("hi", canUndoTranslation("hi", "你好", "你好"))
++    // User edited after translating -> cannot undo.
++    assertNull(canUndoTranslation("hi", "你好", "你好 world"))
++    // Result empty -> cannot undo.
++    assertNull(canUndoTranslation("hi", "", ""))
++  }
++
++  @Test
++  fun testTranslationEntryFlags() {
++    assertTrue(TranslationEntry(TranslationStatus.LOADING).isLoading)
++    assertTrue(TranslationEntry(TranslationStatus.DONE, "x").isDone)
++    assertEquals(false, TranslationEntry(TranslationStatus.ERROR).isDone)
++  }
++}
+diff --git a/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/translation/TranslationHttp.desktop.kt b/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/translation/TranslationHttp.desktop.kt
+new file mode 100644
+index 000000000..124dfc5c8
+--- /dev/null
++++ b/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/translation/TranslationHttp.desktop.kt
+@@ -0,0 +1,49 @@
++package chat.simplex.common.translation
++
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.withContext
++import okhttp3.MediaType.Companion.toMediaType
++import okhttp3.OkHttpClient
++import okhttp3.Request
++import okhttp3.RequestBody.Companion.toRequestBody
++import java.util.concurrent.TimeUnit
++
++private val translationHttpClient: OkHttpClient by lazy {
++  OkHttpClient.Builder()
++    .followRedirects(true)
++    .followSslRedirects(true)
++    .connectTimeout(20, TimeUnit.SECONDS)
++    .readTimeout(30, TimeUnit.SECONDS)
++    .writeTimeout(30, TimeUnit.SECONDS)
++    .build()
++}
++
++private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
++
++actual suspend fun httpGetText(url: String, headers: Map<String, String>): HttpResult = withContext(Dispatchers.IO) {
++  try {
++    val builder = Request.Builder().url(url).get()
++    headers.forEach { (k, v) -> builder.header(k, v) }
++    translationHttpClient.newCall(builder.build()).execute().use { resp ->
++      val body = resp.body?.string() ?: ""
++      if (resp.isSuccessful) HttpResult.ok(body)
++      else HttpResult.fail("HTTP ${resp.code}", body)
++    }
++  } catch (e: Exception) {
++    HttpResult.fail(e.message ?: e.toString())
++  }
++}
++
++actual suspend fun httpPostJson(url: String, headers: Map<String, String>, body: String): HttpResult = withContext(Dispatchers.IO) {
++  try {
++    val builder = Request.Builder().url(url).post(body.toRequestBody(JSON_MEDIA))
++    headers.forEach { (k, v) -> builder.header(k, v) }
++    translationHttpClient.newCall(builder.build()).execute().use { resp ->
++      val respBody = resp.body?.string() ?: ""
++      if (resp.isSuccessful) HttpResult.ok(respBody)
++      else HttpResult.fail("HTTP ${resp.code}", respBody)
++    }
++  } catch (e: Exception) {
++    HttpResult.fail(e.message ?: e.toString())
++  }
++}
+diff --git a/apps/multiplatform/product/README.md b/apps/multiplatform/product/README.md
+index 9ea3ba8ec..22a3df901 100644
+--- a/apps/multiplatform/product/README.md
++++ b/apps/multiplatform/product/README.md
+@@ -74,6 +74,7 @@ Core message composition, delivery, and interaction features.
+ | Time format | 12/24-hour convention for every time of day, following the system setting unless overridden in Settings | `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt` |
+ | Rainbow mode | Switch in *Customize theme > Interface colors* that cycles the hue of every interface color, swatches included; display-only, the saved colors are untouched | `common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt` |
+ | Message preview | Eye button next to the send button: renders the composed text with the chat markdown renderer before it is sent; read-only | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/MessagePreviewView.kt` |
++| Chat translation | Translate any message from its menu into a non-destructive bilingual bubble, or translate the composed text with the button next to the send button (tap = default language, long-press = pick one for this message); providers (Google, Bing, Baidu, AI, custom) are configured in Settings with encrypted local keys, and automatic viewport translation is rate-limited | `common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt` |
+ 
+ ### 2. Contacts
+ 
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index e7637f36e..dd17f0e2a 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -65,6 +65,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC43 | Range Selection | [views/chat.md](views/chat.md) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../views/chat/ChatSelectionRange.kt` (`mergedItemChatItemIds`, `selectionRangeRows`, `selectionToHereIds`, `selectionToHereAddsItems`, `visibleEdgeRows`), `common/.../views/chat/ChatView.kt` (`selectionAnchor`, `SelectToHereButton`) | N/A (client-only) |
+ | PC44 | Rainbow Mode | [views/settings.md](views/settings.md) | [spec/services/theme.md](../spec/services/theme.md), [spec/state.md](../spec/state.md) | `common/.../ui/theme/Rainbow.kt` (`shiftHue`, `rainbowColors`, `rainbowAppColors`, `rainbowTextColor`, `rainbowCycleMillis`, `rainbowUpdateMillis`, `rainbowChatColorsActive`, `LocalRainbowPhase`, `rememberRainbowPhaseTimer`, `rememberRainbowPhase`, `rememberRainbowChatColors`, `rememberRainbowMessageTextColor`), `common/.../ui/theme/Theme.kt` (`SimpleXTheme` publishes the phase, `SimpleXThemeOverride` applies it), `common/.../views/usersettings/Appearance.kt` (`CustomizeThemeColorsSection`), `common/.../views/chat/item/TextItemView.kt` (`MarkdownText` text color), `common/.../model/SimpleXAPI.kt` (`rainbowThemeColors`, `rainbowSpeed`, `rainbowChatColors`, `rainbowMessageText`, `rainbowLowPerformance`, `RainbowSpeed`) | N/A (client-only) |
+ | PC45 | Message Preview | [views/chat.md](views/chat.md) | [spec/client/compose.md](../spec/client/compose.md) | `common/.../views/chat/MessagePreviewView.kt` (`messagePreviewAvailable`, `MessagePreviewView`, `showMessagePreview`, `MessagePreviewButton`), `common/.../views/chat/SendMsgView.kt` (preview button next to the send button) | N/A (client-only) |
++| PC46 | Chat Translation | [views/chat.md](views/chat.md), [views/settings.md](views/settings.md) | [spec/client/translation.md](../spec/client/translation.md), [spec/client/chat-view.md](../spec/client/chat-view.md), [spec/client/compose.md](../spec/client/compose.md), [spec/state.md](../spec/state.md) | `common/.../translation/` (`TranslationService.kt`, `TranslationModels.kt`, `TranslationLang.kt`, `TranslationApi.kt`, `TranslationHttp.kt`), `common/.../model/SimpleXAPI.kt` (`AppPreferences.translationConfig`, `translationSecrets`, `translationSecretsIv`, `translationAutoTranslate`), `common/.../views/chat/ComposeView.kt` (`ComposeState.translateOriginal`, `translateResult`), `common/.../views/chat/SendMsgView.kt` (translate button), `common/.../views/chat/item/ChatItemView.kt` and `FramedItemView.kt` (message-menu item and bilingual bubble), `common/.../views/usersettings/SettingsView.kt` (`TranslationSettingsView` entry) | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
+ 
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index 3976e0b99..473b96257 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -24,6 +24,7 @@ This document specifies invariants enforced by the Android and Desktop (Kotlin/C
+ 16. [Range Selection (RULE-28)](#16-range-selection)
+ 17. [Rainbow Mode (RULE-29)](#17-rainbow-mode)
+ 18. [Message Preview (RULE-30)](#18-message-preview)
++19. [Chat Translation (RULE-31)](#19-chat-translation)
+ 
+ ---
+ 
+@@ -746,3 +747,49 @@ Enforcement:
+ - `common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt` (button placement next to
+   the send button)
+ - Test: `common/src/commonTest/kotlin/chat/simplex/app/MessagePreviewTest.kt`
++
++## 19. Chat Translation
++
++### RULE-31: Translation Is a Client-Side, Rate-Limited, Non-Exportable Service
++
++1. **Pure-client and pluggable.** Translation is implemented entirely in the Kotlin client. The
++   `TranslationProvider` is a pluggable choice (`GOOGLE`, `BING`, `BAIDU`, `AI`, `CUSTOM`) dispatched
++   through `TranslationService`; the Haskell core and the network protocol MUST NOT be changed. A
++   provider is added by describing its request/response in `TranslationApi` and its HTTP in
++   `TranslationHttp` — never by touching the core.
++
++2. **Configuration is local only.** The provider, target language, keys and endpoints live in
++   `AppPreferences` as the JSON string `translationConfig` (plus the auto-translate flag). They MUST NOT
++   be added to the `AppSettings` import/export structure, so a backup/device migration never carries the
++   translation service configuration or credentials.
++
++3. **Secrets are encrypted at rest.** Every API key (and the Baidu AppID/secret) MUST be encrypted with
++   `Cryptor` and stored in `translationSecrets` together with its IV in `translationSecretsIv`. Secrets
++   MUST never be exported and MUST never be written unencrypted.
++
++4. **Translation never mutates the message.** A message-menu translation appends the translated text
++   below the original as a two-line bubble; it MUST NOT edit or replace the `ChatItem` content. The
++   compose-bar translation keeps the original in `ComposeState.translateOriginal` and the translation in
++   `translateResult`, and can be undone only while the two agree with the current text (editing the text
++   after translating disables undo and the button re-translates instead).
++
++5. **Automatic translation is rate-limited and scoped.** `autoTranslate` MUST translate only the
++   messages currently visible in the viewport and MUST cancel a message's in-flight request as soon as it
++   scrolls out of view. Both automatic and manual translation go through the same limiter:
++   `requestIntervalMs` (default 600), `maxConcurrent` (default 2) and `batchLimit` (default 20), so the
++   client never floods a provider and cannot be banned or drain its balance.
++
++Enforcement:
++- `common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt`
++  (`TranslationService.translateChatItem`/`translateTextNow`/`autoTranslateVisible`, the rate limiter,
++  `canUndoTranslation`)
++- `common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationModels.kt`
++  (`TranslationProvider`, `TranslationConfig`, `TranslationSecrets`, `TranslationRateConfig`)
++- `common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationApi.kt` and `TranslationHttp.kt`
++  (request/response builders and the `httpGetText`/`httpPostJson` expect/actual)
++- `common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`
++  (`AppPreferences.translationConfig`, `translationSecrets`, `translationSecretsIv`,
++  `translationAutoTranslate`)
++- `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ComposeView.kt`
++  (`ComposeState.translateOriginal`, `translateResult`)
++- Test: `common/src/commonTest/kotlin/chat/simplex/app/Translation*.kt`
+diff --git a/apps/multiplatform/product/views/chat.md b/apps/multiplatform/product/views/chat.md
+index d8a0cf333..cb0aa4ce3 100644
+--- a/apps/multiplatform/product/views/chat.md
++++ b/apps/multiplatform/product/views/chat.md
+@@ -84,6 +84,7 @@ Long-press context menu on any message:
+ | Moderate | Group moderators can delete messages for all members (`moderateMessagesAlertDialog`) |
+ | React | Emoji reaction picker |
+ | Report | Report message to group moderators (`ComposeContextItem.ReportedItem` with `ReportReason`) |
++| Translate | Translate the message with the configured provider and show the result as a bilingual bubble (原文 + 译文) below the message, without touching the original (RULE-31) |
+ | Select multiple | Enters multi-select mode (`selectedChatItems`) with bulk delete/forward/archive/copy toolbar |
+ | Archive | Archive selected reports (moderators) |
+ 
+@@ -97,6 +98,7 @@ Bottom input area for composing messages:
+ | Attachment button | Opens `ModalBottomSheetLayout` with options: camera, gallery (image/video), file |
+ | Emoji button | Desktop only (Android keyboards have their own emoji panel). Opens a popup with search and categories; a picked emoji is inserted at the cursor and the picker stays open. With text selected the emoji goes after it, as the text field drops its selection when the picker takes focus. Picked emoji are not remembered, for privacy. Esc, a click outside or the button closes it |
+ | Preview button | Eye icon before the send button, shown while there is text to render and the composition is not a voice message. Opens a read-only modal with the message rendered by the same markdown renderer as the chat, so formatting can be checked before sending (RULE-30) |
++| Translate button | 36 dp circular `ic_translate` icon left of the send button. Tap translates the composed text into the default target language; long-press opens a language menu and translates into the chosen language for this message only (the default is unchanged). Tapping again after a translation restores the original; if the text was edited after translating, undo is unavailable and the tap re-translates instead (`ComposeState.translateOriginal`/`translateResult`, `canUndoTranslation`, RULE-31) |
+ | Send button | Sends message; changes to checkmark for reports; animated size/alpha |
+ | Voice record button | Shown when text is empty and voice allowed; hold to record, release to preview |
+ | Live message button | Start/update live typing message (if `liveMessageAlertShown`) |
+diff --git a/apps/multiplatform/product/views/settings.md b/apps/multiplatform/product/views/settings.md
+index bbaa0be50..337b7c165 100644
+--- a/apps/multiplatform/product/views/settings.md
++++ b/apps/multiplatform/product/views/settings.md
+@@ -245,11 +245,38 @@ Rendered only when `appPlatform.isDesktop`. Both rows offer the same four combin
+ 
+ The two combinations are always kept distinct: choosing the combination already used by the other row swaps the two values. Any other Enter combination, including `Cmd`/`Win` + `Enter`, does nothing; a plain `Enter` (no modifier) always inserts a newline when it is not the send key, so a newline is never unreachable.
+ 
++### Chat Translation Section (`TranslationSettingsView`)
++
++A translation sub-page reached from the main settings list (title string `translation_settings`, shown as
++「翻译消息 / Translate messages」, with summary `translation_settings_summary`). It configures the in-app
++translation service (see `product/rules.md` RULE-31). Every value is stored locally in `AppPreferences`
++(JSON string `translationConfig`, plus `translationAutoTranslate`) and is **not** part of the
++`AppSettings` backup; secrets are encrypted with `Cryptor` and stored in `translationSecrets` +
++`translationSecretsIv`.
++
++| Row | Preference Key | Default | Description |
++|---|---|---|---|
++| Provider | `provider` (`TranslationProvider`) | `GOOGLE` | `GOOGLE` (free), `BING` (free), `BAIDU` (needs an API Key), `AI` (OpenAI Responses protocol, DeepSeek default) or `CUSTOM` (OpenAI-compatible endpoint) |
++| Default target language | `targetLang` | `English` | Language used by a single tap on the compose-bar translate button |
++| Auto-translate | `translationAutoTranslate` | Off | Translate the messages currently visible in the viewport; a message's in-flight request is cancelled as soon as it scrolls out of view |
++| Request interval (ms) | `requestIntervalMs` | `600` | Minimum spacing between translation requests |
++| Max concurrent | `maxConcurrent` | `2` | Maximum number of translation requests in flight |
++| Batch limit | `batchLimit` | `20` | Maximum number of visible messages handled per batch |
++
++Provider-specific fields appear only for the selected provider:
++
++| Field | Provider | Description |
++|---|---|---|
++| API Key | Baidu / AI / Custom | Encrypted with `Cryptor` before it is written to `translationSecrets` (Google and Bing use keyless public endpoints) |
++| Baidu AppID + secret | Baidu | Baidu translate credentials |
++| Base URL + model + API Key | AI / Custom | `AI` defaults to base URL `https://api.deepseek.com/v1` and model `deepseek-chat`; `CUSTOM` defaults are empty and must be filled by the user (OpenAI-compatible endpoint) |
++
+ ## Source Files
+ 
+ | File | Path |
+ |---|---|
+ | `SettingsView.kt` | `views/usersettings/SettingsView.kt` |
++| `TranslationSettingsView.kt` | `views/usersettings/TranslationSettingsView.kt` (chat-translation settings page) |
+ | `Appearance.kt` | `views/usersettings/Appearance.kt` |
+ | `PrivacySettings.kt` | `views/usersettings/PrivacySettings.kt` |
+ | `NetworkAndServers.kt` | `views/usersettings/networkAndServers/NetworkAndServers.kt` |
+diff --git a/apps/multiplatform/spec/README.md b/apps/multiplatform/spec/README.md
+index b29a44075..b0895d22e 100644
+--- a/apps/multiplatform/spec/README.md
++++ b/apps/multiplatform/spec/README.md
+@@ -91,6 +91,7 @@ Common Module (commonMain)
+ | Chat View | [spec/client/chat-view.md](client/chat-view.md) | ChatView, ChatItemView, message rendering, item interactions, terminal layout (TerminalItemView) |
+ | Chat List | [spec/client/chat-list.md](client/chat-list.md) | ChatListView, ChatPreviewView, filtering, search, tags |
+ | Compose | [spec/client/compose.md](client/compose.md) | ComposeView, SendMsgView, ComposeState, attachments, mentions |
++| Translation | [spec/client/translation.md](client/translation.md) | In-app chat translation: providers, TranslationService, message-menu/compose/auto translation, rate limiting |
+ | Navigation | [spec/client/navigation.md](client/navigation.md) | App screen routing, onboarding, settings, new chat flows |
+ | Calls | [spec/services/calls.md](services/calls.md) | WebRTC call lifecycle, signaling, platform-specific call views |
+ | Files | [spec/services/files.md](services/files.md) | File transfer (SMP inline / XFTP), CryptoFile encryption, platform file paths |
+diff --git a/apps/multiplatform/spec/client/chat-view.md b/apps/multiplatform/spec/client/chat-view.md
+index da0c050ef..af093196c 100644
+--- a/apps/multiplatform/spec/client/chat-view.md
++++ b/apps/multiplatform/spec/client/chat-view.md
+@@ -123,6 +123,7 @@ The message list is a `LazyColumnWithScrollBar` with `reverseLayout = true`, mea
+ - **Scroll To Item:** `scrollToItem` lambda supports animated scrolling to a specific item ID, used by search result taps and quoted message navigation.
+ - **Unread Marking:** `MarkItemsReadAfterDelay` composable marks newly visible received items as read after a brief delay.
+ - **Date Separators:** `DateSeparator` composable renders between messages when the date changes (via `ItemSeparation.date`).
++- **Automatic translation:** when `translationAutoTranslate` is on, the items currently visible in the viewport (from `listState.layoutInfo.visibleItemsInfo`) are translated in rate-limited batches (`TranslationService`, `batchLimit`/`maxConcurrent`/`requestIntervalMs`); each translated message shows the result as a bilingual line (原文 + 译文) under the original bubble, and a message that scrolls out of view has its in-flight request cancelled. The original `ChatItem` content is never modified (PC46, RULE-31).
+ - **Rainbow message text:** when `rainbowMessageText` is on (and rainbow mode is enabled), `MarkdownText` takes its default text color from `rememberRainbowMessageTextColor()` instead of `MaterialTheme.colors.onSurface`, so every markdown surface (text bubbles, quotes, message details) cycles its hue together. The option is exclusive with rainbow chat bubbles (RULE-29).
+ - **Timestamps:** every time of day goes through `getTimestampText` → `timeOfDayPattern(preferredTimeFormatUses24Hour())`, i.e. `HH:mm` or `h:mm a` depending on the `TimeFormat` preference (`SYSTEM` follows `systemUses24HourFormat()`). The date part stays localized (see `product/rules.md` RULE-27).
+ - **Swipe to Reply:** `SwipeToDismiss` modifier on each item (EndToStart direction, 30dp threshold) sets `ComposeContextItem.QuotedItem`.
+@@ -282,6 +283,7 @@ Context menu actions are built dynamically in `ChatItemView` based on message ty
+ | **Select** | Any selectable item | Enters multi-select mode (`selectedChatItems`) |
+ | **React** | Message content, reactions enabled | Opens emoji picker; calls `apiChatItemReaction` |
+ | **Report** | Received group message, reports enabled | Sets `ComposeContextItem.ReportedItem` with reason |
++| **Translate** | Message content (text/link), translation configured | Calls `TranslationService.translateChatItem(itemId, text)`, auto-detects the source language and appends the result as a bilingual line under the original bubble; the `ChatItem` is not modified (PC46, RULE-31) |
+ | **Info** | Any message | Opens `ChatItemInfoView` in end modal |
+ | **Copy** | Text content present | Copies text to clipboard |
+ | **Save** | Image/video/file with completed download | Saves media to device |
+@@ -398,14 +400,14 @@ Wired sites: `ChatInfoView.kt` `ChatInfoHeader`, `group/GroupChatInfoView.kt` `G
+ | `ContextItemView.kt` | Reply/edit/forward context indicator |
+ | `ScanCodeView.kt` | QR code scanner |
+ | `SelectableChatItemToolbars.kt` | Multi-select toolbar (delete, forward, moderate, copy) |
+-| `SendMsgView.kt` | Text input field, send button, voice record button |
++| `SendMsgView.kt` | Text input field, send button, voice record button, preview button (PC45) and translate button (PC46) |
+ | `VerifyCodeView.kt` | Contact/member encryption verification |
+ 
+ ### `views/chat/item/`
+ 
+ | File | Description |
+ |---|---|
+-| `ChatItemView.kt` | Message type routing, context menu, reactions |
++| `ChatItemView.kt` | Message type routing, context menu (incl. the Translate action), reactions (PC46) |
+ | `CIBrokenComposableView.kt` | Fallback for rendering errors |
+ | `CICallItemView.kt` | Call event display (incoming/outgoing/missed) |
+ | `CIChatFeatureView.kt` | Chat feature change event |
+@@ -422,7 +424,7 @@ Wired sites: `ChatInfoView.kt` `ChatInfoHeader`, `group/GroupChatInfoView.kt` `G
+ | `CIVoiceView.kt` | Voice message (waveform + player) |
+ | `DeletedItemView.kt` | Deleted message placeholder; `ItemTextCard`, the card of deleted and error items |
+ | `EmojiItemView.kt` | Large emoji-only message |
+-| `FramedItemView.kt` | Message bubble frame (quoted item, text, media) |
++| `FramedItemView.kt` | Message bubble frame (quoted item, text, media); renders the bilingual translation line for a translated message (PC46) |
+ | `ImageFullScreenView.kt` | Fullscreen image gallery |
+ | `MarkdownFileView.kt` | Markdown file viewer, formatted or as text |
+ | `IntegrityErrorItemView.kt` | Message integrity error |
+diff --git a/apps/multiplatform/spec/client/compose.md b/apps/multiplatform/spec/client/compose.md
+index 61fed60c3..9a90cc5e8 100644
+--- a/apps/multiplatform/spec/client/compose.md
++++ b/apps/multiplatform/spec/client/compose.md
+@@ -15,7 +15,8 @@ Source: `common/src/commonMain/kotlin/chat/simplex/common/views/chat/ComposeView
+ 7. [Draft Persistence](#7-draft-persistence)
+ 8. [Message Preview](#8-message-preview)
+ 9. [Emoji Picker](#9-emoji-picker)
+-10. [Source Files](#10-source-files)
++10. [Compose Translation](#10-compose-translation)
++11. [Source Files](#11-source-files)
+ 
+ ---
+ 
+@@ -76,7 +77,9 @@ data class ComposeState(
+   val inProgress: Boolean = false,
+   val progressByTimeout: Boolean = false,
+   val useLinkPreviews: Boolean,
+-  val mentions: MentionedMembers = emptyMap()
++  val mentions: MentionedMembers = emptyMap(),
++  val translateOriginal: String? = null,
++  val translateResult: String? = null
+ )
+ ```
+ 
+@@ -93,6 +96,8 @@ data class ComposeState(
+ | `progressByTimeout` | `Boolean` | Show spinner after 1-second send delay |
+ | `useLinkPreviews` | `Boolean` | Link preview feature flag |
+ | `mentions` | `MentionedMembers` | Map of mention display name to `CIMention` |
++| `translateOriginal` | `String?` | Text of the compose field before it was translated; `null` when not translated (PC46) |
++| `translateResult` | `String?` | Translated text shown in the field; `null` when not translated (PC46) |
+ 
+ ### Computed Properties
+ 
+@@ -439,12 +444,32 @@ Data: `desktopMain/resources/emoji/emoji.txt` is generated by `scripts/desktop/g
+ 
+ ---
+ 
+-## 10. Source Files
++## 10. Compose Translation
++
++**Location:** [`SendMsgView.kt`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/SendMsgView.kt),
++[`translation/TranslationService.kt`](../../common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt)
++
++The compose action row shows a 36 dp circular `ic_translate` button to the left of the send button (and to
++the left of the preview eye). It translates the current compose text (PC46, RULE-31).
++
++- **Tap:** translate `ComposeState.message.text` into the configured default target language
++  (`translationConfig.targetLang`, English by default) and put the translation into the field.
++- **Long-press:** open a language menu; the chosen language applies to this translation only and does not
++  change the default target language.
++- **State:** before translating, the original text is saved into `ComposeState.translateOriginal` and the
++  result into `translateResult`, so the toggle can be undone.
++- **Undo:** tapping the button again restores `translateOriginal` — but only while the current text still
++  equals `translateResult` (`canUndoTranslation`). If the user edited the text after translating, undo is
++  unavailable and the tap re-translates the edited text instead.
++- **Rate limit:** manual translation goes through the same rate limiter (`awaitRateSlot` +
++  `translationConfig.rate.requestIntervalMs`) as automatic translation, so rapid taps cannot flood the provider.
++
++## 11. Source Files
+ 
+ | File | Description |
+ |---|---|
+ | `ComposeView.kt` | ComposeState, ComposePreview, ComposeContextItem, ComposeView composable, send logic, link preview, draft persistence |
+-| `SendMsgView.kt` | Text input field, send/voice/live/timed buttons, recording state, preview button (PC45) |
++| `SendMsgView.kt` | Text input field, send/voice/live/timed buttons, recording state, preview button (PC45), translate button (PC46) |
+ | `MessagePreviewView.kt` | Rendered message preview modal, `messagePreviewAvailable`, `MessagePreviewButton` (PC45) |
+ | `ComposeFileView.kt` | File attachment preview (name, cancel) |
+ | `ComposeImageView.kt` | Media attachment preview (thumbnails, cancel) |
+diff --git a/apps/multiplatform/spec/client/translation.md b/apps/multiplatform/spec/client/translation.md
+new file mode 100644
+index 000000000..24ebf5ca7
+--- /dev/null
++++ b/apps/multiplatform/spec/client/translation.md
+@@ -0,0 +1,194 @@
++# Chat Translation Specification
++
++> In-app chat translation, implemented entirely in the Kotlin client (no Haskell core / protocol change).
++>
++> **Related product:** [product/views/chat.md](../../product/views/chat.md) (message menu, compose bar),
++> [product/views/settings.md](../../product/views/settings.md) (translation settings page),
++> [product/rules.md](../../product/rules.md) (RULE-31) · **Concept:** PC46 · **State:** [spec/state.md](../state.md)
++
++## Table of Contents
++
++1. [Overview](#1-overview)
++2. [Providers](#2-providers)
++3. [Configuration and Secrets](#3-configuration-and-secrets)
++4. [TranslationService](#4-translationservice)
++5. [Provider Requests and Responses](#5-provider-requests-and-responses)
++6. [HTTP Abstraction](#6-http-abstraction)
++7. [Language Detection](#7-language-detection)
++8. [Message-Menu Translation](#8-message-menu-translation)
++9. [Compose-Bar Translation](#9-compose-bar-translation)
++10. [Automatic Translation](#10-automatic-translation)
++11. [Rate Limiting](#11-rate-limiting)
++12. [Source Files](#12-source-files)
++
++## 1. Overview
++
++Translation turns a message (or the text being composed) into another language by calling an external
++translation provider. It is a **pure-client** feature: it lives in
++`common/src/commonMain/kotlin/chat/simplex/common/translation/`, never sends anything to the SimpleX core
++and adds no protocol message. The translated text is shown as a two-line bubble below the original; the
++`ChatItem` content is never rewritten (RULE-31 invariants 1 and 4).
++
++Three entry points share one service:
++
++| Entry point | Trigger | Result |
++|---|---|---|
++| Message menu | Long-press / right-click a message bubble → **Translate** | Auto-detect source language, append the translation under the bubble |
++| Compose button | `ic_translate` button left of the send button (tap / long-press) | Translate the compose text; tap = default target language, long-press = pick one for this message |
++| Automatic | `translationAutoTranslate` on | Translate the messages currently visible in the viewport, rate-limited and cancelled on scroll-out |
++
++## 2. Providers
++
++`TranslationProvider` (`TranslationModels.kt`) is a pluggable enum dispatched by `TranslationService`:
++
++| Provider | Cost | Auth | Notes |
++|---|---|---|---|
++| `GOOGLE` | free | none | Default provider |
++| `BING` | free | none (short-lived bearer token) | Free edge endpoint |
++| `BAIDU` | free tier | AppID + secret key | Needs the Baidu AppID + secret key |
++| `AI` | paid | API Key | OpenAI **Responses** protocol; defaults to DeepSeek (`https://api.deepseek.com/v1`, model `deepseek-chat`) |
++| `CUSTOM` | user's | API Key | OpenAI-compatible endpoint with a user-supplied base URL / model / key (defaults empty) |
++
++Adding a provider is a client-only change: describe its request/response in `TranslationApi` and (if it
++needs a non-trivial HTTP shape) its call in `TranslationHttp`. The core is never touched.
++
++## 3. Configuration and Secrets
++
++All configuration lives in `AppPreferences` and NEVER enters the `AppSettings` export (RULE-31 invariants 2
++and 3). See [spec/state.md](../state.md) §5 "Chat Translation (client-only)".
++
++| Key | Type | Contents |
++|---|---|---|
++| `translationConfig` | `SharedPreference<TranslationConfig>` (stored as a JSON string) | `provider`, `targetLang`, `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), plus the non-secret provider fields `baiduAppId`, `aiBaseUrl`/`aiModel`, `customBaseUrl`/`customModel` |
++| `translationSecrets` | `SharedPreference<String?>` | The whole `TranslationSecrets` JSON (`baiduKey`, `aiApiKey`, `customApiKey`), encrypted with `Cryptor.encryptText`; falls back to plaintext only if the platform cryptor is unavailable |
++| `translationSecretsIv` | `SharedPreference<String?>` | Base64 IV used to encrypt `translationSecrets` |
++| `translationAutoTranslate` | `SharedPreference<Boolean>` | Viewport auto-translation switch (default `false`) |
++
++The `SHARED_PREFS_TRANSLATION_*` keys are `"TranslationConfig"`, `"TranslationSecrets"`,
++`"TranslationSecretsIv"` and `"TranslationAutoTranslate"`. Keys are encrypted with `Cryptor.encryptText`
++before they are written; the plaintext exists only while a request is built. Because neither the config
++nor the secrets are in `AppSettings`, a device migration or backup never carries them.
++
++## 4. TranslationService
++
++`TranslationService` (`TranslationService.kt`) is a Compose-observable `object` that owns an observable
++registry `results = mutableStateMapOf<Long, TranslationEntry>()` (keyed by chat item id) and exposes:
++
++- **`translateChatItem(itemId: Long, text: String, targetLang: String? = null, scope: CoroutineScope)`** —
++  the message-menu entry point. It immediately stores a `LOADING` `TranslationEntry` under `itemId`, then
++  launches `translateNow(...)` and replaces the entry with the result (`DONE` or `ERROR`). `targetLang`
++  defaults to `config().targetLang`.
++- **`suspend fun translateTextNow(text: String, targetLang: String? = null): TranslationEntry`** — the
++  compose-key entry point; returns the `TranslationEntry` directly instead of storing it.
++- **`autoTranslateVisible(items: List<Pair<Long, String>>, scope: CoroutineScope, targetLang: String? = null)`** —
++  the automatic mode. When the provider is configured it filters out blanks, already-`DONE`/`LOADING`
++  items and text already in the target language (`isLikelyAlreadyInLanguage`), takes at most `batchLimit`
++  items, and runs them concurrently under a `Semaphore(maxConcurrent)` with `awaitRateSlot(rate)` spacing.
++- **`canUndoTranslation(translateOriginal: String?, translateResult: String?, currentMessageText: String): String?`**
++  (internal) — returns the `translateOriginal` text to restore when undo is valid (`translateResult` is
++  non-blank and the current text still equals it), otherwise `null`.
++- **Configuration access** — `config()`, `secrets()` (decrypts `translationSecrets` with `translationSecretsIv`
++  via `cryptor.decryptData`), `saveConfig(...)`, `saveSecrets(...)` (encrypts via `cryptor.encryptText`,
++  falling back to plaintext if the platform cryptor is unavailable), `isConfigured(...)`, plus
++  `entry(itemId)` / `clear(itemId)` / `clearAll()` for the registry.
++
++The provider dispatch happens in a private `translateNow(text, target, cfg, s)` that branches on
++`cfg.provider` and calls the matching `TranslationApi` builder plus `TranslationHttp`.
++
++## 5. Provider Requests and Responses
++
++`TranslationApi.kt` holds pure functions that build each provider's request body and parse its response.
++Keeping them pure lets them be unit-tested without network access.
++
++- **Google** (`googleTranslateUrl` / `parseGoogleResponse`) — GET `translate_a/single?...&sl=auto&tl=<target>&q=<text>`,
++  concatenate the `[0][*][0]` segments and read the detected language from index `[2]`.
++- **Bing** (`bingAuthUrl` / `bingTranslateUrl` / `bingTranslateBody` / `parseBingResponse`) — GET a
++  short-lived bearer token from `edge.microsoft.com/translate/auth`, then POST the text array to
++  `api-edge.cognitive.microsofttranslator.com/translate`; parse `[0].translations[0].text` (and
++  `detectedLanguage.language`).
++- **Baidu** (`baiduSign` / `baiduTranslateUrl` / `baiduLangCode` / `parseBaiduResponse`) — sign with
++  `md5Hex(appId + q + salt + key)`, map the language to Baidu's code and parse `trans_result[].dst`.
++- **AI / Custom** (`aiResponsesUrl` / `aiSystemPrompt` / `aiResponsesBody` / `parseAiResponsesResponse`) —
++  OpenAI **Responses** protocol: POST `{baseUrl}/responses` (the `/responses` suffix is appended unless
++  already present) with `model` and a system instruction to translate into the target language; parse
++  `output_text` or `output[].content[].text`, with chat-completions fallbacks.
++
++## 6. HTTP Abstraction
++
++`TranslationHttp.kt` declares a small result type `HttpResult(success, body, error)` and two `expect`
++functions:
++
++```kotlin
++expect suspend fun httpGetText(url: String, headers: Map<String, String> = emptyMap()): HttpResult
++expect suspend fun httpPostJson(url: String, headers: Map<String, String>, body: String): HttpResult
++```
++
++Platform actuals live in `common/src/androidMain/.../translation/TranslationHttp.android.kt` and
++`common/src/desktopMain/.../translation/TranslationHttp.desktop.kt`. Keeping HTTP behind an `expect`
++interface keeps `TranslationService`/`TranslationApi` testable and lets each platform use its natural HTTP
++stack.
++
++## 7. Language Detection
++
++`TranslationLang.kt` provides the supported language table and the pure `detectLanguage` function used by
++the message-menu flow when the source language is not known (translate as `auto` where the provider
++supports it). The target language comes from `translationConfig.targetLang` (default English) or, for a
++long-press compose translation, from the language chosen in the menu for that one message.
++
++## 8. Message-Menu Translation
++
++Long-press / right-click a message bubble → the context menu (`ChatItemView`) shows a **Translate** entry
++with the `ic_translate` icon. Selecting it:
++
++1. reads the message text from `ChatItem.content.text`,
++2. calls `TranslationService.translateChatItem(itemId, text)` (the source language is detected and the
++   target comes from `translationConfig.targetLang`),
++3. appends the result as a bilingual line (原文 + 译文) rendered inside `FramedItemView` under the bubble.
++
++The original message is untouched — this is a display-only decoration of the item, not an edit.
++
++## 9. Compose-Bar Translation
++
++The `ic_translate` button (36 dp, circular) sits left of the send button in `SendMsgView`. See
++[compose.md](compose.md) §9 for the button behaviour. In short: tap translates to the default target
++language, long-press opens a language menu for a one-off target; the original text is kept in
++`ComposeState.translateOriginal` and the translation in `translateResult`, and a second tap restores the
++original only while `canUndoTranslation` holds. Editing the text after translating disables undo and the
++tap re-translates.
++
++## 10. Automatic Translation
++
++When `translationAutoTranslate` is on, the chat view collects the items in `listState.layoutInfo.visibleItemsInfo`
++and hands them to the auto-translate batch entry. Only visible messages are translated; a message that
++leaves the viewport has its pending request cancelled. This keeps provider load bounded and matches the
++"visible area only" contract (RULE-31 invariant 5).
++
++## 11. Rate Limiting
++
++`TranslationRateConfig` (inside `translationConfig`) tunes the rate limiter (`awaitRateSlot` spacing +
++`Semaphore(maxConcurrent)`), shared by automatic and manual translation:
++
++| Parameter | Default | Meaning |
++|---|---|---|
++| `requestIntervalMs` | 600 | Minimum spacing between requests |
++| `maxConcurrent` | 2 | Maximum requests in flight |
++| `batchLimit` | 20 | Maximum visible messages handled per batch |
++
++Both automatic and manual translation share the limiter, so neither can flood a provider, get the client
++banned, or drain a paid balance.
++
++## 12. Source Files
++
++| File | Description |
++|---|---|
++| `translation/TranslationService.kt` | Compose-observable registry: `translateChatItem`, `translateTextNow`, `autoTranslateVisible`, `canUndoTranslation`, config/secrets access, rate limiting |
++| `translation/TranslationModels.kt` | `TranslationProvider`, `TranslationConfig`, `TranslationSecrets`, `TranslationRateConfig`, `TranslationEntry`/status |
++| `translation/TranslationLang.kt` | Language table and `detectLanguage` |
++| `translation/TranslationApi.kt` | Per-provider request-body builders and response parsers (pure, incl. Baidu MD5 signing) |
++| `translation/TranslationHttp.kt` | `HttpResult` + `expect suspend httpGetText/httpPostJson` (+ Android/desktop actuals) |
++| `views/chat/SendMsgView.kt` | Compose translate button placement |
++| `views/chat/ComposeView.kt` | `ComposeState.translateOriginal` / `translateResult` |
++| `views/chat/item/ChatItemView.kt` | Message-menu Translate action |
++| `views/chat/item/FramedItemView.kt` | Bilingual translation line under a translated bubble |
++| `views/usersettings/TranslationSettingsView.kt` | Chat-translation settings page |
++| `model/SimpleXAPI.kt` | `AppPreferences.translationConfig` / `translationSecrets` / `translationSecretsIv` / `translationAutoTranslate` |
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index d78abe25e..3e59d527d 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -56,6 +56,7 @@
+ | PC43 | Range Selection |
+ | PC44 | Rainbow Mode |
+ | PC45 | Message Preview |
++| PC46 | Chat Translation |
+ 
+ ---
+ 
+@@ -70,7 +71,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `App.kt` | PC1 through PC32 | High | Root composable — navigation scaffold for all features |
+ | `AppLock.kt` | PC22 | Medium | App lock state and authorization lifecycle |
+ | `model/ChatModel.kt` | PC1 through PC42 | High | Central state object — every feature reads or writes here; also holds the session-local per-connection status map (`connectionSubStatuses`) with its resolvers (`connectionSubStatus`, `ChatModel.connectionStatus`), the set of connections whose stats were already requested (`connectionStatusRequested`) and its selector (`chatsForConnectionStatus`), and the session-local chat-list cache of group member lists (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`), and the favorites-first ordering helpers (`isFavoriteChat`, `favoritesPinnedFirst`), the selected-messages copy formatters (`ciSenderName`, `canCopyChatItem`, `chatItemToText`, `chatItemsToText`, `selectedChatItemsInOrder`), and the time-of-day formatting (`uses24HourFormat`, `timeOfDayPattern`, `timeOfDayPatternWithSeconds`, `getTimestampText`, `localTimestamp`) |
+-| `model/SimpleXAPI.kt` | PC1 through PC44 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` and the chat-list member cache from `CR.GroupMemberUpdated` |
++| `model/SimpleXAPI.kt` | PC1 through PC46 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` and the chat-list member cache from `CR.GroupMemberUpdated`; hosts the translation preferences (`translationConfig`, `translationSecrets`, `translationSecretsIv`, `translationAutoTranslate`) that stay out of `AppSettings` |
+ | `model/CryptoFile.kt` | PC10, PC23 | Medium | Encrypted file read/write helpers |
+ | `platform/Core.kt` | PC1 through PC32 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
+ | `platform/AppCommon.kt` | PC1 through PC32 | Medium | Shared app initialization logic |
+@@ -128,7 +129,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `views/chat/ChatView.kt` | PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC11, PC32, PC37, PC43 | High | Core conversation UI — most messaging features; the chat title shows the dot of the open chat's connection; the multi-select overlay renders the "select to here" pills at both list edges and keeps `selectionAnchor` |
+ | `views/chat/ChatSelectionRange.kt` | PC43 | Low | Pure range helpers for "select to here": row-id expansion, range rows, ids to add and the visible top/bottom rows |
+ | `views/chat/ComposeView.kt` | PC4, PC6, PC9, PC10, PC11 | High | Message composition — send path for all messages |
+-| `views/chat/SendMsgView.kt` | PC4, PC9, PC45 | Medium | Send button and voice record toggle; the preview button sits before the send button |
++| `views/chat/SendMsgView.kt` | PC4, PC9, PC45, PC46 | Medium | Send button and voice record toggle; the preview button sits before the send button and the translation button sits to its left |
+ | `views/chat/MessagePreviewView.kt` | PC45 | Low | Read-only rendered message preview: availability predicate, modal and toolbar button |
+ | `views/chat/ComposeEmojiPicker.kt` | PC4 | Low | Emoji button expect declaration, emoji insertion |
+ | `views/chat/ComposeVoiceView.kt` | PC9 | Medium | Voice message recording UI |
+@@ -153,10 +154,10 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ 
+ | Source File | Product Concepts Affected | Risk Level | Notes |
+ |-------------|--------------------------|------------|-------|
+-| `views/chat/item/ChatItemView.kt` | PC2, PC3, PC5, PC6, PC7, PC8, PC32, PC41 | High | Root chat item renderer with context menus; the single-message Copy action passes `ciTextWithQuote` to `copyItemToClipboard` |
++| `views/chat/item/ChatItemView.kt` | PC2, PC3, PC5, PC6, PC7, PC8, PC32, PC41, PC46 | High | Root chat item renderer with context menus; the single-message Copy action passes `ciTextWithQuote` to `copyItemToClipboard`, and the context menu adds a Translate action |
+ | `views/chat/item/TextItemView.kt` | PC2, PC3, PC4, PC32, PC44 | Medium | Text message bubble rendering; `MarkdownText` resolves its default text color through `rememberRainbowMessageTextColor`, so rainbow message text reaches every markdown surface |
+ | `views/chat/item/MarkdownBlocks.kt` | PC4, PC32 | Medium | Block Markdown rendering; terminal block gaps and headings |
+-| `views/chat/item/FramedItemView.kt` | PC4, PC6, PC10, PC11, PC32 | Medium | Framed (quoted/forwarded) message container |
++| `views/chat/item/FramedItemView.kt` | PC4, PC6, PC10, PC11, PC32, PC46 | Medium | Framed (quoted/forwarded) message container; renders the bilingual translation line under a translated message |
+ | `views/chat/item/TerminalItemView.kt` | PC2, PC3, PC32 | Medium | Terminal layout rows, sender rows, time placement |
+ | `views/chat/item/CIImageView.kt` | PC10 | Medium | Image message rendering |
+ | `views/chat/item/CIVideoView.kt` | PC10 | Medium | Video message rendering |
+@@ -227,7 +228,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ 
+ | Source File | Product Concepts Affected | Risk Level | Notes |
+ |-------------|--------------------------|------------|-------|
+-| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29, PC32, PC40, PC42 | Medium | Settings navigation hub, incl. the desktop message-sending section, the "Chat list" section with the favorites-as-pinned switch and the time-format dropdown |
++| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29, PC32, PC40, PC42, PC46 | Medium | Settings navigation hub, incl. the desktop message-sending section, the "Chat list" section with the favorites-as-pinned switch, the time-format dropdown and the chat-translation entry |
+ | `views/usersettings/Appearance.kt` | PC24, PC32, PC44 | Low | Theme and appearance customization; `CustomizeThemeColorsSection` holds the rainbow toggle and animates the color swatches |
+ | `views/usersettings/PrivacySettings.kt` | PC20, PC22 | Medium | Privacy and lock settings |
+ | `views/usersettings/UserProfileView.kt` | PC19 | Medium | Profile display name and image editing |
+@@ -339,6 +340,19 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `views/WelcomeView.kt` | PC1 | Low | Empty-state welcome |
+ | `views/Preview.kt` | — | Low | Compose preview utilities |
+ 
++### 1.15 Translation
++
++Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
++
++| Source File | Product Concepts Affected | Risk Level | Notes |
++|-------------|--------------------------|------------|-------|
++| `translation/TranslationService.kt` | PC46 | High | Compose-observable translation registry: `translateChatItem`/`translateTextNow`/`autoTranslateVisible`, provider dispatch in `translateNow`, rate limiting (`requestIntervalMs`/`maxConcurrent`/`batchLimit`), and `canUndoTranslation` |
++| `translation/TranslationModels.kt` | PC46 | Medium | `TranslationProvider`, `TranslationConfig`, `TranslationSecrets`, `TranslationRateConfig`, `TranslationEntry`/status |
++| `translation/TranslationLang.kt` | PC46 | Low | Language table and `detectLanguage` pure function |
++| `translation/TranslationApi.kt` | PC46 | Medium | Per-provider request-body builders and response parsers (pure, incl. Baidu MD5 signing) |
++| `translation/TranslationHttp.kt` | PC46 | Low | `HttpResult` + `expect suspend httpGetText/httpPostJson` for the translation provider calls (+ Android/desktop actuals) |
++| `views/usersettings/TranslationSettingsView.kt` | PC46 | Medium | Chat-translation settings page: provider, keys, target language, auto-translate and rate limits |
++
+ ---
+ 
+ ## 2. Android Sources
+@@ -374,6 +388,7 @@ Path prefix: `common/src/androidMain/kotlin/chat/simplex/common/`
+ | `platform/Images.android.kt` | PC10, PC19, PC35 | Low | Android bitmap processing, incl. the FileProvider-backed image clipboard |
+ | `platform/PlatformTextField.android.kt` | PC4 | Low | Android native text field actual implementation |
+ | `platform/Share.android.kt` | PC10 | Low | Android share intent actual implementation |
++| `translation/TranslationHttp.android.kt` | PC46 | Low | Android actual of the translation `httpGetText`/`httpPostJson` expect |
+ | `platform/Back.android.kt` | PC1 | Low | Android back press handler |
+ | `platform/UI.android.kt` | PC24 | Low | Android density and locale |
+ | `platform/ScrollableColumn.android.kt` | PC1 | Low | Android lazy list actual implementation |
+@@ -458,6 +473,7 @@ Path prefix: `common/src/desktopMain/kotlin/chat/simplex/common/`
+ | `platform/AnimatedImage.desktop.kt` | PC10 | Low | Desktop animated image frame decoding (bounded) |
+ | `platform/PlatformTextField.desktop.kt` | PC4, PC32 | Low | Desktop text field actual implementation |
+ | `platform/Share.desktop.kt` | PC10 | Low | Desktop clipboard/share |
++| `translation/TranslationHttp.desktop.kt` | PC46 | Low | Desktop actual of the translation `httpGetText`/`httpPostJson` expect |
+ | `platform/Back.desktop.kt` | PC1 | Low | Desktop back navigation |
+ | `platform/UI.desktop.kt` | PC24 | Low | Desktop density and locale |
+ | `platform/ScrollableColumn.desktop.kt` | PC1 | Low | Desktop lazy list |
+diff --git a/apps/multiplatform/spec/state.md b/apps/multiplatform/spec/state.md
+index d00e4cb4e..90bf7a60d 100644
+--- a/apps/multiplatform/spec/state.md
++++ b/apps/multiplatform/spec/state.md
+@@ -504,6 +504,24 @@ Desktop-only Enter key bindings for the compose field. Values are `ChatEnterKeyC
+ | `messageSendKey` | `ChatEnterKeyCombination` | `ENTER` | Enter combination that sends the message |
+ | `messageNewlineKey` | `ChatEnterKeyCombination` | `SHIFT_ENTER` | Enter combination that inserts a newline |
+ 
++#### Chat Translation (client-only)
++
++In-app chat translation configuration (see [client/translation.md](client/translation.md) and
++`product/rules.md` RULE-31). None of these keys is part of the `AppSettings` import/export structure; the
++secrets are encrypted with `Cryptor` before they are stored.
++
++| Key | Pref name | Type | Default | Purpose |
++|---|---|---|---|---|
++| `translationConfig` | `"TranslationConfig"` | `SharedPreference<TranslationConfig>` (stored as JSON) | `TranslationConfig()` | `provider` (`GOOGLE` default), `targetLang` (`"en"`), `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), `baiduAppId`, `aiBaseUrl` (`https://api.deepseek.com/v1`) / `aiModel` (`deepseek-chat`), `customBaseUrl` / `customModel` |
++| `translationSecrets` | `"TranslationSecrets"` | `SharedPreference<String?>` | `null` | `TranslationSecrets` JSON (`baiduKey`, `aiApiKey`, `customApiKey`) encrypted with `Cryptor.encryptText` (plaintext fallback if the cryptor is unavailable) |
++| `translationSecretsIv` | `"TranslationSecretsIv"` | `SharedPreference<String?>` | `null` | Base64 IV used to encrypt `translationSecrets` |
++| `translationAutoTranslate` | `"TranslationAutoTranslate"` | `SharedPreference<Boolean>` | `false` | Automatically translate the messages visible in the viewport, rate-limited |
++
++The compose-bar translation state lives on `ComposeState` (see [client/compose.md](client/compose.md) §2):
++`translateOriginal` holds the text before translation and `translateResult` the translated text. Undo is
++allowed only while `translateResult` matches the current message text (`canUndoTranslation`); editing the
++text after translating drops that match, so the button re-translates instead of restoring.
++
+ #### Server Metadata (client-only)
+ 
+ Group and note for the user's manually added servers. Deliberately *not* part of `UserServer`, which
+diff --git a/plans/2026-11-04-in-app-chat-translation.md b/plans/2026-11-04-in-app-chat-translation.md
+new file mode 100644
+index 000000000..39691aa1d
+--- /dev/null
++++ b/plans/2026-11-04-in-app-chat-translation.md
+@@ -0,0 +1,105 @@
++# In-app chat translation (feature of the 2026-11-04 request)
++
++## Problem
++
++SimpleX users routinely chat across languages but have no way to read or write another language without
++leaving the app: copying a message into an external translator loses the conversation context and leaks
++message text to a third party through the clipboard. Conversely, when composing in a second language the
++user wants a quick check before sending. The request was an in-app translation feature: translate any
++message from its menu (non-destructively), translate the composed text from a button next to the send
++button, choose a translation service in Settings, and optionally auto-translate the messages on screen —
++all without changing the SimpleX core or protocol.
++
++## Solution
++
++A new pure-client `translation` package plus thin UI hooks:
++
++- **`translation/` package** (new): `TranslationModels.kt` (`TranslationProvider` `GOOGLE`/`BING`/`BAIDU`/
++  `AI`/`CUSTOM`, `TranslationConfig`, `TranslationSecrets`, `TranslationRateConfig`, `TranslationEntry`
++  and status), `TranslationLang.kt` (language table + `detectLanguage`), `TranslationApi.kt` (per-provider
++  request-body builders and response parsers, including Baidu MD5 signing), `TranslationHttp.kt`
++  (`HttpResult` + `expect suspend httpGetText/httpPostJson` + desktop/android actuals), `TranslationService.kt`
++  (Compose-observable registry, `translateChatItem`/`translateTextNow`/`autoTranslateVisible`, rate limiting,
++  `canUndoTranslation`).
++- **`SimpleXAPI.kt`**: four new `AppPreferences` values — `translationConfig` (JSON string),
++  `translationSecrets`, `translationSecretsIv` (encrypted blob + IV) and `translationAutoTranslate`
++  (Boolean) — plus their `SHARED_PREFS_*` keys. None is added to `AppSettings`.
++- **`ComposeView.kt`**: two new `ComposeState` fields, `translateOriginal` and `translateResult`.
++- **Chat UI**: a **Translate** context-menu item in `ChatItemView`, the bilingual line rendered in
++  `FramedItemView`, the `ic_translate` button left of the send button in `SendMsgView`, and the viewport
++  auto-translation in `ChatView`.
++- **Settings UI**: `TranslationSettingsView` (new) reached from `SettingsView`.
++- **Strings**: provider/language/rate-limit labels and menu strings in `MR/base/strings.xml` and
++  `MR/zh-rCN/strings.xml`.
++
++## Design decisions
++
++- **Pure client, no core.** Translation is an outbound HTTP call from the app; it never enters the SimpleX
++  message flow. So the Haskell core and the protocol are untouched and the feature stays easy to rebase
++  onto a newer official version (matches the repo's portability rule). A provider is added purely by
++  extending `TranslationApi`.
++- **Pluggable provider enum.** `TranslationProvider` is a sealed-ish enum dispatched through one
++  `translateNow`, so the UI never branches on provider. Google/Bing are free and need no key; Baidu needs
++  credentials; `AI` is OpenAI **Response** protocol defaulting to DeepSeek; `CUSTOM` is an
++  OpenAI-compatible endpoint with empty defaults the user fills in.
++- **Secrets encrypted, config local.** Keys are encrypted with `Cryptor` and stored as
++  `translationSecrets` + `translationSecretsIv`; the rest of the config is a JSON string in
++  `translationConfig`. Neither goes into `AppSettings`, so a backup/migration never carries credentials or
++  service choice (RULE-31 invariants 2–3).
++- **Non-destructive message translation.** The message-menu path appends a bilingual line under the bubble
++  and never rewrites `ChatItem` content. This avoids fighting the core's edit pipeline and keeps the
++  original text intact for the user and for future edits.
++- **Undo via ComposeState, not a stack.** `translateOriginal` + `translateResult` make undo a simple
++  comparison: undo is allowed only while the field still equals `translateResult`. Editing the text breaks
++  that equality, so the button gracefully degrades to "translate again" instead of restoring stale text.
++- **Viewport-scoped, rate-limited auto-translation.** Only visible messages are translated, and a message
++  that scrolls out has its request cancelled. A single limiter (`awaitRateSlot` spacing + a
++  `Semaphore(maxConcurrent)`, tuned by `requestIntervalMs` 600,
++  `maxConcurrent` 2, `batchLimit` 20) covers both automatic and manual translation, so the client cannot
++  flood a provider, get banned, or burn a paid balance.
++- **HTTP behind `expect`/`actual`.** `TranslationHttp` keeps `TranslationService`/`TranslationApi` testable
++  with injected/faked HTTP and lets each platform use its own client.
++
++## Rejected alternatives
++
++- Translating by rewriting the message with `APIUpdateChatItem`: it would mutate the user's message and
++  collide with the edit window / feature negotiation, and the original text would be lost.
++- Folding translation into the Haskell core: it is a client-only outbound call, and a core change cannot be
++  built or tested here (no cabal/stack/ghcup) and would need a protocol change — against the portability
++  rule.
++- A global "translate everything" switch with no viewport scope: it would hammer providers and cost money
++  on long histories; the visible-area contract keeps load bounded.
++- Storing the undo history as a stack of strings: unnecessary; the two-field comparison already gives the
++  exact semantics the request asked for ("editing after translating disables undo").
++
++## Steps
++
++1. `translation/` package: models, language table, request/response builders, `expect` HTTP (+ actuals),
++   `TranslationService` + rate limiting + `canUndoTranslation`.
++2. `AppPreferences` translation keys in `SimpleXAPI.kt`; `ComposeState.translateOriginal`/`translateResult`.
++3. Chat UI: context-menu Translate, bilingual bubble, compose translate button, viewport auto-translate.
++4. Settings UI: `TranslationSettingsView` + `SettingsView` entry.
++5. Strings (base + zh-rCN).
++6. Tests: `common/src/commonTest/kotlin/chat/simplex/app/TranslationApiTest.kt` (MD5 vectors, URL encoding,
++   `detectLanguage`, `isLikelyAlreadyInLanguage`, rate-config normalization, each provider's URL/body/parser
++   incl. Baidu signing and AI Responses fallbacks, `canUndoTranslation`, `TranslationEntry` flags) —
++   `./gradlew :common:desktopTest`; `./gradlew :common:compileDebugKotlinAndroid`.
++7. Docs: `product/concepts.md` (PC46), `product/rules.md` (RULE-31), `product/README.md`,
++   `product/views/{chat,settings}.md`, `spec/impact.md` (PC46 + translation package rows),
++   `spec/state.md`, `spec/client/{chat-view,compose,translation}.md`, `TODO.md`.
++8. Write the diff patch and commit (GPG-signed).
++
++## Risks
++
++- **Third-party terms / rate limits.** Free endpoints (Google/Bing) can change or throttle without notice;
++  the rate limiter mitigates bans but the providers can still break. Mitigation: providers are pluggable,
++  and users can pick Baidu or an OpenAI-compatible endpoint.
++- **Key leakage.** Keys live on the device encrypted; the main risk is the plaintext key being in memory
++  during a request. Mitigation: encrypt at rest with `Cryptor`, never export, never log.
++- **Auto-translation cost.** A paid provider plus auto-translate can spend money; mitigated by the
++  viewport scope and the modest defaults, and by the feature being off by default (`translationAutoTranslate`
++  false).
++- **UI drift from the message bubble.** The bilingual line is rendered inside the existing framed bubble;
++  restart/scroll must not duplicate it. Mitigation: results are keyed per chat item in `TranslationService`.
++- **No core test coverage.** Because this is client-only, correctness rests on `:common:desktopTest`; the
++  network layer is isolated behind `TranslationHttp` so the pure parts are fully covered.

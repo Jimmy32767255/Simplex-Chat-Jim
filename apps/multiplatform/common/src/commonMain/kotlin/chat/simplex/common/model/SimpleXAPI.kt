@@ -40,6 +40,9 @@ import chat.simplex.common.views.onboarding.OnboardingStage
 import chat.simplex.common.views.usersettings.*
 import chat.simplex.common.views.usersettings.networkAndServers.defaultConditionsLink
 import chat.simplex.common.views.usersettings.networkAndServers.serverHostname
+import chat.simplex.common.translation.TranslationConfig
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import com.charleskorn.kaml.Yaml
 import com.charleskorn.kaml.YamlConfiguration
 import chat.simplex.res.*
@@ -372,6 +375,18 @@ class AppPreferences {
   // which keeps the home screen smooth on slower phones.
   val rainbowLowPerformance = mkBoolPreference(SHARED_PREFS_RAINBOW_LOW_PERFORMANCE, false)
 
+  // In-app chat translation. Purely client-side: the whole configuration (including the rate limits)
+  // is stored as JSON in the local preferences and is never part of the exported AppSettings.
+  // API keys are additionally encrypted (see TranslationService) and stored in `translationSecrets`.
+  private val translationConfigJson = mkStrPreference(SHARED_PREFS_TRANSLATION_CONFIG, null)
+  val translationConfig: SharedPreference<TranslationConfig> = SharedPreference(
+    get = fun() = translationConfigJson.get()?.let { runCatching { jsonShort.decodeFromString<TranslationConfig>(it) }.getOrNull() } ?: TranslationConfig(),
+    set = fun(value) = translationConfigJson.set(jsonShort.encodeToString(value)),
+  )
+  val translationSecrets = mkStrPreference(SHARED_PREFS_TRANSLATION_SECRETS, null)
+  val translationSecretsIv = mkStrPreference(SHARED_PREFS_TRANSLATION_SECRETS_IV, null)
+  val translationAutoTranslate = mkBoolPreference(SHARED_PREFS_TRANSLATION_AUTO_TRANSLATE, false)
+
   val hintPreferences: List<HintPref> = listOf(
     hintPref(laNoticeShown, false),
     hintPref(oneHandUICardShown, false),
@@ -601,6 +616,10 @@ class AppPreferences {
     private const val SHARED_PREFS_RAINBOW_CHAT_COLORS = "RainbowChatColors"
     private const val SHARED_PREFS_RAINBOW_MESSAGE_TEXT = "RainbowMessageText"
     private const val SHARED_PREFS_RAINBOW_LOW_PERFORMANCE = "RainbowLowPerformance"
+    private const val SHARED_PREFS_TRANSLATION_CONFIG = "TranslationConfig"
+    private const val SHARED_PREFS_TRANSLATION_SECRETS = "TranslationSecrets"
+    private const val SHARED_PREFS_TRANSLATION_SECRETS_IV = "TranslationSecretsIv"
+    private const val SHARED_PREFS_TRANSLATION_AUTO_TRANSLATE = "TranslationAutoTranslate"
     private const val SHARED_PREFS_SELF_DESTRUCT = "LocalAuthenticationSelfDestruct"
     private const val SHARED_PREFS_SELF_DESTRUCT_DISPLAY_NAME = "LocalAuthenticationSelfDestructDisplayName"
     private const val SHARED_PREFS_PQ_EXPERIMENTAL_ENABLED = "PQExperimentalEnabled" // no longer used

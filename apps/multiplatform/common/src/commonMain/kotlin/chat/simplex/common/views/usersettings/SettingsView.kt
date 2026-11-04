@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import chat.simplex.common.model.*
 import chat.simplex.common.model.ChatController.appPrefs
+import chat.simplex.common.translation.TranslationStrings
 import chat.simplex.common.platform.*
 import chat.simplex.common.ui.theme.*
 import chat.simplex.common.views.badges.BadgesView
@@ -145,6 +146,12 @@ fun SettingsLayout(
         appPrefs.timeFormat.set(it)
       }
       SectionTextFooter(stringResource(MR.strings.time_format_footer))
+    }
+    SectionDividerSpaced()
+
+    SectionView {
+      SettingsActionItem(painterResource(MR.images.ic_translate), TranslationStrings.translateVerb, showCustomModal { _, close -> TranslationSettingsView(close) })
+      SectionTextFooter(TranslationStrings.settingsSummary)
     }
     SectionDividerSpaced()
 

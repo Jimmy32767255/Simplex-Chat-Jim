@@ -30,6 +30,7 @@ import androidx.compose.ui.text.*
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.*
 import chat.simplex.common.model.*
+import chat.simplex.common.translation.*
 import chat.simplex.common.model.CIDirection.GroupRcv
 import chat.simplex.common.model.ChatController.appPrefs
 import chat.simplex.common.model.ChatModel.activeCall
@@ -2519,6 +2520,32 @@ fun BoxScope.ChatItemsList(
     topEdge = false,
     modifier = Modifier.padding(bottom = composeViewHeight.value + DEFAULT_PADDING).align(Alignment.BottomCenter)
   )
+
+  // Auto-translate the messages currently in view when the setting is on. Rate limiting and
+  // concurrency are handled inside TranslationService.autoTranslateVisible. The effect re-runs only
+  // when the setting flips or the set of visible item ids changes (not on unrelated layout updates),
+  // and debounces briefly so a fast scroll does not fire a burst of requests.
+  val autoTranslatePref = remember { appPrefs.translationAutoTranslate.state }
+  LaunchedEffect(Unit) {
+    snapshotFlow {
+      val visibleIds = listState.value.layoutInfo.visibleItemsInfo.mapNotNull { (it.key as? ChatViewItemKey)?.first }
+      autoTranslatePref.value to visibleIds
+    }
+      .distinctUntilChanged()
+      .collectLatest { (enabled, visibleIds) ->
+        if (!enabled) return@collectLatest
+        delay(400) // debounce: wait until the visible set settles
+        val merged = mergedItems.value
+        val items = visibleIds.mapNotNull { id ->
+          val index = merged.indexInParentItems[id] ?: return@mapNotNull null
+          val ci = merged.items.getOrNull(index)?.newest()?.item ?: return@mapNotNull null
+          if (ci.id >= 0 && ci.content.msgContent != null && ci.content.text.isNotEmpty()) ci.id to ci.content.text else null
+        }
+        if (items.isNotEmpty()) {
+          TranslationService.autoTranslateVisible(items, scope)
+        }
+      }
+  }
 
   LaunchedEffect(Unit) {
     snapshotFlow { listState.value.isScrollInProgress }

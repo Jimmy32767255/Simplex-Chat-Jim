@@ -74,6 +74,7 @@ Core message composition, delivery, and interaction features.
 | Time format | 12/24-hour convention for every time of day, following the system setting unless overridden in Settings | `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt` |
 | Rainbow mode | Switch in *Customize theme > Interface colors* that cycles the hue of every interface color, swatches included; display-only, the saved colors are untouched | `common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt` |
 | Message preview | Eye button next to the send button: renders the composed text with the chat markdown renderer before it is sent; read-only | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/MessagePreviewView.kt` |
+| Chat translation | Translate any message from its menu into a non-destructive bilingual bubble, or translate the composed text with the button next to the send button (tap = default language, long-press = pick one for this message); providers (Google, Bing, Baidu, AI, custom) are configured in Settings with encrypted local keys, and automatic viewport translation is rate-limited | `common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt` |
 
 ### 2. Contacts
 

@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import chat.simplex.common.model.*
+import chat.simplex.common.translation.*
 import chat.simplex.common.model.ChatModel.controller
 import chat.simplex.common.model.ChatModel.currentUser
 import chat.simplex.common.platform.*
@@ -452,6 +453,20 @@ fun ChatItemView(
                         copyItemToClipboard(cItem, clipboard, ciTextWithQuote(cItem, cInfo, chatModel.currentUser.value?.profile?.displayName))
                         showMenu.value = false
                       })
+                    }
+                    if (cItem.content.text.isNotEmpty()) {
+                      val translateScope = rememberCoroutineScope()
+                      if (TranslationService.entry(cItem.id)?.isDone == true) {
+                        ItemAction(TranslationStrings.hideTranslation, painterResource(MR.images.ic_translate), onClick = {
+                          TranslationService.clear(cItem.id)
+                          showMenu.value = false
+                        })
+                      } else {
+                        ItemAction(TranslationStrings.translateVerb, painterResource(MR.images.ic_translate), onClick = {
+                          TranslationService.translateChatItem(cItem.id, cItem.content.text, scope = translateScope)
+                          showMenu.value = false
+                        })
+                      }
                     }
                     if (cItem.file != null && (getLoadedFilePath(cItem.file) != null || (chatModel.connectedToRemote() && cachedRemoteReqs[cItem.file.fileSource] != false && cItem.file.loaded))) {
                       SaveContentItemAction(cItem, saveFileLauncher, showMenu)

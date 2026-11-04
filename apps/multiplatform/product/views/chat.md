@@ -84,6 +84,7 @@ Long-press context menu on any message:
 | Moderate | Group moderators can delete messages for all members (`moderateMessagesAlertDialog`) |
 | React | Emoji reaction picker |
 | Report | Report message to group moderators (`ComposeContextItem.ReportedItem` with `ReportReason`) |
+| Translate | Translate the message with the configured provider and show the result as a bilingual bubble (原文 + 译文) below the message, without touching the original (RULE-31) |
 | Select multiple | Enters multi-select mode (`selectedChatItems`) with bulk delete/forward/archive/copy toolbar |
 | Archive | Archive selected reports (moderators) |
 
@@ -97,6 +98,7 @@ Bottom input area for composing messages:
 | Attachment button | Opens `ModalBottomSheetLayout` with options: camera, gallery (image/video), file |
 | Emoji button | Desktop only (Android keyboards have their own emoji panel). Opens a popup with search and categories; a picked emoji is inserted at the cursor and the picker stays open. With text selected the emoji goes after it, as the text field drops its selection when the picker takes focus. Picked emoji are not remembered, for privacy. Esc, a click outside or the button closes it |
 | Preview button | Eye icon before the send button, shown while there is text to render and the composition is not a voice message. Opens a read-only modal with the message rendered by the same markdown renderer as the chat, so formatting can be checked before sending (RULE-30) |
+| Translate button | 36 dp circular `ic_translate` icon left of the send button. Tap translates the composed text into the default target language; long-press opens a language menu and translates into the chosen language for this message only (the default is unchanged). Tapping again after a translation restores the original; if the text was edited after translating, undo is unavailable and the tap re-translates instead (`ComposeState.translateOriginal`/`translateResult`, `canUndoTranslation`, RULE-31) |
 | Send button | Sends message; changes to checkmark for reports; animated size/alpha |
 | Voice record button | Shown when text is empty and voice allowed; hold to record, release to preview |
 | Live message button | Start/update live typing message (if `liveMessageAlertShown`) |
