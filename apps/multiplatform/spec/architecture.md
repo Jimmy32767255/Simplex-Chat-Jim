@@ -110,8 +110,17 @@ Build file: [`desktop/build.gradle.kts`](../desktop/build.gradle.kts)
 
 Contains:
 - `main()` entry point
-- `initHaskell()` -- loads native library and calls `initHS()`
+- `initHaskell()` -- loads `libapp-lib.<ext>` from `compose.application.resources.dir` (the packaged
+  `lib/app/resources` directory) and calls `initHS()`; the core libraries are otherwise resolved through
+  their `$ORIGIN` RUNPATH
 - Window management (VLC library loading on Windows)
+- `stageCoreLibs` task ([`build.gradle.kts`](../desktop/build.gradle.kts#L262-L309)) -- stages
+  `common/src/commonMain/cpp/desktop/libs/<platform>` into the Compose resources root
+  (`apps/multiplatform/build/links/<compose-platform>`, e.g. `linux-x64`), from where `prepareAppResources`
+  copies `libapp-lib`, `libsimplex` and `libHS*` into the distribution. The task is a dependency of
+  `prepareAppResources`, `run` and `runDistributable`, links instead of copying (~600 MB), and fails the
+  build with an explicit message when the core libraries are missing, because an empty resources directory
+  produces a package that crashes on startup with `UnsatisfiedLinkError`
 
 ---
 

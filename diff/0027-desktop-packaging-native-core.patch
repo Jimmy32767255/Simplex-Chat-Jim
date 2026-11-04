@@ -1,0 +1,226 @@
+diff --git a/TODO.md b/TODO.md
+index 0ef29d76e..f5cff59be 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -218,6 +218,14 @@ none
+   - 未改核心与 `AppSettings`，未新增 MR 字符串，未新增偏好字段。
+   - 文档：`spec/client/translation.md`（提供商表、必然/百度请求说明、语言检测）、`spec/state.md`（§5 翻译配置字段）、`spec/architecture.md`（`systemLanguageCode` expect 与其行号）、`product/views/settings.md`、`product/rules.md`（RULE-31 提供商列表）、`product/gaps.md`（GAP-08）、`plans/2026-11-04-translation-provider-fixes.md`。
+ 
++- [x] 桌面端分发包启动即崩：`UnsatisfiedLinkError: Can't load library: .../lib/app/resources/libapp-lib.so`
++  - 原因：`desktop/build.gradle.kts` 把 `appResourcesRootDir` 指到 `apps/multiplatform/build/links`，但仓库里没有任何任务为 Linux/macOS 填充这个目录（`cmakeBuildAndCopy` 只把 Windows DLL 复制进 `build/links/windows-x64`）。`libapp-lib.so` 及其依赖的 `libsimplex.so`、`libHS*.so` 只存在于 `common/src/commonMain/cpp/desktop/libs/<platform>`，于是 jpackage 打出的 `release/main/app/simplex/lib/app/resources` 是空目录，`Main.initHaskell()` 用 `compose.application.resources.dir` 拼路径 `System.load(...)` 时必然失败。Compose 只认 `appResourcesRootDir` 下的平台子目录（`linux-x64`、`linux-arm64`、`macos-x64`、`macos-arm64`、`windows-x64`、`windows-arm64`）。
++  - 修复方法：新增 `stageCoreLibs` 任务（`desktop/build.gradle.kts`），按宿主 OS/架构在 `build/links/<compose 平台名>` 建立到 `cpp/desktop/libs/<源码平台名>` 的符号链接（失败则退化为复制 `*.so*`/`*.dylib`/`*.dll`；若目标已是真实目录则用 `DuplicatesStrategy.EXCLUDE` 补齐，避免破坏 Windows 已有 DLL）；源目录缺失时直接 `GradleException` 并在消息里说明后果与先构建核心的方法，避免再打出启动即崩的包；任务设 `outputs.upToDateWhen { false }`，并挂到 `prepareAppResources`、`run`、`runDistributable` 之前。
++  - 改动文件：`apps/multiplatform/desktop/build.gradle.kts`（新增 `import java.nio.file.Files` 与 `stageCoreLibs` 任务，237–309 行）。
++  - 验证：删掉手工软链接与旧 `release/main` 后 `./gradlew :desktop:createDistributable` 成功，`release/main/app/simplex/lib/app/resources` 出现 164 个文件（含 `libapp-lib.so` 26088 字节、`libsimplex.so` 56 MB），直接运行 `bin/simplex` 窗口正常启动并持续运行（此前同一命令在 `MainKt.initHaskell(Main.kt:56)` 抛 `UnsatisfiedLinkError`）。
++  - 说明：构建产物目录 `release/`、`build/links/` 都是生成物，不入库；未改 Kotlin 源码、未改核心，也未新增偏好字段。
++  - 文档：`apps/multiplatform/README.md`（桌面分发包说明）、`spec/architecture.md`（`:desktop` 模块新增 `stageCoreLibs` 与 `initHaskell` 的资源加载路径）、`plans/2026-11-04-desktop-packaging-native-libs.md`。
++
+ - [x] 彩虹模式：聊天页面里的气泡颜色不变色，只有自定义主题页面的预览会变色
+   - 原因：`SimpleXThemeOverride` 只把原始配色交给 `MaterialTheme` / `LocalAppColors`，完全没有套用彩虹相位；而聊天页面整体就包在它里面（`ChatView.kt` 用 `SimpleXThemeOverride(overrides ?: CurrentColors...)` 包住整个会话），所以设置页的色块会变色，真正进入聊天后气泡与界面色都不刷新。
+   - 附带问题：`rememberRainbowPhase()` 原来每个调用点各起一个计时器；`MarkdownText` 的默认文字色也调用它，于是聊天里每条消息都会各开一个协程，既不必要又会互相不同步，也与“手机端主页卡顿”有关。
+diff --git a/apps/multiplatform/README.md b/apps/multiplatform/README.md
+index 8fc0f701f..4c317d43c 100644
+--- a/apps/multiplatform/README.md
++++ b/apps/multiplatform/README.md
+@@ -34,6 +34,11 @@ git submodule update --init --recursive
+ 
+ # Desktop distribution (current OS)
+ ./gradlew :desktop:packageDistributionForCurrentOS
++# The packaged app needs the Haskell core (libapp-lib, libsimplex, libHS*). The packaging tasks run
++# :desktop:stageCoreLibs, which stages common/src/commonMain/cpp/desktop/libs/<platform> into the
++# Compose resources root, and they fail with an explicit message when those libraries are missing.
++# Build the core first (common:cmakeBuild, see below) instead of shipping a package that dies with
++# UnsatisfiedLinkError on startup.
+ 
+ # Run desktop/JVM tests
+ ./gradlew desktopTest
+diff --git a/apps/multiplatform/desktop/build.gradle.kts b/apps/multiplatform/desktop/build.gradle.kts
+index 5b762190b..3ed5d05eb 100644
+--- a/apps/multiplatform/desktop/build.gradle.kts
++++ b/apps/multiplatform/desktop/build.gradle.kts
+@@ -1,4 +1,5 @@
+ import org.gradle.internal.extensions.stdlib.toDefaultLowerCase
++import java.nio.file.Files
+ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+ import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
+ 
+@@ -258,3 +259,77 @@ afterEvaluate {
+     }
+   }
+ }
++
++// ---- Distribution resources: the native core ----
++// Main.kt loads `libapp-lib.<ext>` from `compose.application.resources.dir`, which is populated from
++// the subdirectories of `appResourcesRootDir` above ("linux-x64", "macos-arm64", "windows-x64", ...).
++// The Haskell core (libapp-lib + libsimplex + libHS*) has to be staged there, otherwise packaging
++// silently produces an app that dies on startup with UnsatisfiedLinkError because the resources
++// directory is empty. The libraries are linked rather than copied: the directory is ~600 MB, and a
++// symlink keeps packaging cheap while still bundling everything the loader needs.
++val hostOs = System.getProperty("os.name", "generic").toDefaultLowerCase()
++val hostArch = System.getProperty("os.arch", "generic").toDefaultLowerCase()
++val hostIsArm = hostArch.contains("aarch64") || hostArch.contains("arm64")
++val coreLibsResourcesSubdir = when {
++  hostOs.contains("linux") -> if (hostIsArm) "linux-arm64" else "linux-x64"
++  hostOs.contains("mac") -> if (hostIsArm) "macos-arm64" else "macos-x64"
++  hostOs.contains("win") -> if (hostIsArm) "windows-arm64" else "windows-x64"
++  else -> null
++}
++val coreLibsSourceSubdir = when (coreLibsResourcesSubdir) {
++  "linux-x64" -> "linux-x86_64"
++  "linux-arm64" -> "linux-aarch64"
++  "macos-x64" -> "mac-x86_64"
++  "macos-arm64" -> "mac-aarch64"
++  "windows-x64" -> "windows-x86_64"
++  "windows-arm64" -> "windows-aarch64"
++  else -> null
++}
++val stageCoreLibs = tasks.register("stageCoreLibs") {
++  group = "distribution"
++  description = "Stages the native Haskell core into the Compose Desktop app resources directory"
++  // A stale resources directory silently produces a package that cannot start, so always verify it.
++  outputs.upToDateWhen { false }
++  doLast {
++    val subdir = coreLibsResourcesSubdir
++    val source = coreLibsSourceSubdir
++    if (subdir == null || source == null) {
++      logger.info("Unknown platform, skipping native core staging")
++      return@doLast
++    }
++    val src = project.file("$cppPath/desktop/libs/$source")
++    if (!src.isDirectory) {
++      throw GradleException(
++        "Native core libraries are missing: $src does not exist, so the packaged app would fail to " +
++        "start with UnsatisfiedLinkError. Build the Haskell core for this platform first " +
++        "(see README, 'Build the core'), then re-run the packaging task."
++      )
++    }
++    val linksDir = project.file("../build/links")
++    linksDir.mkdirs()
++    val dest = File(linksDir, subdir)
++    if (dest.exists() && !Files.isSymbolicLink(dest.toPath())) {
++      // A real directory (e.g. Windows DLLs copied by cmakeBuildAndCopy): fill in what is missing.
++      project.copy {
++        from(src)
++        into(dest)
++        include("*.so*", "*.dylib", "*.dll")
++        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
++      }
++      return@doLast
++    }
++    if (dest.exists()) dest.delete()
++    try {
++      Files.createSymbolicLink(dest.toPath(), src.toPath())
++    } catch (e: Exception) {
++      logger.info("Cannot link ${dest.path}, copying instead: ${e.message}")
++      project.copy {
++        from(src)
++        into(dest)
++        include("*.so*", "*.dylib", "*.dll")
++      }
++    }
++  }
++}
++tasks.matching { it.name == "prepareAppResources" || it.name == "run" || it.name == "runDistributable" }
++  .configureEach { dependsOn(stageCoreLibs) }
+diff --git a/apps/multiplatform/plans/2026-11-04-desktop-packaging-native-libs.md b/apps/multiplatform/plans/2026-11-04-desktop-packaging-native-libs.md
+new file mode 100644
+index 000000000..46a411141
+--- /dev/null
++++ b/apps/multiplatform/plans/2026-11-04-desktop-packaging-native-libs.md
+@@ -0,0 +1,74 @@
++# Fix the desktop distribution: stage the native core so the packaged app can start
++
++Date: 2026-11-04 · Baseline: SimpleX Chat 7.0.4 · Scope: `apps/multiplatform` desktop packaging only
++
++## 1. Problem statement
++
++Running the packaged desktop build (`release/main/app/simplex/bin/simplex`) died immediately:
++
++```
++Exception in thread "main" java.lang.UnsatisfiedLinkError: Can't load library:
++  .../release/main/app/simplex/lib/app/resources/libapp-lib.so
++	at chat.simplex.desktop.MainKt.initHaskell(Main.kt:56)
++```
++
++`Main.initHaskell()` reads `compose.application.resources.dir` and loads `libapp-lib.<ext>` from it. That
++directory is filled from `nativeDistributions.appResourcesRootDir`, which `desktop/build.gradle.kts` points at
++`apps/multiplatform/build/links`. Nothing ever populated that directory on Linux or macOS: `cmakeBuildAndCopy`
++copies the CMake output into `common/src/commonMain/cpp/desktop/libs/<platform>` and additionally copies only
++the Windows DLLs into `build/links/windows-x64`. The packaged `lib/app/resources` therefore existed but was
++empty, and the Haskell core (`libapp-lib.so`, `libsimplex.so`, ~160 `libHS*.so` files, 605 MB) never reached
++the distribution.
++
++## 2. Solution summary
++
++Add a `stageCoreLibs` task to `desktop/build.gradle.kts` that maps the host OS/arch to the Compose resources
++subdirectory (`linux-x64`, `linux-arm64`, `macos-x64`, `macos-arm64`, `windows-x64`, `windows-arm64`), maps
++that to the source directory under `cpp/desktop/libs` (`linux-x86_64`, `linux-aarch64`, `mac-x86_64`,
++`mac-aarch64`, `windows-x86_64`, `windows-aarch64`), and stages the core there as a **symlink** (600 MB dir;
++`project.copy` fallback when symlinks are unavailable). The task runs before `prepareAppResources`, `run` and
++`runDistributable`, always re-runs (a stale resources directory silently produces a broken package), and fails
++the build with an explicit message when the core libraries are missing instead of producing a package that
++crashes on startup.
++
++## 3. Detailed technical design
++
++### 3.1 Directory names
++
++Compose 1.8.2 only accepts fixed subdirectory names under `appResourcesRootDir`
++(`ComposePlugin$DesktopDependencies`: `common`, `linux-x64`, `linux-arm64`, `windows-x64`, `windows-arm64`,
++`macos-x64`, `macos-arm64`). Everything directly inside the chosen subdirectory is copied next to the app jars,
++which is exactly what the loader needs: `libapp-lib.so` has `NEEDED libsimplex.so` and
++`RUNPATH = $ORIGIN:<repo>/common/src/commonMain/cpp/desktop/libs/linux-x86_64`, so the whole set must travel
++together.
++
++### 3.2 Task behaviour
++
++- Unknown platform → logged at info level and skipped.
++- Source directory missing → `GradleException` naming the missing path and telling the developer to build the
++  Haskell core first.
++- Destination is an existing **real** directory (Windows, where `cmakeBuildAndCopy` already put the DLLs) →
++  `project.copy` with `include("*.so*", "*.dylib", "*.dll")` and `DuplicatesStrategy.EXCLUDE`, so the existing
++  files are kept.
++- Otherwise → delete a stale destination, then `Files.createSymbolicLink(dest, src)`; on failure fall back to
++  `project.copy`.
++- `outputs.upToDateWhen { false }` and `dependsOn` wiring in `tasks.matching { ... }.configureEach`, so
++  `./gradlew :desktop:run`, `runDistributable` and `packageDistributionForCurrentOS` all stage the libraries
++  first.
++
++## 4. Implementation steps
++
++1. Append the task plus the `import java.nio.file.Files` it needs (`java` is the Gradle `java` extension inside
++   a build script, so `java.nio.file.Files` does not resolve).
++2. Re-run `./gradlew :desktop:createDistributable` after deleting the stale `release/main`.
++3. Update `README.md` and `spec/architecture.md`.
++
++## 5. Verification
++
++- `:desktop:createDistributable` → BUILD SUCCESSFUL; `release/main/app/simplex/lib/app/resources` now holds 164
++  files, including `libapp-lib.so` (26 088 B) and `libsimplex.so` (56 MB); the distribution is 862 MB.
++- `release/main/app/simplex/bin/simplex` starts and keeps running with its window open (previously it aborted in
++  `initHaskell`).
++- `lib/app/simplex.cfg` already carries `-Dskiko.library.path=$APPDIR` and
++  `-Dcompose.application.resources.dir=$APPDIR/resources`; launching the jars with a bare `java -cp` still fails
++  in skiko because those properties are missing — that is an artefact of manual launching, not of the package.
+diff --git a/apps/multiplatform/spec/architecture.md b/apps/multiplatform/spec/architecture.md
+index 2bce627c0..ef917cebd 100644
+--- a/apps/multiplatform/spec/architecture.md
++++ b/apps/multiplatform/spec/architecture.md
+@@ -110,8 +110,17 @@ Build file: [`desktop/build.gradle.kts`](../desktop/build.gradle.kts)
+ 
+ Contains:
+ - `main()` entry point
+-- `initHaskell()` -- loads native library and calls `initHS()`
++- `initHaskell()` -- loads `libapp-lib.<ext>` from `compose.application.resources.dir` (the packaged
++  `lib/app/resources` directory) and calls `initHS()`; the core libraries are otherwise resolved through
++  their `$ORIGIN` RUNPATH
+ - Window management (VLC library loading on Windows)
++- `stageCoreLibs` task ([`build.gradle.kts`](../desktop/build.gradle.kts#L262-L309)) -- stages
++  `common/src/commonMain/cpp/desktop/libs/<platform>` into the Compose resources root
++  (`apps/multiplatform/build/links/<compose-platform>`, e.g. `linux-x64`), from where `prepareAppResources`
++  copies `libapp-lib`, `libsimplex` and `libHS*` into the distribution. The task is a dependency of
++  `prepareAppResources`, `run` and `runDistributable`, links instead of copying (~600 MB), and fails the
++  build with an explicit message when the core libraries are missing, because an empty resources directory
++  produces a package that crashes on startup with `UnsatisfiedLinkError`
+ 
+ ---
+ 

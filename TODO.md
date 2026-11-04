@@ -218,6 +218,14 @@ none
   - 未改核心与 `AppSettings`，未新增 MR 字符串，未新增偏好字段。
   - 文档：`spec/client/translation.md`（提供商表、必然/百度请求说明、语言检测）、`spec/state.md`（§5 翻译配置字段）、`spec/architecture.md`（`systemLanguageCode` expect 与其行号）、`product/views/settings.md`、`product/rules.md`（RULE-31 提供商列表）、`product/gaps.md`（GAP-08）、`plans/2026-11-04-translation-provider-fixes.md`。
 
+- [x] 桌面端分发包启动即崩：`UnsatisfiedLinkError: Can't load library: .../lib/app/resources/libapp-lib.so`
+  - 原因：`desktop/build.gradle.kts` 把 `appResourcesRootDir` 指到 `apps/multiplatform/build/links`，但仓库里没有任何任务为 Linux/macOS 填充这个目录（`cmakeBuildAndCopy` 只把 Windows DLL 复制进 `build/links/windows-x64`）。`libapp-lib.so` 及其依赖的 `libsimplex.so`、`libHS*.so` 只存在于 `common/src/commonMain/cpp/desktop/libs/<platform>`，于是 jpackage 打出的 `release/main/app/simplex/lib/app/resources` 是空目录，`Main.initHaskell()` 用 `compose.application.resources.dir` 拼路径 `System.load(...)` 时必然失败。Compose 只认 `appResourcesRootDir` 下的平台子目录（`linux-x64`、`linux-arm64`、`macos-x64`、`macos-arm64`、`windows-x64`、`windows-arm64`）。
+  - 修复方法：新增 `stageCoreLibs` 任务（`desktop/build.gradle.kts`），按宿主 OS/架构在 `build/links/<compose 平台名>` 建立到 `cpp/desktop/libs/<源码平台名>` 的符号链接（失败则退化为复制 `*.so*`/`*.dylib`/`*.dll`；若目标已是真实目录则用 `DuplicatesStrategy.EXCLUDE` 补齐，避免破坏 Windows 已有 DLL）；源目录缺失时直接 `GradleException` 并在消息里说明后果与先构建核心的方法，避免再打出启动即崩的包；任务设 `outputs.upToDateWhen { false }`，并挂到 `prepareAppResources`、`run`、`runDistributable` 之前。
+  - 改动文件：`apps/multiplatform/desktop/build.gradle.kts`（新增 `import java.nio.file.Files` 与 `stageCoreLibs` 任务，237–309 行）。
+  - 验证：删掉手工软链接与旧 `release/main` 后 `./gradlew :desktop:createDistributable` 成功，`release/main/app/simplex/lib/app/resources` 出现 164 个文件（含 `libapp-lib.so` 26088 字节、`libsimplex.so` 56 MB），直接运行 `bin/simplex` 窗口正常启动并持续运行（此前同一命令在 `MainKt.initHaskell(Main.kt:56)` 抛 `UnsatisfiedLinkError`）。
+  - 说明：构建产物目录 `release/`、`build/links/` 都是生成物，不入库；未改 Kotlin 源码、未改核心，也未新增偏好字段。
+  - 文档：`apps/multiplatform/README.md`（桌面分发包说明）、`spec/architecture.md`（`:desktop` 模块新增 `stageCoreLibs` 与 `initHaskell` 的资源加载路径）、`plans/2026-11-04-desktop-packaging-native-libs.md`。
+
 - [x] 彩虹模式：聊天页面里的气泡颜色不变色，只有自定义主题页面的预览会变色
   - 原因：`SimpleXThemeOverride` 只把原始配色交给 `MaterialTheme` / `LocalAppColors`，完全没有套用彩虹相位；而聊天页面整体就包在它里面（`ChatView.kt` 用 `SimpleXThemeOverride(overrides ?: CurrentColors...)` 包住整个会话），所以设置页的色块会变色，真正进入聊天后气泡与界面色都不刷新。
   - 附带问题：`rememberRainbowPhase()` 原来每个调用点各起一个计时器；`MarkdownText` 的默认文字色也调用它，于是聊天里每条消息都会各开一个协程，既不必要又会互相不同步，也与“手机端主页卡顿”有关。

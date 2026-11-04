@@ -1,4 +1,5 @@
 import org.gradle.internal.extensions.stdlib.toDefaultLowerCase
+import java.nio.file.Files
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 
@@ -258,3 +259,77 @@ afterEvaluate {
     }
   }
 }
+
+// ---- Distribution resources: the native core ----
+// Main.kt loads `libapp-lib.<ext>` from `compose.application.resources.dir`, which is populated from
+// the subdirectories of `appResourcesRootDir` above ("linux-x64", "macos-arm64", "windows-x64", ...).
+// The Haskell core (libapp-lib + libsimplex + libHS*) has to be staged there, otherwise packaging
+// silently produces an app that dies on startup with UnsatisfiedLinkError because the resources
+// directory is empty. The libraries are linked rather than copied: the directory is ~600 MB, and a
+// symlink keeps packaging cheap while still bundling everything the loader needs.
+val hostOs = System.getProperty("os.name", "generic").toDefaultLowerCase()
+val hostArch = System.getProperty("os.arch", "generic").toDefaultLowerCase()
+val hostIsArm = hostArch.contains("aarch64") || hostArch.contains("arm64")
+val coreLibsResourcesSubdir = when {
+  hostOs.contains("linux") -> if (hostIsArm) "linux-arm64" else "linux-x64"
+  hostOs.contains("mac") -> if (hostIsArm) "macos-arm64" else "macos-x64"
+  hostOs.contains("win") -> if (hostIsArm) "windows-arm64" else "windows-x64"
+  else -> null
+}
+val coreLibsSourceSubdir = when (coreLibsResourcesSubdir) {
+  "linux-x64" -> "linux-x86_64"
+  "linux-arm64" -> "linux-aarch64"
+  "macos-x64" -> "mac-x86_64"
+  "macos-arm64" -> "mac-aarch64"
+  "windows-x64" -> "windows-x86_64"
+  "windows-arm64" -> "windows-aarch64"
+  else -> null
+}
+val stageCoreLibs = tasks.register("stageCoreLibs") {
+  group = "distribution"
+  description = "Stages the native Haskell core into the Compose Desktop app resources directory"
+  // A stale resources directory silently produces a package that cannot start, so always verify it.
+  outputs.upToDateWhen { false }
+  doLast {
+    val subdir = coreLibsResourcesSubdir
+    val source = coreLibsSourceSubdir
+    if (subdir == null || source == null) {
+      logger.info("Unknown platform, skipping native core staging")
+      return@doLast
+    }
+    val src = project.file("$cppPath/desktop/libs/$source")
+    if (!src.isDirectory) {
+      throw GradleException(
+        "Native core libraries are missing: $src does not exist, so the packaged app would fail to " +
+        "start with UnsatisfiedLinkError. Build the Haskell core for this platform first " +
+        "(see README, 'Build the core'), then re-run the packaging task."
+      )
+    }
+    val linksDir = project.file("../build/links")
+    linksDir.mkdirs()
+    val dest = File(linksDir, subdir)
+    if (dest.exists() && !Files.isSymbolicLink(dest.toPath())) {
+      // A real directory (e.g. Windows DLLs copied by cmakeBuildAndCopy): fill in what is missing.
+      project.copy {
+        from(src)
+        into(dest)
+        include("*.so*", "*.dylib", "*.dll")
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+      }
+      return@doLast
+    }
+    if (dest.exists()) dest.delete()
+    try {
+      Files.createSymbolicLink(dest.toPath(), src.toPath())
+    } catch (e: Exception) {
+      logger.info("Cannot link ${dest.path}, copying instead: ${e.message}")
+      project.copy {
+        from(src)
+        into(dest)
+        include("*.so*", "*.dylib", "*.dll")
+      }
+    }
+  }
+}
+tasks.matching { it.name == "prepareAppResources" || it.name == "run" || it.name == "runDistributable" }
+  .configureEach { dependsOn(stageCoreLibs) }

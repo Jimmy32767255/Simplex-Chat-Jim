@@ -34,6 +34,11 @@ git submodule update --init --recursive
 
 # Desktop distribution (current OS)
 ./gradlew :desktop:packageDistributionForCurrentOS
+# The packaged app needs the Haskell core (libapp-lib, libsimplex, libHS*). The packaging tasks run
+# :desktop:stageCoreLibs, which stages common/src/commonMain/cpp/desktop/libs/<platform> into the
+# Compose resources root, and they fail with an explicit message when those libraries are missing.
+# Build the core first (common:cmakeBuild, see below) instead of shipping a package that dies with
+# UnsatisfiedLinkError on startup.
 
 # Run desktop/JVM tests
 ./gradlew desktopTest
