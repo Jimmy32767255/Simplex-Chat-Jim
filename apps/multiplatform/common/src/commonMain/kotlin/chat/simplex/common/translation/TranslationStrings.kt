@@ -18,7 +18,7 @@ object TranslationStrings {
    * the app follows the system language, in which case the platform locale decides - so reading the
    * preference alone made every non-English system show English.
    */
-  private fun effectiveLanguage(): String? {
+  internal fun effectiveLanguage(): String? {
     val pref = runCatching { ChatController.appPrefs.appLanguage.get() }.getOrNull()
     if (pref != null && pref != "system") return pref
     return runCatching { systemLanguageCode }.getOrNull()
@@ -44,7 +44,7 @@ object TranslationStrings {
   // Settings screen
   val settingsSummary get() = t("Provider, API keys, languages and automatic translation", "服务提供商、API 密钥、语言与自动翻译")
   val provider get() = t("Service provider", "服务提供商")
-  val targetLanguage get() = t("Translate to", "翻译为")
+  val composeTargetLanguage get() = t("Translate typed text to", "输入框内容翻译为")
   val autoTranslate get() = t("Auto-translate messages in view", "自动翻译当前视图中的消息")
   val autoTranslateFooter get() = t(
     "When on, messages in the current view are translated automatically. Requests are rate-limited to avoid bans or draining your balance.",
@@ -64,4 +64,10 @@ object TranslationStrings {
   val bingFreeNote get() = t("Bing Translator (free) uses a public endpoint and needs no key.", "必应翻译（免费）使用公开接口，无需密钥。")
   val deepseekDefault get() = t("Default endpoint is DeepSeek (OpenAI Responses protocol).", "默认端点为 DeepSeek（OpenAI Responses 协议）。")
   val detectLanguageAuto get() = t("Detect language", "自动识别语言")
+
+  /** Explains that received messages follow the interface language instead of the picker above. */
+  fun incomingFollowsInterface(languageName: String) = t(
+    "Messages you receive are translated into your interface language ($languageName). Change it under Appearance → Language.",
+    "收到的消息会固定翻译成界面语言（$languageName）；如需更改，请在「外观 → 语言」中调整。",
+  )
 }

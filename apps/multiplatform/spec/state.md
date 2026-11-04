@@ -512,7 +512,7 @@ secrets are encrypted with `Cryptor` before they are stored.
 
 | Key | Pref name | Type | Default | Purpose |
 |---|---|---|---|---|
-| `translationConfig` | `"TranslationConfig"` | `SharedPreference<TranslationConfig>` (stored as JSON) | `TranslationConfig()` | `provider` (`GOOGLE` default), `targetLang` (`"en"`), `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), `baiduAppId`, `aiBaseUrl` (`https://api.deepseek.com/v1`) / `aiModel` (`deepseek-chat`) |
+| `translationConfig` | `"TranslationConfig"` | `SharedPreference<TranslationConfig>` (stored as JSON) | `TranslationConfig()` | `provider` (`GOOGLE` default), `targetLang` (`"en"`, compose translation key only - received messages follow the interface language), `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), `baiduAppId`, `aiBaseUrl` (`https://api.deepseek.com/v1`) / `aiModel` (`deepseek-chat`) |
 | `translationSecrets` | `"TranslationSecrets"` | `SharedPreference<String?>` | `null` | `TranslationSecrets` JSON (`baiduKey`, `aiApiKey`) encrypted with `Cryptor.encryptText` (plaintext fallback if the cryptor is unavailable) |
 | `translationSecretsIv` | `"TranslationSecretsIv"` | `SharedPreference<String?>` | `null` | Base64 IV used to encrypt `translationSecrets` |
 | `translationAutoTranslate` | `"TranslationAutoTranslate"` | `SharedPreference<Boolean>` | `false` | Automatically translate the messages visible in the viewport, rate-limited |

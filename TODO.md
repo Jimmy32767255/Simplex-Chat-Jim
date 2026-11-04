@@ -226,6 +226,16 @@ none
   - 说明：构建产物目录 `release/`、`build/links/` 都是生成物，不入库；未改 Kotlin 源码、未改核心，也未新增偏好字段。
   - 文档：`apps/multiplatform/README.md`（桌面分发包说明）、`spec/architecture.md`（`:desktop` 模块新增 `stageCoreLibs` 与 `initHaskell` 的资源加载路径）、`plans/2026-11-04-desktop-packaging-native-libs.md`。
 
+- [x] 翻译方向不明确：收到别人消息时也套用「翻译为」下拉，英文原文 + 目标 en 时必应原样返回，看起来像「只显示原文」
+  - 原因：`translateChatItem()` 与 `autoTranslateVisible()` 的默认目标语言都是 `translationConfig.targetLang`，同一个下拉同时承担「收到的消息译成什么」和「输入框里的内容译成什么」两种语义。默认 `targetLang` 是 `"en"`，于是英文消息被翻成英文——服务商返回原文，用户看到的就是「没翻译」。真正的目标语言应该由方向决定：收到的消息跟随界面语言，输入框跟随设置。
+  - 修复方法：新增纯函数 `translationLangForUiLanguage(uiLanguage)`（`TranslationLang.kt`），把界面语言码映射到翻译语言码：`zh-CN`/`zh-TW`/`zh-HK`→`zh`、`pt-BR`→`pt`、`in`→`id`、`iw`→`he`，其余带地区的码取主语言（`en-GB`→`en`、`de_DE`→`de`），界面语言没有对应翻译语言时（如 `bg`）回退 `en`；`TranslationStrings.effectiveLanguage()` 由 `private` 改为 `internal`，新增 `TranslationService.incomingTargetLang()` 组合二者。
+  - 生效范围：`translateChatItem()`（右键/长按翻译）与 `autoTranslateVisible()`（自动翻译）的默认目标语言改为 `incomingTargetLang()`，因此气泡下的译文、自动翻译、右键翻译都跟随界面语言；`translateTextNow()`（输入框翻译键）仍用 `translationConfig.targetLang`，长按菜单的临时语言选择不受影响。
+  - 文案：设置项 `TranslationStrings.targetLanguage`（"Translate to"/"翻译为"）改为 `composeTargetLanguage`（"Translate typed text to"/"输入框内容翻译为"），并在该行下增加说明 `incomingFollowsInterface(界面语言名)`，明确「收到的消息固定翻译成界面语言，要改请去外观 → 语言」。
+  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationLang.kt`（`translationLangForUiLanguage` + `uiAliases`）、`.../translation/TranslationService.kt`（`incomingTargetLang()` 与两个默认值）、`.../translation/TranslationStrings.kt`（`effectiveLanguage` 可见性、`composeTargetLanguage`、`incomingFollowsInterface`）、`.../translation/TranslationModels.kt`（`targetLang` 注释）、`.../views/usersettings/TranslationSettingsView.kt`（下拉标题与脚注）。
+  - 测试：`TranslationApiTest.testTranslationLangForUiLanguage`（null/空/`system`/大小写/地区后缀/下划线/`zh-*`/`pt-BR`/`in`/`iw`/无对应语言回退），`./gradlew :common:desktopTest --tests "chat.simplex.app.TranslationApiTest"` 29/29 通过，`:common:compileKotlinDesktop` 与 `:common:compileDebugKotlinAndroid` 均通过。
+  - 兼容性：未改核心与 `AppSettings`，未新增偏好字段（`targetLang` 语义收窄但没有改名，旧配置照常解析），未新增 MR 字符串。
+  - 文档：`spec/client/translation.md`（入口表新增「收到的消息」行、配置字段、`incomingTargetLang()`、§7 语言方向、§8/§9）、`spec/state.md`（§5 `targetLang` 说明）、`product/views/settings.md`（设置项改名与语义）、`plans/2026-11-04-translation-language-direction.md`。
+
 - [x] 彩虹模式：聊天页面里的气泡颜色不变色，只有自定义主题页面的预览会变色
   - 原因：`SimpleXThemeOverride` 只把原始配色交给 `MaterialTheme` / `LocalAppColors`，完全没有套用彩虹相位；而聊天页面整体就包在它里面（`ChatView.kt` 用 `SimpleXThemeOverride(overrides ?: CurrentColors...)` 包住整个会话），所以设置页的色块会变色，真正进入聊天后气泡与界面色都不刷新。
   - 附带问题：`rememberRainbowPhase()` 原来每个调用点各起一个计时器；`MarkdownText` 的默认文字色也调用它，于是聊天里每条消息都会各开一个协程，既不必要又会互相不同步，也与“手机端主页卡顿”有关。

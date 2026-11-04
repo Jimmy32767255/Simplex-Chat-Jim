@@ -1,0 +1,366 @@
+diff --git a/TODO.md b/TODO.md
+index f5cff59be..7fc32a6fa 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -226,6 +226,16 @@ none
+   - 说明：构建产物目录 `release/`、`build/links/` 都是生成物，不入库；未改 Kotlin 源码、未改核心，也未新增偏好字段。
+   - 文档：`apps/multiplatform/README.md`（桌面分发包说明）、`spec/architecture.md`（`:desktop` 模块新增 `stageCoreLibs` 与 `initHaskell` 的资源加载路径）、`plans/2026-11-04-desktop-packaging-native-libs.md`。
+ 
++- [x] 翻译方向不明确：收到别人消息时也套用「翻译为」下拉，英文原文 + 目标 en 时必应原样返回，看起来像「只显示原文」
++  - 原因：`translateChatItem()` 与 `autoTranslateVisible()` 的默认目标语言都是 `translationConfig.targetLang`，同一个下拉同时承担「收到的消息译成什么」和「输入框里的内容译成什么」两种语义。默认 `targetLang` 是 `"en"`，于是英文消息被翻成英文——服务商返回原文，用户看到的就是「没翻译」。真正的目标语言应该由方向决定：收到的消息跟随界面语言，输入框跟随设置。
++  - 修复方法：新增纯函数 `translationLangForUiLanguage(uiLanguage)`（`TranslationLang.kt`），把界面语言码映射到翻译语言码：`zh-CN`/`zh-TW`/`zh-HK`→`zh`、`pt-BR`→`pt`、`in`→`id`、`iw`→`he`，其余带地区的码取主语言（`en-GB`→`en`、`de_DE`→`de`），界面语言没有对应翻译语言时（如 `bg`）回退 `en`；`TranslationStrings.effectiveLanguage()` 由 `private` 改为 `internal`，新增 `TranslationService.incomingTargetLang()` 组合二者。
++  - 生效范围：`translateChatItem()`（右键/长按翻译）与 `autoTranslateVisible()`（自动翻译）的默认目标语言改为 `incomingTargetLang()`，因此气泡下的译文、自动翻译、右键翻译都跟随界面语言；`translateTextNow()`（输入框翻译键）仍用 `translationConfig.targetLang`，长按菜单的临时语言选择不受影响。
++  - 文案：设置项 `TranslationStrings.targetLanguage`（"Translate to"/"翻译为"）改为 `composeTargetLanguage`（"Translate typed text to"/"输入框内容翻译为"），并在该行下增加说明 `incomingFollowsInterface(界面语言名)`，明确「收到的消息固定翻译成界面语言，要改请去外观 → 语言」。
++  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationLang.kt`（`translationLangForUiLanguage` + `uiAliases`）、`.../translation/TranslationService.kt`（`incomingTargetLang()` 与两个默认值）、`.../translation/TranslationStrings.kt`（`effectiveLanguage` 可见性、`composeTargetLanguage`、`incomingFollowsInterface`）、`.../translation/TranslationModels.kt`（`targetLang` 注释）、`.../views/usersettings/TranslationSettingsView.kt`（下拉标题与脚注）。
++  - 测试：`TranslationApiTest.testTranslationLangForUiLanguage`（null/空/`system`/大小写/地区后缀/下划线/`zh-*`/`pt-BR`/`in`/`iw`/无对应语言回退），`./gradlew :common:desktopTest --tests "chat.simplex.app.TranslationApiTest"` 29/29 通过，`:common:compileKotlinDesktop` 与 `:common:compileDebugKotlinAndroid` 均通过。
++  - 兼容性：未改核心与 `AppSettings`，未新增偏好字段（`targetLang` 语义收窄但没有改名，旧配置照常解析），未新增 MR 字符串。
++  - 文档：`spec/client/translation.md`（入口表新增「收到的消息」行、配置字段、`incomingTargetLang()`、§7 语言方向、§8/§9）、`spec/state.md`（§5 `targetLang` 说明）、`product/views/settings.md`（设置项改名与语义）、`plans/2026-11-04-translation-language-direction.md`。
++
+ - [x] 彩虹模式：聊天页面里的气泡颜色不变色，只有自定义主题页面的预览会变色
+   - 原因：`SimpleXThemeOverride` 只把原始配色交给 `MaterialTheme` / `LocalAppColors`，完全没有套用彩虹相位；而聊天页面整体就包在它里面（`ChatView.kt` 用 `SimpleXThemeOverride(overrides ?: CurrentColors...)` 包住整个会话），所以设置页的色块会变色，真正进入聊天后气泡与界面色都不刷新。
+   - 附带问题：`rememberRainbowPhase()` 原来每个调用点各起一个计时器；`MarkdownText` 的默认文字色也调用它，于是聊天里每条消息都会各开一个协程，既不必要又会互相不同步，也与“手机端主页卡顿”有关。
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationLang.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationLang.kt
+index 2c0d7a72b..8ff74cdbc 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationLang.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationLang.kt
+@@ -38,6 +38,28 @@ val translationLanguages: List<Language> = listOf(
+ fun languageDisplayName(code: String): String =
+   translationLanguages.firstOrNull { it.code == code }?.displayName ?: code
+ 
++/**
++ * Translation language for a UI language code from the app's appearance settings (`zh-CN`, `pt-BR`,
++ * `in`, `iw`, ...). Received messages are translated into the interface language, so the codes have to
++ * be mapped onto [translationLanguages]; anything unmapped falls back to English.
++ */
++fun translationLangForUiLanguage(uiLanguage: String?): String {
++  val raw = uiLanguage?.trim()?.lowercase()?.replace('_', '-')?.takeIf { it.isNotEmpty() } ?: return "en"
++  uiAliases[raw]?.let { return it }
++  val base = raw.substringBefore('-')
++  uiAliases[base]?.let { return it }
++  return if (translationLanguages.any { it.code == base }) base else "en"
++}
++
++/** UI language codes whose translation code differs, including the script-qualified Chinese ones. */
++private val uiAliases: Map<String, String> = mapOf(
++  "in" to "id",
++  "iw" to "he",
++  "zh" to "zh", "zh-cn" to "zh", "zh-sg" to "zh", "zh-hans" to "zh",
++  "zh-tw" to "zh", "zh-hk" to "zh", "zh-hant" to "zh",
++  "pt-br" to "pt", "pt-pt" to "pt",
++)
++
+ /**
+  * Best-effort detection of the dominant script/language of [text]. Returns a language code from
+  * [translationLanguages], defaulting to "en" for Latin-script text (European languages can't be
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationModels.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationModels.kt
+index b283a5ed0..514a667af 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationModels.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationModels.kt
+@@ -55,7 +55,11 @@ data class TranslationRateConfig(
+ @Serializable
+ data class TranslationConfig(
+   val provider: TranslationProvider = TranslationProvider.GOOGLE,
+-  /** Default target language code, e.g. "en". */
++  /**
++   * Target language for text the user writes (the compose translation key), e.g. "en". Messages the
++   * user receives are always translated into the interface language instead - see
++   * [chat.simplex.common.translation.translationLangForUiLanguage].
++   */
+   val targetLang: String = "en",
+   val rate: TranslationRateConfig = TranslationRateConfig(),
+   /** Baidu AppID (not secret, but provider-specific). */
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt
+index d1a14df2d..951fd14bd 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt
+@@ -130,11 +130,18 @@ object TranslationService {
+ 
+   // region ---- public translation entry points ----
+ 
++  /**
++   * Target language for messages the user receives: the app's interface language, mapped onto the
++   * supported translation languages (see [translationLangForUiLanguage]). The configured target
++   * language is only used for the compose translation key, i.e. for text the user writes.
++   */
++  fun incomingTargetLang(): String = translationLangForUiLanguage(TranslationStrings.effectiveLanguage())
++
+   /** Translate a chat item, storing the result in the observable registry under its id. */
+   fun translateChatItem(itemId: Long, text: String, targetLang: String? = null, scope: CoroutineScope) {
+     if (text.isBlank()) return
+     val cfg = config()
+-    val target = targetLang ?: cfg.targetLang
++    val target = targetLang ?: incomingTargetLang()
+     results[itemId] = TranslationEntry(TranslationStatus.LOADING, targetLang = target)
+     scope.launch {
+       val entry = try {
+@@ -158,7 +165,7 @@ object TranslationService {
+   fun autoTranslateVisible(items: List<Pair<Long, String>>, scope: CoroutineScope, targetLang: String? = null) {
+     val cfg = config()
+     val rate = cfg.rate.normalized()
+-    val target = targetLang ?: cfg.targetLang
++    val target = targetLang ?: incomingTargetLang()
+     if (!isConfigured(cfg, secrets())) return
+     val queue = items
+       .filter { (id, text) -> text.isNotBlank() && results[id]?.isDone != true && results[id]?.isLoading != true && autoJobs[id]?.isActive != true }
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationStrings.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationStrings.kt
+index a48a99999..4475ec216 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationStrings.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationStrings.kt
+@@ -18,7 +18,7 @@ object TranslationStrings {
+    * the app follows the system language, in which case the platform locale decides - so reading the
+    * preference alone made every non-English system show English.
+    */
+-  private fun effectiveLanguage(): String? {
++  internal fun effectiveLanguage(): String? {
+     val pref = runCatching { ChatController.appPrefs.appLanguage.get() }.getOrNull()
+     if (pref != null && pref != "system") return pref
+     return runCatching { systemLanguageCode }.getOrNull()
+@@ -44,7 +44,7 @@ object TranslationStrings {
+   // Settings screen
+   val settingsSummary get() = t("Provider, API keys, languages and automatic translation", "服务提供商、API 密钥、语言与自动翻译")
+   val provider get() = t("Service provider", "服务提供商")
+-  val targetLanguage get() = t("Translate to", "翻译为")
++  val composeTargetLanguage get() = t("Translate typed text to", "输入框内容翻译为")
+   val autoTranslate get() = t("Auto-translate messages in view", "自动翻译当前视图中的消息")
+   val autoTranslateFooter get() = t(
+     "When on, messages in the current view are translated automatically. Requests are rate-limited to avoid bans or draining your balance.",
+@@ -64,4 +64,10 @@ object TranslationStrings {
+   val bingFreeNote get() = t("Bing Translator (free) uses a public endpoint and needs no key.", "必应翻译（免费）使用公开接口，无需密钥。")
+   val deepseekDefault get() = t("Default endpoint is DeepSeek (OpenAI Responses protocol).", "默认端点为 DeepSeek（OpenAI Responses 协议）。")
+   val detectLanguageAuto get() = t("Detect language", "自动识别语言")
++
++  /** Explains that received messages follow the interface language instead of the picker above. */
++  fun incomingFollowsInterface(languageName: String) = t(
++    "Messages you receive are translated into your interface language ($languageName). Change it under Appearance → Language.",
++    "收到的消息会固定翻译成界面语言（$languageName）；如需更改，请在「外观 → 语言」中调整。",
++  )
+ }
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/TranslationSettingsView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/TranslationSettingsView.kt
+index 16a147af2..bc3fe5e87 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/TranslationSettingsView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/TranslationSettingsView.kt
+@@ -108,12 +108,16 @@ fun TranslationSettingsView(close: () -> Unit) {
+       }
+       SectionDividerSpaced()
+ 
+-      // ---- Target language ----
+-      SectionView(TranslationStrings.targetLanguage) {
++      // ---- Target language for text the user writes ----
++      // Received messages are translated into the interface language instead (see TranslationService).
++      // Read it during composition so the note follows an interface-language change immediately.
++      val incomingLang = TranslationService.incomingTargetLang()
++      SectionView(TranslationStrings.composeTargetLanguage) {
+         val langs = remember { translationLanguages.map { it.code to it.displayName } }
+-        ExposedDropDownSettingRow(TranslationStrings.targetLanguage, langs, targetLang) {
++        ExposedDropDownSettingRow(TranslationStrings.composeTargetLanguage, langs, targetLang) {
+           targetLang.value = it
+         }
++        SectionTextFooter(TranslationStrings.incomingFollowsInterface(languageDisplayName(incomingLang)))
+       }
+       SectionDividerSpaced()
+ 
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TranslationApiTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TranslationApiTest.kt
+index 645d105e6..25d810ad2 100644
+--- a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TranslationApiTest.kt
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TranslationApiTest.kt
+@@ -244,6 +244,30 @@ class TranslationApiTest {
+     assertNull(canUndoTranslation("hi", "", ""))
+   }
+ 
++  // ---- Interface language -> translation target for received messages ----
++  @Test
++  fun testTranslationLangForUiLanguage() {
++    // Missing / unresolved interface language falls back to English.
++    assertEquals("en", translationLangForUiLanguage(null))
++    assertEquals("en", translationLangForUiLanguage(""))
++    assertEquals("en", translationLangForUiLanguage("   "))
++    assertEquals("en", translationLangForUiLanguage("system"))
++    // Direct hits.
++    assertEquals("ja", translationLangForUiLanguage("ja"))
++    assertEquals("en", translationLangForUiLanguage("EN"))
++    // Region-qualified codes use the base language.
++    assertEquals("en", translationLangForUiLanguage("en-GB"))
++    assertEquals("de", translationLangForUiLanguage("de_DE"))
++    // Codes whose translation language differs.
++    assertEquals("zh", translationLangForUiLanguage("zh-CN"))
++    assertEquals("zh", translationLangForUiLanguage("zh-TW"))
++    assertEquals("pt", translationLangForUiLanguage("pt-BR"))
++    assertEquals("id", translationLangForUiLanguage("in"))
++    assertEquals("he", translationLangForUiLanguage("iw"))
++    // Interface languages without a translation language fall back to English.
++    assertEquals("en", translationLangForUiLanguage("bg"))
++  }
++
+   @Test
+   fun testTranslationEntryFlags() {
+     assertTrue(TranslationEntry(TranslationStatus.LOADING).isLoading)
+diff --git a/apps/multiplatform/plans/2026-11-04-translation-language-direction.md b/apps/multiplatform/plans/2026-11-04-translation-language-direction.md
+new file mode 100644
+index 000000000..c53c0e5bd
+--- /dev/null
++++ b/apps/multiplatform/plans/2026-11-04-translation-language-direction.md
+@@ -0,0 +1,67 @@
++# Split the translation target by direction: received messages follow the interface language
++
++Date: 2026-11-04 · Baseline: SimpleX Chat 7.0.4 · Scope: `apps/multiplatform` (client only)
++
++## 1. Problem statement
++
++The single `translationConfig.targetLang` setting (default `"en"`) was used for both directions:
++
++- text the user **receives** (`translateChatItem`, `autoTranslateVisible`), and
++- text the user **writes** (the compose translate key, `translateTextNow`).
++
++With `targetLang = "en"` and English source text, a provider is asked to translate English into English and
++legitimately returns the input unchanged, so the feature looks like "it only shows the original text". The
++setting also reads like a global "translate to" switch, which makes users think it controls received messages.
++
++## 2. Solution summary
++
++- Received messages are translated into the **interface language**; the setting keeps its value but now only
++  describes the compose translation key.
++- Add a pure `translationLangForUiLanguage(uiLanguage: String?): String` that maps appearance-language codes
++  onto `translationLanguages`: `zh-CN`/`zh-TW`/`zh-HK`/`zh-SG`/`zh-Hant` → `zh`, `pt-BR`/`pt-PT` → `pt`,
++  `in` → `id`, `iw` → `he`, other region suffixes stripped (`en-GB` → `en`, `de_DE` → `de`), and interface
++  languages without a translation language (`bg`, `ca`, `cs`, `fa`, `fi`, `hu`, `lt`, `ro`) fall back to `en`.
++- `TranslationService.incomingTargetLang()` combines that with `TranslationStrings.effectiveLanguage()` (which
++  already handles the `null`/`"system"` preference) and becomes the default target of `translateChatItem`
++  and `autoTranslateVisible`. `translateTextNow` keeps using `config().targetLang`.
++- Rename the setting label to "Translate typed text to" / "输入框内容翻译为" and add a footer explaining that
++  received messages always follow the interface language.
++
++## 3. Detailed technical design
++
++### 3.1 Resolution chain
++
++```
++Appearance language preference ("zh-CN", "system", null)
++  → TranslationStrings.effectiveLanguage()   // "system"/null → platform locale
++  → translationLangForUiLanguage(...)        // alias map, then base code, then "en"
++  → TranslationService.incomingTargetLang()
++```
++
++No new preference field is written, so existing configs keep parsing unchanged; only the meaning of
++`targetLang` narrows, and it stays serialized as before.
++
++### 3.2 Why not ask the provider to detect the source
++
++Choices made earlier stay in place: Baidu receives an explicit `from` when `detectLanguageOrNull` recognizes
++the script, and the provider's own detection is used for Latin text. Received-message targets are now known
++explicitly, so no provider has to guess the target anymore.
++
++## 4. Implementation steps
++
++1. `TranslationLang.kt`: add `translationLangForUiLanguage` + `uiAliases`.
++2. `TranslationStrings.kt`: make `effectiveLanguage()` internal, replace `targetLanguage` with
++   `composeTargetLanguage`, add `incomingFollowsInterface(languageName)`.
++3. `TranslationService.kt`: add `incomingTargetLang()`, use it in `translateChatItem`/`autoTranslateVisible`.
++4. `TranslationSettingsView.kt`: new title + footer note.
++5. `TranslationModels.kt`: document that `targetLang` is the compose target.
++6. Tests, then `spec/client/translation.md`, `spec/state.md`, `product/views/settings.md`, `TODO.md`.
++
++## 5. Verification
++
++- `./gradlew :common:desktopTest --tests "chat.simplex.app.TranslationApiTest"` → 29/29 pass, including the new
++  `testTranslationLangForUiLanguage` (null/blank/`system`/case/region/underscore/`zh-*`/`pt-BR`/`in`/`iw`/
++  unsupported-language fallback).
++- `:common:compileKotlinDesktop` and `:common:compileDebugKotlinAndroid` build successfully.
++- Manual check of the packaged desktop app: with a Chinese interface, received English messages are requested
++  with `to=zh` (Bing `to=zh-Hans`), while the compose key still uses `targetLang`.
+diff --git a/apps/multiplatform/product/views/settings.md b/apps/multiplatform/product/views/settings.md
+index 1e406a7c5..c1cfa7b5f 100644
+--- a/apps/multiplatform/product/views/settings.md
++++ b/apps/multiplatform/product/views/settings.md
+@@ -257,7 +257,7 @@ translation service (see `product/rules.md` RULE-31). Every value is stored loca
+ | Row | Preference Key | Default | Description |
+ |---|---|---|---|
+ | Provider | `provider` (`TranslationProvider`) | `GOOGLE` | `GOOGLE` (free), `BING` (free), `BAIDU` (needs an API Key) or `AI` (OpenAI Responses protocol, DeepSeek default) |
+-| Default target language | `targetLang` | `English` | Language used by a single tap on the compose-bar translate button |
++| Translate typed text to | `targetLang` | `English` | Target language of a single tap on the compose-bar translate button (text the user writes). Received messages are always translated into the interface language, shown in the footer under this row |
+ | Auto-translate | `translationAutoTranslate` | Off | Translate the messages currently visible in the viewport; a message's in-flight request is cancelled as soon as it scrolls out of view |
+ | Request interval (ms) | `requestIntervalMs` | `600` | Minimum spacing between translation requests |
+ | Max concurrent | `maxConcurrent` | `2` | Maximum number of translation requests in flight |
+diff --git a/apps/multiplatform/spec/client/translation.md b/apps/multiplatform/spec/client/translation.md
+index 4f14404cc..7934de66c 100644
+--- a/apps/multiplatform/spec/client/translation.md
++++ b/apps/multiplatform/spec/client/translation.md
+@@ -34,7 +34,8 @@ Three entry points share one service:
+ | Entry point | Trigger | Result |
+ |---|---|---|
+ | Message menu | Long-press / right-click a message bubble → **Translate** | Auto-detect source language, append the translation under the bubble |
+-| Compose button | `ic_translate` button left of the send button (tap / long-press) | Translate the compose text; tap = default target language, long-press = pick one for this message |
++| Compose button | `ic_translate` button left of the send button (tap / long-press) | Translate the compose text; tap = the configured compose target language (`targetLang`), long-press = pick one for this message |
++| Received messages | The two rows above plus automatic mode | Always translated into the **interface language** (`TranslationService.incomingTargetLang()`), never into `targetLang` |
+ | Automatic | `translationAutoTranslate` on | Translate the messages currently visible in the viewport, rate-limited and cancelled on scroll-out |
+ 
+ ## 2. Providers
+@@ -58,7 +59,7 @@ and 3). See [spec/state.md](../state.md) §5 "Chat Translation (client-only)".
+ 
+ | Key | Type | Contents |
+ |---|---|---|
+-| `translationConfig` | `SharedPreference<TranslationConfig>` (stored as a JSON string) | `provider`, `targetLang`, `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), plus the non-secret provider fields `baiduAppId`, `aiBaseUrl`/`aiModel` |
++| `translationConfig` | `SharedPreference<TranslationConfig>` (stored as a JSON string) | `provider`, `targetLang` (compose target only), `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), plus the non-secret provider fields `baiduAppId`, `aiBaseUrl`/`aiModel` |
+ | `translationSecrets` | `SharedPreference<String?>` | The whole `TranslationSecrets` JSON (`baiduKey`, `aiApiKey`), encrypted with `Cryptor.encryptText`; falls back to plaintext only if the platform cryptor is unavailable |
+ | `translationSecretsIv` | `SharedPreference<String?>` | Base64 IV used to encrypt `translationSecrets` |
+ | `translationAutoTranslate` | `SharedPreference<Boolean>` | Viewport auto-translation switch (default `false`) |
+@@ -76,7 +77,10 @@ registry `results = mutableStateMapOf<Long, TranslationEntry>()` (keyed by chat
+ - **`translateChatItem(itemId: Long, text: String, targetLang: String? = null, scope: CoroutineScope)`** —
+   the message-menu entry point. It immediately stores a `LOADING` `TranslationEntry` under `itemId`, then
+   launches `translateNow(...)` and replaces the entry with the result (`DONE` or `ERROR`). `targetLang`
+-  defaults to `config().targetLang`.
++  defaults to `incomingTargetLang()`, i.e. received messages follow the interface language.
++- **`incomingTargetLang(): String`** — target language for received messages: the interface language mapped
++  through `translationLangForUiLanguage` (Chinese variants → `zh`, `pt-BR` → `pt`, `in` → `id`, `iw` → `he`,
++  fallback `en`). Used as the default by `translateChatItem` and `autoTranslateVisible`.
+ - **`suspend fun translateTextNow(text: String, targetLang: String? = null): TranslationEntry`** — the
+   compose-key entry point; returns the `TranslationEntry` directly instead of storing it.
+ - **`autoTranslateVisible(items: List<Pair<Long, String>>, scope: CoroutineScope, targetLang: String? = null)`** —
+@@ -137,8 +141,13 @@ stack.
+ `TranslationLang.kt` provides the supported language table and the pure `detectLanguage` function used by
+ the message-menu flow when the source language is not known (translate as `auto` where the provider
+ supports it). `detectLanguageOrNull` is the same detection but returns `null` for inconclusive (Latin)
+-input, so callers can fall back to the provider's own detection instead of a guess. The target language comes from `translationConfig.targetLang` (default English) or, for a
+-long-press compose translation, from the language chosen in the menu for that one message.
++input, so callers can fall back to the provider's own detection instead of a guess.
++
++The target language depends on the direction: text the user **receives** is translated into the interface
++language via `translationLangForUiLanguage(uiLanguage)`, which maps `zh-CN`/`zh-TW`→`zh`, `pt-BR`→`pt`,
++`in`→`id`, `iw`→`he`, strips other region suffixes and falls back to `en` for interface languages that have no
++translation language. Text the user **writes** uses `translationConfig.targetLang` (default English) or, for a
++long-press compose translation, the language chosen in the menu for that one message.
+ 
+ ## 8. Message-Menu Translation
+ 
+@@ -147,7 +156,7 @@ with the `ic_translate` icon. Selecting it:
+ 
+ 1. reads the message text from `ChatItem.content.text`,
+ 2. calls `TranslationService.translateChatItem(itemId, text)` (the source language is detected and the
+-   target comes from `translationConfig.targetLang`),
++   target is the interface language, see §7),
+ 3. appends the result as a bilingual line (原文 + 译文) rendered inside `FramedItemView` under the bubble.
+ 
+ The original message is untouched — this is a display-only decoration of the item, not an edit.
+@@ -155,8 +164,8 @@ The original message is untouched — this is a display-only decoration of the i
+ ## 9. Compose-Bar Translation
+ 
+ The `ic_translate` button (36 dp, circular) sits left of the send button in `SendMsgView`. See
+-[compose.md](compose.md) §9 for the button behaviour. In short: tap translates to the default target
+-language, long-press opens a language menu for a one-off target; the original text is kept in
++[compose.md](compose.md) §9 for the button behaviour. In short: tap translates to `translationConfig.targetLang`
++(shown in Settings as "Translate typed text to"), long-press opens a language menu for a one-off target; the original text is kept in
+ `ComposeState.translateOriginal` and the translation in `translateResult`, and a second tap restores the
+ original only while `canUndoTranslation` holds. Editing the text after translating disables undo and the
+ tap re-translates.
+diff --git a/apps/multiplatform/spec/state.md b/apps/multiplatform/spec/state.md
+index 454ee40af..d364e3430 100644
+--- a/apps/multiplatform/spec/state.md
++++ b/apps/multiplatform/spec/state.md
+@@ -512,7 +512,7 @@ secrets are encrypted with `Cryptor` before they are stored.
+ 
+ | Key | Pref name | Type | Default | Purpose |
+ |---|---|---|---|---|
+-| `translationConfig` | `"TranslationConfig"` | `SharedPreference<TranslationConfig>` (stored as JSON) | `TranslationConfig()` | `provider` (`GOOGLE` default), `targetLang` (`"en"`), `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), `baiduAppId`, `aiBaseUrl` (`https://api.deepseek.com/v1`) / `aiModel` (`deepseek-chat`) |
++| `translationConfig` | `"TranslationConfig"` | `SharedPreference<TranslationConfig>` (stored as JSON) | `TranslationConfig()` | `provider` (`GOOGLE` default), `targetLang` (`"en"`, compose translation key only - received messages follow the interface language), `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), `baiduAppId`, `aiBaseUrl` (`https://api.deepseek.com/v1`) / `aiModel` (`deepseek-chat`) |
+ | `translationSecrets` | `"TranslationSecrets"` | `SharedPreference<String?>` | `null` | `TranslationSecrets` JSON (`baiduKey`, `aiApiKey`) encrypted with `Cryptor.encryptText` (plaintext fallback if the cryptor is unavailable) |
+ | `translationSecretsIv` | `"TranslationSecretsIv"` | `SharedPreference<String?>` | `null` | Base64 IV used to encrypt `translationSecrets` |
+ | `translationAutoTranslate` | `"TranslationAutoTranslate"` | `SharedPreference<Boolean>` | `false` | Automatically translate the messages visible in the viewport, rate-limited |

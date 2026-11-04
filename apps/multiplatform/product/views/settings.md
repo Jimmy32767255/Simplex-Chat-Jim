@@ -257,7 +257,7 @@ translation service (see `product/rules.md` RULE-31). Every value is stored loca
 | Row | Preference Key | Default | Description |
 |---|---|---|---|
 | Provider | `provider` (`TranslationProvider`) | `GOOGLE` | `GOOGLE` (free), `BING` (free), `BAIDU` (needs an API Key) or `AI` (OpenAI Responses protocol, DeepSeek default) |
-| Default target language | `targetLang` | `English` | Language used by a single tap on the compose-bar translate button |
+| Translate typed text to | `targetLang` | `English` | Target language of a single tap on the compose-bar translate button (text the user writes). Received messages are always translated into the interface language, shown in the footer under this row |
 | Auto-translate | `translationAutoTranslate` | Off | Translate the messages currently visible in the viewport; a message's in-flight request is cancelled as soon as it scrolls out of view |
 | Request interval (ms) | `requestIntervalMs` | `600` | Minimum spacing between translation requests |
 | Max concurrent | `maxConcurrent` | `2` | Maximum number of translation requests in flight |

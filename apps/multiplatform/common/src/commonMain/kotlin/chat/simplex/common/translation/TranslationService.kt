@@ -130,11 +130,18 @@ object TranslationService {
 
   // region ---- public translation entry points ----
 
+  /**
+   * Target language for messages the user receives: the app's interface language, mapped onto the
+   * supported translation languages (see [translationLangForUiLanguage]). The configured target
+   * language is only used for the compose translation key, i.e. for text the user writes.
+   */
+  fun incomingTargetLang(): String = translationLangForUiLanguage(TranslationStrings.effectiveLanguage())
+
   /** Translate a chat item, storing the result in the observable registry under its id. */
   fun translateChatItem(itemId: Long, text: String, targetLang: String? = null, scope: CoroutineScope) {
     if (text.isBlank()) return
     val cfg = config()
-    val target = targetLang ?: cfg.targetLang
+    val target = targetLang ?: incomingTargetLang()
     results[itemId] = TranslationEntry(TranslationStatus.LOADING, targetLang = target)
     scope.launch {
       val entry = try {
@@ -158,7 +165,7 @@ object TranslationService {
   fun autoTranslateVisible(items: List<Pair<Long, String>>, scope: CoroutineScope, targetLang: String? = null) {
     val cfg = config()
     val rate = cfg.rate.normalized()
-    val target = targetLang ?: cfg.targetLang
+    val target = targetLang ?: incomingTargetLang()
     if (!isConfigured(cfg, secrets())) return
     val queue = items
       .filter { (id, text) -> text.isNotBlank() && results[id]?.isDone != true && results[id]?.isLoading != true && autoJobs[id]?.isActive != true }

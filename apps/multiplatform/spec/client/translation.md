@@ -34,7 +34,8 @@ Three entry points share one service:
 | Entry point | Trigger | Result |
 |---|---|---|
 | Message menu | Long-press / right-click a message bubble → **Translate** | Auto-detect source language, append the translation under the bubble |
-| Compose button | `ic_translate` button left of the send button (tap / long-press) | Translate the compose text; tap = default target language, long-press = pick one for this message |
+| Compose button | `ic_translate` button left of the send button (tap / long-press) | Translate the compose text; tap = the configured compose target language (`targetLang`), long-press = pick one for this message |
+| Received messages | The two rows above plus automatic mode | Always translated into the **interface language** (`TranslationService.incomingTargetLang()`), never into `targetLang` |
 | Automatic | `translationAutoTranslate` on | Translate the messages currently visible in the viewport, rate-limited and cancelled on scroll-out |
 
 ## 2. Providers
@@ -58,7 +59,7 @@ and 3). See [spec/state.md](../state.md) §5 "Chat Translation (client-only)".
 
 | Key | Type | Contents |
 |---|---|---|
-| `translationConfig` | `SharedPreference<TranslationConfig>` (stored as a JSON string) | `provider`, `targetLang`, `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), plus the non-secret provider fields `baiduAppId`, `aiBaseUrl`/`aiModel` |
+| `translationConfig` | `SharedPreference<TranslationConfig>` (stored as a JSON string) | `provider`, `targetLang` (compose target only), `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), plus the non-secret provider fields `baiduAppId`, `aiBaseUrl`/`aiModel` |
 | `translationSecrets` | `SharedPreference<String?>` | The whole `TranslationSecrets` JSON (`baiduKey`, `aiApiKey`), encrypted with `Cryptor.encryptText`; falls back to plaintext only if the platform cryptor is unavailable |
 | `translationSecretsIv` | `SharedPreference<String?>` | Base64 IV used to encrypt `translationSecrets` |
 | `translationAutoTranslate` | `SharedPreference<Boolean>` | Viewport auto-translation switch (default `false`) |
@@ -76,7 +77,10 @@ registry `results = mutableStateMapOf<Long, TranslationEntry>()` (keyed by chat 
 - **`translateChatItem(itemId: Long, text: String, targetLang: String? = null, scope: CoroutineScope)`** —
   the message-menu entry point. It immediately stores a `LOADING` `TranslationEntry` under `itemId`, then
   launches `translateNow(...)` and replaces the entry with the result (`DONE` or `ERROR`). `targetLang`
-  defaults to `config().targetLang`.
+  defaults to `incomingTargetLang()`, i.e. received messages follow the interface language.
+- **`incomingTargetLang(): String`** — target language for received messages: the interface language mapped
+  through `translationLangForUiLanguage` (Chinese variants → `zh`, `pt-BR` → `pt`, `in` → `id`, `iw` → `he`,
+  fallback `en`). Used as the default by `translateChatItem` and `autoTranslateVisible`.
 - **`suspend fun translateTextNow(text: String, targetLang: String? = null): TranslationEntry`** — the
   compose-key entry point; returns the `TranslationEntry` directly instead of storing it.
 - **`autoTranslateVisible(items: List<Pair<Long, String>>, scope: CoroutineScope, targetLang: String? = null)`** —
@@ -137,8 +141,13 @@ stack.
 `TranslationLang.kt` provides the supported language table and the pure `detectLanguage` function used by
 the message-menu flow when the source language is not known (translate as `auto` where the provider
 supports it). `detectLanguageOrNull` is the same detection but returns `null` for inconclusive (Latin)
-input, so callers can fall back to the provider's own detection instead of a guess. The target language comes from `translationConfig.targetLang` (default English) or, for a
-long-press compose translation, from the language chosen in the menu for that one message.
+input, so callers can fall back to the provider's own detection instead of a guess.
+
+The target language depends on the direction: text the user **receives** is translated into the interface
+language via `translationLangForUiLanguage(uiLanguage)`, which maps `zh-CN`/`zh-TW`→`zh`, `pt-BR`→`pt`,
+`in`→`id`, `iw`→`he`, strips other region suffixes and falls back to `en` for interface languages that have no
+translation language. Text the user **writes** uses `translationConfig.targetLang` (default English) or, for a
+long-press compose translation, the language chosen in the menu for that one message.
 
 ## 8. Message-Menu Translation
 
@@ -147,7 +156,7 @@ with the `ic_translate` icon. Selecting it:
 
 1. reads the message text from `ChatItem.content.text`,
 2. calls `TranslationService.translateChatItem(itemId, text)` (the source language is detected and the
-   target comes from `translationConfig.targetLang`),
+   target is the interface language, see §7),
 3. appends the result as a bilingual line (原文 + 译文) rendered inside `FramedItemView` under the bubble.
 
 The original message is untouched — this is a display-only decoration of the item, not an edit.
@@ -155,8 +164,8 @@ The original message is untouched — this is a display-only decoration of the i
 ## 9. Compose-Bar Translation
 
 The `ic_translate` button (36 dp, circular) sits left of the send button in `SendMsgView`. See
-[compose.md](compose.md) §9 for the button behaviour. In short: tap translates to the default target
-language, long-press opens a language menu for a one-off target; the original text is kept in
+[compose.md](compose.md) §9 for the button behaviour. In short: tap translates to `translationConfig.targetLang`
+(shown in Settings as "Translate typed text to"), long-press opens a language menu for a one-off target; the original text is kept in
 `ComposeState.translateOriginal` and the translation in `translateResult`, and a second tap restores the
 original only while `canUndoTranslation` holds. Editing the text after translating disables undo and the
 tap re-translates.

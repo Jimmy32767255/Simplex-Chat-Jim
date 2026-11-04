@@ -39,6 +39,28 @@ fun languageDisplayName(code: String): String =
   translationLanguages.firstOrNull { it.code == code }?.displayName ?: code
 
 /**
+ * Translation language for a UI language code from the app's appearance settings (`zh-CN`, `pt-BR`,
+ * `in`, `iw`, ...). Received messages are translated into the interface language, so the codes have to
+ * be mapped onto [translationLanguages]; anything unmapped falls back to English.
+ */
+fun translationLangForUiLanguage(uiLanguage: String?): String {
+  val raw = uiLanguage?.trim()?.lowercase()?.replace('_', '-')?.takeIf { it.isNotEmpty() } ?: return "en"
+  uiAliases[raw]?.let { return it }
+  val base = raw.substringBefore('-')
+  uiAliases[base]?.let { return it }
+  return if (translationLanguages.any { it.code == base }) base else "en"
+}
+
+/** UI language codes whose translation code differs, including the script-qualified Chinese ones. */
+private val uiAliases: Map<String, String> = mapOf(
+  "in" to "id",
+  "iw" to "he",
+  "zh" to "zh", "zh-cn" to "zh", "zh-sg" to "zh", "zh-hans" to "zh",
+  "zh-tw" to "zh", "zh-hk" to "zh", "zh-hant" to "zh",
+  "pt-br" to "pt", "pt-pt" to "pt",
+)
+
+/**
  * Best-effort detection of the dominant script/language of [text]. Returns a language code from
  * [translationLanguages], defaulting to "en" for Latin-script text (European languages can't be
  * separated cheaply and English is a safe default for the skip check).

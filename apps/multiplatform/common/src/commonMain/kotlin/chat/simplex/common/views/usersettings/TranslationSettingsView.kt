@@ -108,12 +108,16 @@ fun TranslationSettingsView(close: () -> Unit) {
       }
       SectionDividerSpaced()
 
-      // ---- Target language ----
-      SectionView(TranslationStrings.targetLanguage) {
+      // ---- Target language for text the user writes ----
+      // Received messages are translated into the interface language instead (see TranslationService).
+      // Read it during composition so the note follows an interface-language change immediately.
+      val incomingLang = TranslationService.incomingTargetLang()
+      SectionView(TranslationStrings.composeTargetLanguage) {
         val langs = remember { translationLanguages.map { it.code to it.displayName } }
-        ExposedDropDownSettingRow(TranslationStrings.targetLanguage, langs, targetLang) {
+        ExposedDropDownSettingRow(TranslationStrings.composeTargetLanguage, langs, targetLang) {
           targetLang.value = it
         }
+        SectionTextFooter(TranslationStrings.incomingFollowsInterface(languageDisplayName(incomingLang)))
       }
       SectionDividerSpaced()
 

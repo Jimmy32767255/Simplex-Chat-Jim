@@ -55,7 +55,11 @@ data class TranslationRateConfig(
 @Serializable
 data class TranslationConfig(
   val provider: TranslationProvider = TranslationProvider.GOOGLE,
-  /** Default target language code, e.g. "en". */
+  /**
+   * Target language for text the user writes (the compose translation key), e.g. "en". Messages the
+   * user receives are always translated into the interface language instead - see
+   * [chat.simplex.common.translation.translationLangForUiLanguage].
+   */
   val targetLang: String = "en",
   val rate: TranslationRateConfig = TranslationRateConfig(),
   /** Baidu AppID (not secret, but provider-specific). */

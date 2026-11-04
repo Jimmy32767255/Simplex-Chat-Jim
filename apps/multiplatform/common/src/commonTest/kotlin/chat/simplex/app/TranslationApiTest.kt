@@ -244,6 +244,30 @@ class TranslationApiTest {
     assertNull(canUndoTranslation("hi", "", ""))
   }
 
+  // ---- Interface language -> translation target for received messages ----
+  @Test
+  fun testTranslationLangForUiLanguage() {
+    // Missing / unresolved interface language falls back to English.
+    assertEquals("en", translationLangForUiLanguage(null))
+    assertEquals("en", translationLangForUiLanguage(""))
+    assertEquals("en", translationLangForUiLanguage("   "))
+    assertEquals("en", translationLangForUiLanguage("system"))
+    // Direct hits.
+    assertEquals("ja", translationLangForUiLanguage("ja"))
+    assertEquals("en", translationLangForUiLanguage("EN"))
+    // Region-qualified codes use the base language.
+    assertEquals("en", translationLangForUiLanguage("en-GB"))
+    assertEquals("de", translationLangForUiLanguage("de_DE"))
+    // Codes whose translation language differs.
+    assertEquals("zh", translationLangForUiLanguage("zh-CN"))
+    assertEquals("zh", translationLangForUiLanguage("zh-TW"))
+    assertEquals("pt", translationLangForUiLanguage("pt-BR"))
+    assertEquals("id", translationLangForUiLanguage("in"))
+    assertEquals("he", translationLangForUiLanguage("iw"))
+    // Interface languages without a translation language fall back to English.
+    assertEquals("en", translationLangForUiLanguage("bg"))
+  }
+
   @Test
   fun testTranslationEntryFlags() {
     assertTrue(TranslationEntry(TranslationStatus.LOADING).isLoading)
