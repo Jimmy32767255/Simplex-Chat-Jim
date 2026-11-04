@@ -23,6 +23,13 @@ expect val appPlatform: AppPlatform
 
 expect val deviceName: String
 
+/**
+ * Language code of the locale currently in effect on the platform (e.g. "en", "zh"). Used as the
+ * fallback for code that has to pick a language itself when the app language preference follows the
+ * system ("system" or unset).
+ */
+expect val systemLanguageCode: String
+
 expect fun isAppVisibleAndFocused(): Boolean
 
 expect fun appLinkSchemeRegistered(): Boolean

@@ -330,9 +330,10 @@ Examples from platform files:
 
 | expect Declaration | File | Line |
 |---|---|---|
-| `expect val appPlatform: AppPlatform` | [`AppCommon.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt#L20) | 20 |
-| `expect val deviceName: String` | [`AppCommon.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt#L22) | 22 |
-| `expect fun isAppVisibleAndFocused(): Boolean` | [`AppCommon.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt#L24) | 24 |
+| `expect val appPlatform: AppPlatform` | [`AppCommon.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt#L22) | 22 |
+| `expect val deviceName: String` | [`AppCommon.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt#L24) | 24 |
+| `expect val systemLanguageCode: String` | [`AppCommon.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt#L31) | 31 |
+| `expect fun isAppVisibleAndFocused(): Boolean` | [`AppCommon.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt#L33) | 33 |
 | `expect val dataDir: File` | [`Files.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Files.kt#L18) | 18 |
 | `expect val tmpDir: File` | [`Files.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Files.kt#L19) | 19 |
 | `expect val filesDir: File` | [`Files.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Files.kt#L20) | 20 |

@@ -20,9 +20,7 @@ enum class TranslationProvider {
   /** Baidu Translate API (requires AppID + secret key). */
   BAIDU,
   /** AI translation over the OpenAI Responses protocol (default provider: DeepSeek). */
-  AI,
-  /** User-defined OpenAI-compatible Responses endpoint. */
-  CUSTOM;
+  AI;
 
   val displayName: String
     get() = when (this) {
@@ -30,7 +28,6 @@ enum class TranslationProvider {
       BING -> "Bing (free)"
       BAIDU -> "Baidu (API key)"
       AI -> "AI (OpenAI Responses)"
-      CUSTOM -> "Custom (OpenAI-compatible)"
     }
 }
 
@@ -66,9 +63,6 @@ data class TranslationConfig(
   /** AI (Responses protocol) base URL, e.g. https://api.deepseek.com/v1 */
   val aiBaseUrl: String = "https://api.deepseek.com/v1",
   val aiModel: String = "deepseek-chat",
-  /** Custom OpenAI-compatible base URL / model. */
-  val customBaseUrl: String = "",
-  val customModel: String = "",
 )
 
 /** Secret material, encrypted as a whole and stored in the local preferences. */
@@ -76,7 +70,6 @@ data class TranslationConfig(
 data class TranslationSecrets(
   val baiduKey: String = "",
   val aiApiKey: String = "",
-  val customApiKey: String = "",
 )
 
 /** Status of a single translation entry (per chat item / per compose text). */

@@ -69,7 +69,6 @@ object TranslationService {
       TranslationProvider.BING -> true
       TranslationProvider.BAIDU -> c.baiduAppId.isNotBlank() && s.baiduKey.isNotBlank()
       TranslationProvider.AI -> c.aiBaseUrl.isNotBlank() && c.aiModel.isNotBlank() && s.aiApiKey.isNotBlank()
-      TranslationProvider.CUSTOM -> c.customBaseUrl.isNotBlank() && c.customModel.isNotBlank() && s.customApiKey.isNotBlank()
     }
 
   // endregion
@@ -233,14 +232,9 @@ object TranslationService {
         else parseGoogleResponse(res.body).copy(targetLang = target)
       }
       TranslationProvider.BING -> {
-        val token = httpGetText(bingAuthUrl())
-        if (!token.success) return TranslationEntry(TranslationStatus.ERROR, error = "Bing auth failed: ${token.error}", targetLang = target)
         val res = httpPostJson(
           bingTranslateUrl(target),
-          mapOf(
-            "Authorization" to "Bearer ${token.body.trim()}",
-            "Content-Type" to "application/json",
-          ),
+          mapOf("Content-Type" to "application/json"),
           bingTranslateBody(text),
         )
         if (!res.success) TranslationEntry(TranslationStatus.ERROR, error = res.error ?: res.body, targetLang = target)
@@ -248,7 +242,8 @@ object TranslationService {
       }
       TranslationProvider.BAIDU -> {
         val salt = Clock.System.now().toEpochMilliseconds().toString()
-        val url = baiduTranslateUrl(cfg.baiduAppId, text, salt, s.baiduKey, target)
+        // Pass the script-detected source language instead of relying on Baidu's own detection.
+        val url = baiduTranslateUrl(cfg.baiduAppId, text, salt, s.baiduKey, target, detectLanguageOrNull(text))
         val res = httpGetText(url)
         if (!res.success) TranslationEntry(TranslationStatus.ERROR, error = res.error ?: res.body, targetLang = target)
         else parseBaiduResponse(res.body).copy(targetLang = target)
@@ -262,19 +257,6 @@ object TranslationService {
             "Content-Type" to "application/json",
           ),
           aiResponsesBody(cfg.aiModel, text, target),
-        )
-        if (!res.success) TranslationEntry(TranslationStatus.ERROR, error = res.error ?: res.body, targetLang = target)
-        else parseAiResponsesResponse(res.body).copy(targetLang = target)
-      }
-      TranslationProvider.CUSTOM -> {
-        val url = aiResponsesUrl(cfg.customBaseUrl)
-        val res = httpPostJson(
-          url,
-          mapOf(
-            "Authorization" to "Bearer ${s.customApiKey}",
-            "Content-Type" to "application/json",
-          ),
-          aiResponsesBody(cfg.customModel, text, target),
         )
         if (!res.success) TranslationEntry(TranslationStatus.ERROR, error = res.error ?: res.body, targetLang = target)
         else parseAiResponsesResponse(res.body).copy(targetLang = target)

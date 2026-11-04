@@ -1,0 +1,783 @@
+diff --git a/TODO.md b/TODO.md
+index 54c281d04..0ef29d76e 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -191,8 +191,8 @@
+ - [x] 应用内聊天翻译：长按任意消息气泡即可翻译并以双语对照显示，输入框发送键旁新增翻译键，设置页可选翻译服务商并配置密钥，自动翻译当前视区消息并按速率限制批量处理
+   - 已实现（基于 7.0.4）：消息菜单翻译——长按/右键任意消息气泡，弹出菜单新增「翻译」项（图标 `ic_translate`），点击后自动识别源语言并翻译；译文以「原文 + 译文」双语气泡在该消息下方追加显示，属非破坏性展示，不修改原消息内容。
+   - 已实现（基于 7.0.4）：发送键旁翻译键——输入框发送键左侧新增 36dp 圆形翻译键（`ic_translate`）。单击把输入框当前文本翻译为默认目标语言（默认英语）；长按弹出语言选择菜单，选中后本次翻译为该语言（仅本次有效，不改默认设置）；翻译后再点一次撤销回原文，若翻译后又编辑了文本则不可撤销、此时点击改为重新翻译（是否可撤销由 `ComposeState` 新增的 `translateOriginal`/`translateResult` 字段判断）。
+-  - 已实现（基于 7.0.4）：设置页——设置新增翻译设置界面（标题 `translation_settings`，即「翻译消息 / Translate messages」），可配置服务提供商 provider（Google 免费、Bing 免费、百度（需 API Key）、AI 翻译（OpenAI Responses 协议，默认 DeepSeek）、自定义（OpenAI 兼容端点，可自定义 base URL/模型/密钥））、默认目标语言 targetLang、自动翻译开关 autoTranslate，以及各提供商的 API Key。
+-  - 已实现（基于 7.0.4）：密钥与端点——百度另存 AppID/密钥；AI 提供方默认 base URL `https://api.deepseek.com/v1`、模型 `deepseek-chat`，自定义方（custom）的 base URL/模型默认为空、由用户自填。所有密钥先用 `Cryptor` 加密再存本机，不随备份导出。
++  - 已实现（基于 7.0.4）：设置页——设置新增翻译设置界面（标题 `translation_settings`，即「翻译消息 / Translate messages」），可配置服务提供商 provider（Google 免费、Bing 免费、百度（需 API Key）、AI 翻译（OpenAI Responses 协议，默认 DeepSeek））、默认目标语言 targetLang、自动翻译开关 autoTranslate，以及各提供商的 API Key。
++  - 已实现（基于 7.0.4）：密钥与端点——百度另存 AppID/密钥；AI 提供方默认 base URL `https://api.deepseek.com/v1`、模型 `deepseek-chat`。所有密钥先用 `Cryptor` 加密再存本机，不随备份导出。
+   - 已实现（基于 7.0.4）：自动翻译与限流——autoTranslate 只翻译当前视区可见消息（由当前视区可见项集合的变化触发，带 400ms 防抖；已翻译或正在翻译的消息不重复请求）；按速率限制批量处理：请求间隔 `requestIntervalMs`（默认 600）、最大并发 `maxConcurrent`（默认 2）、单次批量上限 `batchLimit`（默认 20）；手动翻译同样受最小间隔约束，防止被服务商封禁或耗尽余额。
+   - 已实现（基于 7.0.4）：纯客户端本机存储——所有配置存本机 `AppPreferences`（JSON 字符串偏好 `translationConfig`，密钥加密存 `translationSecrets` + `translationSecretsIv`），**不进入 `AppSettings` 导出**；不修改核心（Haskell）与网络协议，便于日后跟随官方版本升级。
+   - 改动文件：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/`（`TranslationModels.kt`、`TranslationLang.kt`、`TranslationApi.kt`、`TranslationHttp.kt`（`expect` suspend httpGetText/httpPostJson）+ desktop/android actual、`TranslationService.kt`）；`.../model/SimpleXAPI.kt`（`AppPreferences` 的四个翻译偏好与 `SHARED_PREFS_*` 常量）、`.../views/chat/ComposeView.kt`（`ComposeState.translateOriginal`/`translateResult`）；聊天侧 UI（消息菜单项、发送键翻译键、气泡译文、自动翻译可见区）在 `.../views/chat/`（`SendMsgView.kt`、`ChatItemView.kt`、`FramedItemView.kt` 及翻译界面），设置侧在 `.../views/usersettings/SettingsView.kt` 与 `TranslationSettingsView.kt`；`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`。
+@@ -204,6 +204,20 @@ none
+ 
+ ## bug fix:
+ 
++- [x] 翻译功能三处问题：中文界面仍显示英文文案、除 AI 之外的所有翻译方式都失败、设置里多出一个「自定义」服务提供商
++  - 原因一（文案）：`TranslationStrings.isZh()` 只读 `appLanguage` 偏好，偏好为 `null`（默认「跟随系统」）或字面量 `"system"` 时一律判为非中文，于是中文系统的用户看到的全是英文。
++  - 原因二（必应）：代码走的是 `edge.microsoft.com/translate/auth` 取令牌 + `api-edge.cognitive.microsofttranslator.com/translate` 翻译的两步流程，而这两个端点在 2026 年已下线（实测 `/translate/auth` 直连与代理均返回 404），因此必应必然失败。
++  - 原因三（百度）：请求固定用 `from=auto`，完全依赖百度自己的语种识别；识别错时百度会把原文原样返回，看起来「翻译了跟没翻译一样」。另外多行文本的 `trans_result[]` 原来被直接首尾拼接、丢了换行，空结果会被当成成功但译文为空。
++  - 原因四（提供商）：`TranslationProvider.CUSTOM` 是「AI（OpenAI Responses）」的重复选项（同一个 `aiResponsesBody`/`parseAiResponsesResponse`，只是多一套 base URL/模型/密钥字段），属于多余的第五项。
++  - 修复方法（文案）：新增 `expect val systemLanguageCode: String`（desktop/android 均为 `Locale.getDefault().language`），`TranslationStrings.effectiveLanguage()` 在偏好为空或 `"system"` 时回退到系统语言，`isZh()` 据此判断，中文界面恢复中文。完整的 27 语言覆盖没有做：moko-resources 只支持固定的 7 类资源、无法新增 `translation.xml`，而 `MR$strings.<clinit>` 已逼近 JVM 单方法 64 KiB 上限（实测余量约 6 条字符串），新增文案必然 `Method too large`，已记入 `product/gaps.md` GAP-08 等官方拆分后再跟进。
++  - 修复方法（必应）：改用免费 Edge 端点 `POST edge.microsoft.com/translate/translatetext?from=&to=<code>`，请求体为裸 JSON 字符串数组 `["text"]`，无需令牌；新增 `msLangCode()` 把中文映射成端点要求的 `zh-Hans`/`zh-Hant`，`bingAuthUrl` 与令牌流程整体删除。
++  - 修复方法（百度）：新增 `detectLanguageOrNull()`（脚本识别，拉丁字母返回 `null`），百度请求在脚本明确时把 `from` 显式设为识别结果（`ja→jp`、`ko→kor` 等仍走 `baiduLangCode`），拉丁文本仍用 `auto`；`trans_result[]` 改为按行用换行符拼接，空结果返回 `ERROR` 而不是空译文。
++  - 修复方法（提供商）：删除 `TranslationProvider.CUSTOM`（枚举、`isConfigured`/`translateNow` 分支、设置页三个输入框、`TranslationConfig.customBaseUrl/customModel`、`TranslationSecrets.customApiKey` 及相关文案）。配置用 `ignoreUnknownKeys` 解析，旧配置里残留的 `custom*` 字段会被忽略，不需要迁移。
++  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt`（`expect val systemLanguageCode`）、`.../desktopMain/.../platform/AppCommon.desktop.kt` 与 `.../androidMain/.../platform/AppCommon.android.kt`（actual）、`.../translation/TranslationStrings.kt`；`.../translation/TranslationApi.kt`（`bingTranslateUrl`/`msLangCode`/`bingTranslateBody`/`baiduTranslateUrl`/`parseBaiduResponse`）、`.../translation/TranslationLang.kt`（`detectLanguageOrNull`）、`.../translation/TranslationService.kt`（必应/百度分支，删除 CUSTOM）、`.../translation/TranslationModels.kt`、`.../views/usersettings/TranslationSettingsView.kt`。
++  - 测试：`apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TranslationApiTest.kt` 22 → 28 个用例（必应新端点的 URL 与请求体、`msLangCode`、百度显式 `from` 与 `auto` 回退、`detectLanguageOrNull`、多行拼接、空结果报错），`./gradlew :common:desktopTest --tests "chat.simplex.app.TranslationApiTest"` 28/28 通过，`./gradlew :common:compileKotlinDesktop` 与 `:common:compileDebugKotlinAndroid` 均编译通过。
++  - 未改核心与 `AppSettings`，未新增 MR 字符串，未新增偏好字段。
++  - 文档：`spec/client/translation.md`（提供商表、必然/百度请求说明、语言检测）、`spec/state.md`（§5 翻译配置字段）、`spec/architecture.md`（`systemLanguageCode` expect 与其行号）、`product/views/settings.md`、`product/rules.md`（RULE-31 提供商列表）、`product/gaps.md`（GAP-08）、`plans/2026-11-04-translation-provider-fixes.md`。
++
+ - [x] 彩虹模式：聊天页面里的气泡颜色不变色，只有自定义主题页面的预览会变色
+   - 原因：`SimpleXThemeOverride` 只把原始配色交给 `MaterialTheme` / `LocalAppColors`，完全没有套用彩虹相位；而聊天页面整体就包在它里面（`ChatView.kt` 用 `SimpleXThemeOverride(overrides ?: CurrentColors...)` 包住整个会话），所以设置页的色块会变色，真正进入聊天后气泡与界面色都不刷新。
+   - 附带问题：`rememberRainbowPhase()` 原来每个调用点各起一个计时器；`MarkdownText` 的默认文字色也调用它，于是聊天里每条消息都会各开一个协程，既不必要又会互相不同步，也与“手机端主页卡顿”有关。
+diff --git a/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/platform/AppCommon.android.kt b/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/platform/AppCommon.android.kt
+index f192b4da3..984fa79fd 100644
+--- a/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/platform/AppCommon.android.kt
++++ b/apps/multiplatform/common/src/androidMain/kotlin/chat/simplex/common/platform/AppCommon.android.kt
+@@ -28,6 +28,8 @@ actual fun isAppVisibleAndFocused(): Boolean = isAppOnForeground
+ // the manifest declares the scheme
+ actual fun appLinkSchemeRegistered(): Boolean = true
+ 
++actual val systemLanguageCode: String get() = Locale.getDefault().language
++
+ @SuppressLint("StaticFieldLeak")
+ lateinit var androidAppContext: Context
+ var mainActivity: WeakReference<FragmentActivity> = WeakReference(null)
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt
+index 1da9d8ff4..b9495fde0 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt
+@@ -23,6 +23,13 @@ expect val appPlatform: AppPlatform
+ 
+ expect val deviceName: String
+ 
++/**
++ * Language code of the locale currently in effect on the platform (e.g. "en", "zh"). Used as the
++ * fallback for code that has to pick a language itself when the app language preference follows the
++ * system ("system" or unset).
++ */
++expect val systemLanguageCode: String
++
+ expect fun isAppVisibleAndFocused(): Boolean
+ 
+ expect fun appLinkSchemeRegistered(): Boolean
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationApi.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationApi.kt
+index be60132a0..cfa6f53bf 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationApi.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationApi.kt
+@@ -130,15 +130,27 @@ internal fun parseGoogleResponse(body: String): TranslationEntry {
+ 
+ // endregion
+ 
+-// region ---- Bing (free edge endpoint; needs a short-lived bearer token) ----
+-
+-internal fun bingAuthUrl(): String = "https://edge.microsoft.com/translate/auth"
++// region ---- Bing (free edge endpoint) ----
+ 
++/**
++ * The legacy `edge.microsoft.com/translate/auth` token endpoint was retired in 2026, which made every
++ * Bing translation fail. The free Edge endpoint is now called directly: it needs no token and takes a
++ * bare JSON array of strings.
++ */
+ internal fun bingTranslateUrl(targetLang: String): String =
+-  "https://api-edge.cognitive.microsofttranslator.com/translate?api-version=3.0&from=&to=${urlEncode(targetLang)}"
++  "https://edge.microsoft.com/translate/translatetext?from=&to=${urlEncode(msLangCode(targetLang))}"
++
++/**
++ * Microsoft's own language codes: Chinese has to carry the script (`zh-Hans` / `zh-Hant`), otherwise
++ * the request is rejected.
++ */
++internal fun msLangCode(code: String): String = when (code) {
++  "zh" -> "zh-Hans"
++  "zh-TW", "zh-Hant" -> "zh-Hant"
++  else -> code
++}
+ 
+-internal fun bingTranslateBody(text: String): String =
+-  buildJsonArray { add(buildJsonObject { put("Text", text) }) }.toString()
++internal fun bingTranslateBody(text: String): String = buildJsonArray { add(text) }.toString()
+ 
+ internal fun parseBingResponse(body: String): TranslationEntry {
+   return try {
+@@ -159,11 +171,24 @@ internal fun parseBingResponse(body: String): TranslationEntry {
+ 
+ internal fun baiduSign(appId: String, q: String, salt: String, key: String): String = md5Hex(appId + q + salt + key)
+ 
+-internal fun baiduTranslateUrl(appId: String, q: String, salt: String, key: String, targetLang: String): String {
++/**
++ * Builds a Baidu request. [sourceLang] is an already detected language code (or `null` when the
++ * script is inconclusive); when it is known it is sent explicitly as `from`, because Baidu's own
++ * detection (`from=auto`) mislabels some inputs and then returns the text unchanged.
++ */
++internal fun baiduTranslateUrl(
++  appId: String,
++  q: String,
++  salt: String,
++  key: String,
++  targetLang: String,
++  sourceLang: String? = null,
++): String {
+   val sign = baiduSign(appId, q, salt, key)
+   // Baidu uses its own language codes: zh, en, jp, kor, fra, de, spa, ru, ara, th, vie, ...
+   val baiduLang = baiduLangCode(targetLang)
+-  return "https://fanyi-api.baidu.com/api/trans/vip/translate?q=${urlEncode(q)}&from=auto&to=${urlEncode(baiduLang)}&appid=${urlEncode(appId)}&salt=${urlEncode(salt)}&sign=$sign"
++  val from = sourceLang?.let { baiduLangCode(it) } ?: "auto"
++  return "https://fanyi-api.baidu.com/api/trans/vip/translate?q=${urlEncode(q)}&from=${urlEncode(from)}&to=${urlEncode(baiduLang)}&appid=${urlEncode(appId)}&salt=${urlEncode(salt)}&sign=$sign"
+ }
+ 
+ internal fun baiduLangCode(code: String): String = when (code) {
+@@ -188,12 +213,10 @@ internal fun parseBaiduResponse(body: String): TranslationEntry {
+       return TranslationEntry(TranslationStatus.ERROR, error = "Baidu error $errCode: ${root["error_msg"]?.jsonPrimitive?.contentOrNull ?: ""}")
+     }
+     val from = root["from"]?.jsonPrimitive?.contentOrNull
+-    val results = root["trans_result"]?.jsonArray
+-    val sb = StringBuilder()
+-    results?.forEach { item ->
+-      item.jsonObject["dst"]?.jsonPrimitive?.contentOrNull?.let { sb.append(it) }
+-    }
+-    TranslationEntry(TranslationStatus.DONE, sb.toString(), detectedLang = from)
++    // Baidu returns one entry per input line, so the translation has to be re-joined with newlines.
++    val lines = root["trans_result"]?.jsonArray?.mapNotNull { it.jsonObject["dst"]?.jsonPrimitive?.contentOrNull }
++    if (lines.isNullOrEmpty()) return TranslationEntry(TranslationStatus.ERROR, error = "Baidu response has no translation")
++    TranslationEntry(TranslationStatus.DONE, lines.joinToString("\n"), detectedLang = from)
+   } catch (e: Exception) {
+     TranslationEntry(TranslationStatus.ERROR, error = "Baidu response parse error: ${e.message}")
+   }
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationLang.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationLang.kt
+index 28d556065..2c0d7a72b 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationLang.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationLang.kt
+@@ -43,8 +43,15 @@ fun languageDisplayName(code: String): String =
+  * [translationLanguages], defaulting to "en" for Latin-script text (European languages can't be
+  * separated cheaply and English is a safe default for the skip check).
+  */
+-fun detectLanguage(text: String): String {
+-  if (text.isBlank()) return "en"
++fun detectLanguage(text: String): String = detectLanguageOrNull(text) ?: "en"
++
++/**
++ * Same detection as [detectLanguage], but returns `null` when the script is inconclusive (Latin
++ * script, where European languages cannot be separated cheaply). Providers that can detect the
++ * source language themselves are better left to do so in that case.
++ */
++fun detectLanguageOrNull(text: String): String? {
++  if (text.isBlank()) return null
+   var cjk = 0
+   var hiraKata = 0
+   var hangul = 0
+@@ -82,7 +89,7 @@ fun detectLanguage(text: String): String {
+   if (thai > 0) return "th"
+   if (devanagari > 0) return "hi"
+   if (cjk > 0) return "zh"
+-  return "en"
++  return null
+ }
+ 
+ /**
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationModels.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationModels.kt
+index 8393ab6f9..b283a5ed0 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationModels.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationModels.kt
+@@ -20,9 +20,7 @@ enum class TranslationProvider {
+   /** Baidu Translate API (requires AppID + secret key). */
+   BAIDU,
+   /** AI translation over the OpenAI Responses protocol (default provider: DeepSeek). */
+-  AI,
+-  /** User-defined OpenAI-compatible Responses endpoint. */
+-  CUSTOM;
++  AI;
+ 
+   val displayName: String
+     get() = when (this) {
+@@ -30,7 +28,6 @@ enum class TranslationProvider {
+       BING -> "Bing (free)"
+       BAIDU -> "Baidu (API key)"
+       AI -> "AI (OpenAI Responses)"
+-      CUSTOM -> "Custom (OpenAI-compatible)"
+     }
+ }
+ 
+@@ -66,9 +63,6 @@ data class TranslationConfig(
+   /** AI (Responses protocol) base URL, e.g. https://api.deepseek.com/v1 */
+   val aiBaseUrl: String = "https://api.deepseek.com/v1",
+   val aiModel: String = "deepseek-chat",
+-  /** Custom OpenAI-compatible base URL / model. */
+-  val customBaseUrl: String = "",
+-  val customModel: String = "",
+ )
+ 
+ /** Secret material, encrypted as a whole and stored in the local preferences. */
+@@ -76,7 +70,6 @@ data class TranslationConfig(
+ data class TranslationSecrets(
+   val baiduKey: String = "",
+   val aiApiKey: String = "",
+-  val customApiKey: String = "",
+ )
+ 
+ /** Status of a single translation entry (per chat item / per compose text). */
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt
+index bd9bfd847..d1a14df2d 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt
+@@ -69,7 +69,6 @@ object TranslationService {
+       TranslationProvider.BING -> true
+       TranslationProvider.BAIDU -> c.baiduAppId.isNotBlank() && s.baiduKey.isNotBlank()
+       TranslationProvider.AI -> c.aiBaseUrl.isNotBlank() && c.aiModel.isNotBlank() && s.aiApiKey.isNotBlank()
+-      TranslationProvider.CUSTOM -> c.customBaseUrl.isNotBlank() && c.customModel.isNotBlank() && s.customApiKey.isNotBlank()
+     }
+ 
+   // endregion
+@@ -233,14 +232,9 @@ object TranslationService {
+         else parseGoogleResponse(res.body).copy(targetLang = target)
+       }
+       TranslationProvider.BING -> {
+-        val token = httpGetText(bingAuthUrl())
+-        if (!token.success) return TranslationEntry(TranslationStatus.ERROR, error = "Bing auth failed: ${token.error}", targetLang = target)
+         val res = httpPostJson(
+           bingTranslateUrl(target),
+-          mapOf(
+-            "Authorization" to "Bearer ${token.body.trim()}",
+-            "Content-Type" to "application/json",
+-          ),
++          mapOf("Content-Type" to "application/json"),
+           bingTranslateBody(text),
+         )
+         if (!res.success) TranslationEntry(TranslationStatus.ERROR, error = res.error ?: res.body, targetLang = target)
+@@ -248,7 +242,8 @@ object TranslationService {
+       }
+       TranslationProvider.BAIDU -> {
+         val salt = Clock.System.now().toEpochMilliseconds().toString()
+-        val url = baiduTranslateUrl(cfg.baiduAppId, text, salt, s.baiduKey, target)
++        // Pass the script-detected source language instead of relying on Baidu's own detection.
++        val url = baiduTranslateUrl(cfg.baiduAppId, text, salt, s.baiduKey, target, detectLanguageOrNull(text))
+         val res = httpGetText(url)
+         if (!res.success) TranslationEntry(TranslationStatus.ERROR, error = res.error ?: res.body, targetLang = target)
+         else parseBaiduResponse(res.body).copy(targetLang = target)
+@@ -266,19 +261,6 @@ object TranslationService {
+         if (!res.success) TranslationEntry(TranslationStatus.ERROR, error = res.error ?: res.body, targetLang = target)
+         else parseAiResponsesResponse(res.body).copy(targetLang = target)
+       }
+-      TranslationProvider.CUSTOM -> {
+-        val url = aiResponsesUrl(cfg.customBaseUrl)
+-        val res = httpPostJson(
+-          url,
+-          mapOf(
+-            "Authorization" to "Bearer ${s.customApiKey}",
+-            "Content-Type" to "application/json",
+-          ),
+-          aiResponsesBody(cfg.customModel, text, target),
+-        )
+-        if (!res.success) TranslationEntry(TranslationStatus.ERROR, error = res.error ?: res.body, targetLang = target)
+-        else parseAiResponsesResponse(res.body).copy(targetLang = target)
+-      }
+     }
+   }
+ 
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationStrings.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationStrings.kt
+index 5c255e981..a48a99999 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationStrings.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationStrings.kt
+@@ -1,6 +1,7 @@
+ package chat.simplex.common.translation
+ 
+ import chat.simplex.common.model.ChatController
++import chat.simplex.common.platform.systemLanguageCode
+ 
+ /**
+  * Localized strings for the in-app translation feature.
+@@ -12,11 +13,19 @@ import chat.simplex.common.model.ChatController
+  * feature self-contained. Language is inferred from the app's interface language preference.
+  */
+ object TranslationStrings {
+-  private fun isZh(): Boolean {
+-    val lang = runCatching { ChatController.appPrefs.appLanguage.get() }.getOrNull()
+-    return lang?.startsWith("zh") == true
++  /**
++   * The language the interface is actually displayed in. The preference is `null` (or "system") when
++   * the app follows the system language, in which case the platform locale decides - so reading the
++   * preference alone made every non-English system show English.
++   */
++  private fun effectiveLanguage(): String? {
++    val pref = runCatching { ChatController.appPrefs.appLanguage.get() }.getOrNull()
++    if (pref != null && pref != "system") return pref
++    return runCatching { systemLanguageCode }.getOrNull()
+   }
+ 
++  private fun isZh(): Boolean = effectiveLanguage()?.startsWith("zh") == true
++
+   fun t(en: String, zh: String): String = if (isZh()) zh else en
+ 
+   // Generic
+@@ -50,9 +59,6 @@ object TranslationStrings {
+   val aiBaseUrl get() = t("API base URL", "API 地址")
+   val aiModel get() = t("Model", "模型")
+   val aiApiKey get() = t("API key", "API 密钥")
+-  val customBaseUrl get() = t("Custom API base URL", "自定义 API 地址")
+-  val customModel get() = t("Custom model", "自定义模型")
+-  val customApiKey get() = t("Custom API key", "自定义 API 密钥")
+   val providerSetup get() = t("Configure the fields below for the selected provider.", "请为所选提供商配置下方字段。")
+   val googleFreeNote get() = t("Google Translate (free) uses a public endpoint and needs no key.", "谷歌翻译（免费）使用公开接口，无需密钥。")
+   val bingFreeNote get() = t("Bing Translator (free) uses a public endpoint and needs no key.", "必应翻译（免费）使用公开接口，无需密钥。")
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/TranslationSettingsView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/TranslationSettingsView.kt
+index bd8eb0fd1..16a147af2 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/TranslationSettingsView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/TranslationSettingsView.kt
+@@ -46,12 +46,9 @@ fun TranslationSettingsView(close: () -> Unit) {
+   val baiduAppId = remember { mutableStateOf(TextFieldValue(initialConfig.baiduAppId)) }
+   val aiBaseUrl = remember { mutableStateOf(TextFieldValue(initialConfig.aiBaseUrl)) }
+   val aiModel = remember { mutableStateOf(TextFieldValue(initialConfig.aiModel)) }
+-  val customBaseUrl = remember { mutableStateOf(TextFieldValue(initialConfig.customBaseUrl)) }
+-  val customModel = remember { mutableStateOf(TextFieldValue(initialConfig.customModel)) }
+ 
+   val baiduKey = remember { mutableStateOf(TextFieldValue(initialSecrets.baiduKey)) }
+   val aiApiKey = remember { mutableStateOf(TextFieldValue(initialSecrets.aiApiKey)) }
+-  val customApiKey = remember { mutableStateOf(TextFieldValue(initialSecrets.customApiKey)) }
+ 
+   // Parse the numeric rate fields, falling back to the last saved value on empty/invalid input,
+   // then clamp to the valid range with normalized().
+@@ -73,15 +70,12 @@ fun TranslationSettingsView(close: () -> Unit) {
+         baiduAppId = baiduAppId.value.text.trim(),
+         aiBaseUrl = aiBaseUrl.value.text.trim(),
+         aiModel = aiModel.value.text.trim(),
+-        customBaseUrl = customBaseUrl.value.text.trim(),
+-        customModel = customModel.value.text.trim(),
+       )
+     )
+     TranslationService.saveSecrets(
+       TranslationSecrets(
+         baiduKey = baiduKey.value.text.trim(),
+         aiApiKey = aiApiKey.value.text.trim(),
+-        customApiKey = customApiKey.value.text.trim(),
+       )
+     )
+   }
+@@ -93,8 +87,7 @@ fun TranslationSettingsView(close: () -> Unit) {
+         provider.value, targetLang.value,
+         requestInterval.value.text, maxConcurrent.value.text, batchLimit.value.text,
+         baiduAppId.value.text, aiBaseUrl.value.text, aiModel.value.text,
+-        customBaseUrl.value.text, customModel.value.text,
+-        baiduKey.value.text, aiApiKey.value.text, customApiKey.value.text,
++        baiduKey.value.text, aiApiKey.value.text,
+       )
+     }
+       .drop(1)
+@@ -231,36 +224,6 @@ fun TranslationSettingsView(close: () -> Unit) {
+             SectionTextFooter(TranslationStrings.deepseekDefault)
+           }
+         }
+-        TranslationProvider.CUSTOM -> {
+-          SectionView(TranslationStrings.providerSetup) {
+-            Column(Modifier.padding(horizontal = DEFAULT_PADDING)) {
+-              DefaultConfigurableTextField(
+-                customBaseUrl,
+-                TranslationStrings.customBaseUrl,
+-                modifier = Modifier.fillMaxWidth(),
+-                isValid = { true },
+-                keyboardActions = KeyboardActions(onNext = { defaultKeyboardAction(ImeAction.Next) }),
+-                keyboardType = KeyboardType.Text,
+-              )
+-              DefaultConfigurableTextField(
+-                customModel,
+-                TranslationStrings.customModel,
+-                modifier = Modifier.fillMaxWidth(),
+-                isValid = { true },
+-                keyboardActions = KeyboardActions(onNext = { defaultKeyboardAction(ImeAction.Next) }),
+-                keyboardType = KeyboardType.Text,
+-              )
+-              DefaultConfigurableTextField(
+-                customApiKey,
+-                TranslationStrings.customApiKey,
+-                modifier = Modifier.fillMaxWidth(),
+-                isValid = { true },
+-                keyboardActions = KeyboardActions(onDone = { defaultKeyboardAction(ImeAction.Done) }),
+-                keyboardType = KeyboardType.Password,
+-              )
+-            }
+-          }
+-        }
+       }
+       SectionBottomSpacer()
+     }
+diff --git a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TranslationApiTest.kt b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TranslationApiTest.kt
+index e50b5ebdb..645d105e6 100644
+--- a/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TranslationApiTest.kt
++++ b/apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TranslationApiTest.kt
+@@ -100,7 +100,22 @@ class TranslationApiTest {
+ 
+   @Test
+   fun testBingBody() {
+-    assertEquals("""[{"Text":"hi"}]""", bingTranslateBody("hi"))
++    // The free edge endpoint takes a bare array of strings (the old [{"Text": ...}] shape is rejected).
++    assertEquals("""["hi"]""", bingTranslateBody("hi"))
++  }
++
++  @Test
++  fun testBingUrl() {
++    // No token endpoint any more, and Chinese must carry the script.
++    assertEquals("https://edge.microsoft.com/translate/translatetext?from=&to=zh-Hans", bingTranslateUrl("zh"))
++    assertEquals("https://edge.microsoft.com/translate/translatetext?from=&to=en", bingTranslateUrl("en"))
++  }
++
++  @Test
++  fun testMsLangCode() {
++    assertEquals("zh-Hans", msLangCode("zh"))
++    assertEquals("zh-Hant", msLangCode("zh-TW"))
++    assertEquals("ja", msLangCode("ja"))
+   }
+ 
+   // ---- Baidu ----
+@@ -120,6 +135,39 @@ class TranslationApiTest {
+     assertEquals("de", baiduLangCode("de"))
+   }
+ 
++  @Test
++  fun testBaiduUrlUsesDetectedSource() {
++    val withSource = baiduTranslateUrl("app", "你好", "123", "key", "en", "zh")
++    assertTrue(withSource.contains("&from=zh&"))
++    // Latin script is inconclusive locally, so Baidu is left to detect it.
++    val auto = baiduTranslateUrl("app", "hello", "123", "key", "zh", null)
++    assertTrue(auto.contains("&from=auto&"))
++    assertTrue(auto.contains("&to=zh&"))
++  }
++
++  @Test
++  fun testDetectLanguageOrNull() {
++    assertEquals("zh", detectLanguageOrNull("你好"))
++    assertEquals("ja", detectLanguageOrNull("こんにちは"))
++    assertEquals("ru", detectLanguageOrNull("Привет"))
++    assertNull(detectLanguageOrNull("hello"))
++    assertNull(detectLanguageOrNull(""))
++    // detectLanguage still defaults to English.
++    assertEquals("en", detectLanguage("hello"))
++  }
++
++  @Test
++  fun testParseBaiduMultiline() {
++    val body = """{"from":"en","to":"zh","trans_result":[{"src":"a","dst":"甲"},{"src":"b","dst":"乙"}]}"""
++    assertEquals("甲\n乙", parseBaiduResponse(body).translatedText)
++  }
++
++  @Test
++  fun testParseBaiduEmptyResult() {
++    val body = """{"from":"en","to":"zh","trans_result":[]}"""
++    assertEquals(TranslationStatus.ERROR, parseBaiduResponse(body).status)
++  }
++
+   @Test
+   fun testParseBaiduResponse() {
+     val body = """{"from":"en","to":"zh","trans_result":[{"src":"hello","dst":"你好"}]}"""
+diff --git a/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/AppCommon.desktop.kt b/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/AppCommon.desktop.kt
+index 167c3f898..1372f90d7 100644
+--- a/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/AppCommon.desktop.kt
++++ b/apps/multiplatform/common/src/desktopMain/kotlin/chat/simplex/common/platform/AppCommon.desktop.kt
+@@ -15,6 +15,8 @@ actual val deviceName = generalGetString(MR.strings.desktop_device)
+ 
+ actual fun isAppVisibleAndFocused() = simplexWindowState.windowFocused.value
+ 
++actual val systemLanguageCode: String get() = Locale.getDefault().language
++
+ @Suppress("ConstantLocale")
+ val defaultLocale: Locale = Locale.getDefault()
+ 
+diff --git a/apps/multiplatform/plans/2026-11-04-translation-provider-fixes.md b/apps/multiplatform/plans/2026-11-04-translation-provider-fixes.md
+new file mode 100644
+index 000000000..9c8d48a23
+--- /dev/null
++++ b/apps/multiplatform/plans/2026-11-04-translation-provider-fixes.md
+@@ -0,0 +1,98 @@
++# Fix the in-app translation feature: localized copy, working Bing/Baidu, no "Custom" provider
++
++Date: 2026-11-04 · Baseline: SimpleX Chat 7.0.4 · Scope: `apps/multiplatform` (client only)
++
++## 1. Problem statement
++
++The in-app chat translation feature (commit `0fcdccd14`) shipped with three defects:
++
++1. **Copy is not localized.** Every label of the feature comes from `TranslationStrings`, which decides the
++   language with `appLanguage.get()?.startsWith("zh")`. The preference is `null` by default and the literal
++   `"system"` when the user follows the system language, so a Chinese system showed English copy even though
++   the rest of the UI was Chinese.
++2. **Every provider except AI fails.** Bing called `edge.microsoft.com/translate/auth` for a bearer token and
++   then posted to `api-edge.cognitive.microsofttranslator.com/translate`; both were retired in 2026 (the auth
++   endpoint answers 404), so the provider could never succeed. Baidu always sent `from=auto`, delegating
++   detection to Baidu, which mislabels some inputs and then returns the source text unchanged — the
++   translation looked like a no-op. Google's public endpoint is unreachable from mainland China, but that is
++   a network restriction rather than a defect and is out of scope.
++3. **A redundant provider.** `TranslationProvider.CUSTOM` duplicated `AI`: same Responses-protocol body and
++   parser, only a second set of base-URL/model/key fields.
++
++## 2. Solution summary
++
++- Add `expect val systemLanguageCode` (desktop/Android: `Locale.getDefault().language`) and let
++  `TranslationStrings` fall back to it when the preference is unset or `"system"`.
++- Rewrite the Bing request for the current free Edge endpoint (no token, bare JSON array body, script-qualified
++  Chinese codes) and remove the token flow.
++- Send Baidu an explicit `from` whenever the script identifies the source language, keep `auto` for Latin
++  text, and re-join multi-line `trans_result` entries with newlines.
++- Delete `TranslationProvider.CUSTOM` and its config/secrets/UI/strings.
++
++Full 27-language coverage is deliberately **not** attempted: moko-resources 0.23.0 supports only its fixed
++resource types, so no extra `translation.xml` is generated, and `MR$strings.<clinit>` already sits at offset
++~65 390 of the JVM's 65 535-byte method limit (measured on desktop), which leaves room for roughly six more
++strings. This is recorded as GAP-08 in `product/gaps.md`.
++
++## 3. Detailed technical design
++
++### 3.1 Locale resolution
++
++```kotlin
++// commonMain/.../platform/AppCommon.kt
++expect val systemLanguageCode: String          // desktop/android actual: Locale.getDefault().language
++```
++
++`TranslationStrings.effectiveLanguage()` returns the preference when it is set and not `"system"`, otherwise
++`systemLanguageCode`; `isZh()` tests that value. On desktop `applyAppLocale()` has already called
++`Locale.setDefault(pref)`, so both paths agree.
++
++### 3.2 Bing
++
++| Item | Before | After |
++|---|---|---|
++| Token | `GET edge.microsoft.com/translate/auth` | none |
++| Endpoint | `api-edge.cognitive.microsofttranslator.com/translate?api-version=3.0&from=&to=` | `edge.microsoft.com/translate/translatetext?from=&to=` |
++| Body | `[{"Text":"..."}]` | `["..."]` |
++| Language code | raw code | `msLangCode()`: `zh → zh-Hans`, `zh-TW/zh-Hant → zh-Hant` |
++
++`parseBingResponse` is unchanged — the new endpoint returns the same array of
++`{detectedLanguage, translations[{text}]}` objects.
++
++### 3.3 Baidu
++
++`detectLanguageOrNull(text)` returns the same script verdict as `detectLanguage` but `null` for Latin input;
++`detectLanguage` is now `detectLanguageOrNull(text) ?: "en"`, so the skip check (`isLikelyAlreadyInLanguage`)
++keeps its old behaviour. `baiduTranslateUrl(..., sourceLang: String?)` maps that value through
++`baiduLangCode()` into `from`, falling back to `auto`. `parseBaiduResponse` joins one `dst` per line with
++`\n` and reports `ERROR` when the array is empty.
++
++### 3.4 Provider removal
++
++Removed: the `CUSTOM` enum constant and its `displayName`, `TranslationConfig.customBaseUrl/customModel`,
++`TranslationSecrets.customApiKey`, the `isConfigured`/`translateNow` branches, the settings-page field group
++and three `TranslationStrings` entries. Stored configs still parse because `jsonShort` uses
++`ignoreUnknownKeys = true` (`SimpleXAPI.kt`), so no migration is needed.
++
++## 4. Implementation steps
++
++1. `platform/AppCommon.kt` + both actuals: `systemLanguageCode`.
++2. `TranslationStrings.kt`: `effectiveLanguage()` / `isZh()`.
++3. `TranslationApi.kt`: new Bing URL/body/`msLangCode`, drop `bingAuthUrl`, Baidu `sourceLang` parameter and
++   multi-line join.
++4. `TranslationLang.kt`: `detectLanguageOrNull`, `detectLanguage` delegating to it.
++5. `TranslationService.kt`: single-request Bing branch, Baidu `detectLanguageOrNull(text)`, delete CUSTOM.
++6. `TranslationModels.kt`, `TranslationSettingsView.kt`: delete CUSTOM and its fields.
++7. `TranslationApiTest.kt`: update the Bing body/URL expectations, add `msLangCode`, Baidu `from`, multi-line,
++   empty-result and `detectLanguageOrNull` cases (22 → 28).
++8. Docs: `spec/client/translation.md`, `spec/state.md`, `spec/architecture.md`, `product/views/settings.md`,
++   `product/rules.md`, `product/gaps.md`, `TODO.md`.
++
++## 5. Verification
++
++- `./gradlew :common:compileKotlinDesktop` — success.
++- `./gradlew :common:compileDebugKotlinAndroid` — success.
++- `./gradlew :common:desktopTest --tests "chat.simplex.app.TranslationApiTest"` — 28/28 pass.
++- Manual network probes (this host, mainland China): new Bing endpoint answers 200 for `en → zh-Hans`,
++  `en → zh-Hant` and `zh-Hans → en`; `edge.microsoft.com/translate/auth` answers 404; Google hosts and
++  MyMemory time out without a proxy.
+diff --git a/apps/multiplatform/product/gaps.md b/apps/multiplatform/product/gaps.md
+index 2caf213e0..6df46a1b4 100644
+--- a/apps/multiplatform/product/gaps.md
++++ b/apps/multiplatform/product/gaps.md
+@@ -16,6 +16,7 @@ This document catalogs known gaps in the multiplatform codebase (Android and Des
+ 8. [Desktop: App Link Registration](#gap-08-desktop-app-link-registration)
+ 9. [Desktop: Emoji Picker Without Skin Tones and Localized Search](#gap-09-desktop-emoji-picker-without-skin-tones-and-localized-search)
+ 10. [Badges: Limits on Moving a Badge to a New Device or Profile](#gap-10-badges-limits-on-moving-a-badge-to-a-new-device-or-profile)
++11. [Localization: Translation Copy Cannot Use MR Resources](#gap-11-localization-translation-copy-cannot-use-mr-resources)
+ 
+ ---
+ 
+@@ -377,3 +378,39 @@ A subscriber who moves the badge again before the previous key's credential expi
+ 1. Restore by a receipt code for Stripe and crypto purchases, shared with iOS.
+ 2. Announce a limited move on the first Restore.
+ 3. Before a Play plan change becomes possible, credit its new token without waiting for Restore.
++
++---
++
++## GAP-11: Localization: Translation Copy Cannot Use MR Resources
++
++**Severity:** Low
++**Category:** Localization
++**Platforms:** Android, Desktop
++
++### Description
++
++The in-app translation feature keeps its copy in `TranslationStrings` (a Kotlin `t(en, zh)` table keyed off
++the interface language) instead of `MR/strings.xml`. That is forced, not preferred: moko-resources 0.23.0
++generates one giant `MR$strings.<clinit>` holding every string, and with ~3 000 strings it already reaches
++method bytecode offset ~65 390 of the JVM's 65 535-byte per-method limit, so adding a few dozen more strings
++makes the whole Desktop build fail with "Method too large". moko also supports only its fixed resource types
++(`strings`, `plurals`, `images`, `fonts`, `files`, `colors`, `assets`), so an extra `translation.xml` file is
++never generated — verified by adding one and inspecting the generated `MR.kt`.
++
++### Affected Locations
++
++- `common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationStrings.kt` — bilingual table
++- `common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationLang.kt` — English-only language names
++- `common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationModels.kt` — English-only provider names
++
++### Impact
++
++Only English and Simplified Chinese are available; every other interface language shows English for the
++translation feature, and provider/language names are English everywhere. `systemLanguageCode` fixes the
++language *selection* (including the `null` / `"system"` preference), not the coverage.
++
++### Recommendation
++
++Revisit once upstream splits `MR.strings` (e.g. moko moving to per-file classes, or the string table being
++reduced). Until then, an extensible lookup table loaded from a bundled per-language resource would be the
++alternative, at the cost of hand-authored translations.
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index 473b96257..31527f1e8 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -753,7 +753,7 @@ Enforcement:
+ ### RULE-31: Translation Is a Client-Side, Rate-Limited, Non-Exportable Service
+ 
+ 1. **Pure-client and pluggable.** Translation is implemented entirely in the Kotlin client. The
+-   `TranslationProvider` is a pluggable choice (`GOOGLE`, `BING`, `BAIDU`, `AI`, `CUSTOM`) dispatched
++   `TranslationProvider` is a pluggable choice (`GOOGLE`, `BING`, `BAIDU`, `AI`) dispatched
+    through `TranslationService`; the Haskell core and the network protocol MUST NOT be changed. A
+    provider is added by describing its request/response in `TranslationApi` and its HTTP in
+    `TranslationHttp` — never by touching the core.
+diff --git a/apps/multiplatform/product/views/settings.md b/apps/multiplatform/product/views/settings.md
+index 337b7c165..1e406a7c5 100644
+--- a/apps/multiplatform/product/views/settings.md
++++ b/apps/multiplatform/product/views/settings.md
+@@ -256,7 +256,7 @@ translation service (see `product/rules.md` RULE-31). Every value is stored loca
+ 
+ | Row | Preference Key | Default | Description |
+ |---|---|---|---|
+-| Provider | `provider` (`TranslationProvider`) | `GOOGLE` | `GOOGLE` (free), `BING` (free), `BAIDU` (needs an API Key), `AI` (OpenAI Responses protocol, DeepSeek default) or `CUSTOM` (OpenAI-compatible endpoint) |
++| Provider | `provider` (`TranslationProvider`) | `GOOGLE` | `GOOGLE` (free), `BING` (free), `BAIDU` (needs an API Key) or `AI` (OpenAI Responses protocol, DeepSeek default) |
+ | Default target language | `targetLang` | `English` | Language used by a single tap on the compose-bar translate button |
+ | Auto-translate | `translationAutoTranslate` | Off | Translate the messages currently visible in the viewport; a message's in-flight request is cancelled as soon as it scrolls out of view |
+ | Request interval (ms) | `requestIntervalMs` | `600` | Minimum spacing between translation requests |
+@@ -267,9 +267,9 @@ Provider-specific fields appear only for the selected provider:
+ 
+ | Field | Provider | Description |
+ |---|---|---|
+-| API Key | Baidu / AI / Custom | Encrypted with `Cryptor` before it is written to `translationSecrets` (Google and Bing use keyless public endpoints) |
++| API Key | Baidu / AI | Encrypted with `Cryptor` before it is written to `translationSecrets` (Google and Bing use keyless public endpoints) |
+ | Baidu AppID + secret | Baidu | Baidu translate credentials |
+-| Base URL + model + API Key | AI / Custom | `AI` defaults to base URL `https://api.deepseek.com/v1` and model `deepseek-chat`; `CUSTOM` defaults are empty and must be filled by the user (OpenAI-compatible endpoint) |
++| Base URL + model + API Key | AI | Defaults to base URL `https://api.deepseek.com/v1` and model `deepseek-chat` (OpenAI Responses protocol) |
+ 
+ ## Source Files
+ 
+diff --git a/apps/multiplatform/spec/architecture.md b/apps/multiplatform/spec/architecture.md
+index 7112d1b78..2bce627c0 100644
+--- a/apps/multiplatform/spec/architecture.md
++++ b/apps/multiplatform/spec/architecture.md
+@@ -330,9 +330,10 @@ Examples from platform files:
+ 
+ | expect Declaration | File | Line |
+ |---|---|---|
+-| `expect val appPlatform: AppPlatform` | [`AppCommon.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt#L20) | 20 |
+-| `expect val deviceName: String` | [`AppCommon.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt#L22) | 22 |
+-| `expect fun isAppVisibleAndFocused(): Boolean` | [`AppCommon.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt#L24) | 24 |
++| `expect val appPlatform: AppPlatform` | [`AppCommon.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt#L22) | 22 |
++| `expect val deviceName: String` | [`AppCommon.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt#L24) | 24 |
++| `expect val systemLanguageCode: String` | [`AppCommon.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt#L31) | 31 |
++| `expect fun isAppVisibleAndFocused(): Boolean` | [`AppCommon.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt#L33) | 33 |
+ | `expect val dataDir: File` | [`Files.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Files.kt#L18) | 18 |
+ | `expect val tmpDir: File` | [`Files.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Files.kt#L19) | 19 |
+ | `expect val filesDir: File` | [`Files.kt`](../common/src/commonMain/kotlin/chat/simplex/common/platform/Files.kt#L20) | 20 |
+diff --git a/apps/multiplatform/spec/client/translation.md b/apps/multiplatform/spec/client/translation.md
+index 24ebf5ca7..4f14404cc 100644
+--- a/apps/multiplatform/spec/client/translation.md
++++ b/apps/multiplatform/spec/client/translation.md
+@@ -44,10 +44,9 @@ Three entry points share one service:
+ | Provider | Cost | Auth | Notes |
+ |---|---|---|---|
+ | `GOOGLE` | free | none | Default provider |
+-| `BING` | free | none (short-lived bearer token) | Free edge endpoint |
++| `BING` | free | none (keyless edge endpoint) | Free Edge endpoint; the token endpoint it used to require was retired in 2026 and is no longer called |
+ | `BAIDU` | free tier | AppID + secret key | Needs the Baidu AppID + secret key |
+ | `AI` | paid | API Key | OpenAI **Responses** protocol; defaults to DeepSeek (`https://api.deepseek.com/v1`, model `deepseek-chat`) |
+-| `CUSTOM` | user's | API Key | OpenAI-compatible endpoint with a user-supplied base URL / model / key (defaults empty) |
+ 
+ Adding a provider is a client-only change: describe its request/response in `TranslationApi` and (if it
+ needs a non-trivial HTTP shape) its call in `TranslationHttp`. The core is never touched.
+@@ -59,8 +58,8 @@ and 3). See [spec/state.md](../state.md) §5 "Chat Translation (client-only)".
+ 
+ | Key | Type | Contents |
+ |---|---|---|
+-| `translationConfig` | `SharedPreference<TranslationConfig>` (stored as a JSON string) | `provider`, `targetLang`, `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), plus the non-secret provider fields `baiduAppId`, `aiBaseUrl`/`aiModel`, `customBaseUrl`/`customModel` |
+-| `translationSecrets` | `SharedPreference<String?>` | The whole `TranslationSecrets` JSON (`baiduKey`, `aiApiKey`, `customApiKey`), encrypted with `Cryptor.encryptText`; falls back to plaintext only if the platform cryptor is unavailable |
++| `translationConfig` | `SharedPreference<TranslationConfig>` (stored as a JSON string) | `provider`, `targetLang`, `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), plus the non-secret provider fields `baiduAppId`, `aiBaseUrl`/`aiModel` |
++| `translationSecrets` | `SharedPreference<String?>` | The whole `TranslationSecrets` JSON (`baiduKey`, `aiApiKey`), encrypted with `Cryptor.encryptText`; falls back to plaintext only if the platform cryptor is unavailable |
+ | `translationSecretsIv` | `SharedPreference<String?>` | Base64 IV used to encrypt `translationSecrets` |
+ | `translationAutoTranslate` | `SharedPreference<Boolean>` | Viewport auto-translation switch (default `false`) |
+ 
+@@ -102,13 +101,18 @@ Keeping them pure lets them be unit-tested without network access.
+ 
+ - **Google** (`googleTranslateUrl` / `parseGoogleResponse`) — GET `translate_a/single?...&sl=auto&tl=<target>&q=<text>`,
+   concatenate the `[0][*][0]` segments and read the detected language from index `[2]`.
+-- **Bing** (`bingAuthUrl` / `bingTranslateUrl` / `bingTranslateBody` / `parseBingResponse`) — GET a
+-  short-lived bearer token from `edge.microsoft.com/translate/auth`, then POST the text array to
+-  `api-edge.cognitive.microsofttranslator.com/translate`; parse `[0].translations[0].text` (and
+-  `detectedLanguage.language`).
++- **Bing** (`bingTranslateUrl` / `msLangCode` / `bingTranslateBody` / `parseBingResponse`) — POST a bare
++  JSON array of strings (`["text"]`) to `edge.microsoft.com/translate/translatetext?from=&to=<code>`; no
++  token is requested any more, because the token endpoint (`edge.microsoft.com/translate/auth`) and the
++  `api-edge.cognitive.microsofttranslator.com` endpoint that consumed it were retired in 2026. Parse
++  `[0].translations[0].text` (and `detectedLanguage.language`). `msLangCode` maps Chinese to the
++  script-qualified `zh-Hans` / `zh-Hant`, which the endpoint requires.
+ - **Baidu** (`baiduSign` / `baiduTranslateUrl` / `baiduLangCode` / `parseBaiduResponse`) — sign with
+-  `md5Hex(appId + q + salt + key)`, map the language to Baidu's code and parse `trans_result[].dst`.
+-- **AI / Custom** (`aiResponsesUrl` / `aiSystemPrompt` / `aiResponsesBody` / `parseAiResponsesResponse`) —
++  `md5Hex(appId + q + salt + key)`, map the language to Baidu's code and parse `trans_result[].dst`, one
++  entry per input line, re-joined with newlines. The source language is passed explicitly as `from` when
++  the script is unambiguous (`detectLanguageOrNull`), because Baidu's own detection (`from=auto`)
++  mislabels some inputs and then returns the text unchanged; Latin-script text still uses `auto`.
++- **AI** (`aiResponsesUrl` / `aiSystemPrompt` / `aiResponsesBody` / `parseAiResponsesResponse`) —
+   OpenAI **Responses** protocol: POST `{baseUrl}/responses` (the `/responses` suffix is appended unless
+   already present) with `model` and a system instruction to translate into the target language; parse
+   `output_text` or `output[].content[].text`, with chat-completions fallbacks.
+@@ -132,7 +136,8 @@ stack.
+ 
+ `TranslationLang.kt` provides the supported language table and the pure `detectLanguage` function used by
+ the message-menu flow when the source language is not known (translate as `auto` where the provider
+-supports it). The target language comes from `translationConfig.targetLang` (default English) or, for a
++supports it). `detectLanguageOrNull` is the same detection but returns `null` for inconclusive (Latin)
++input, so callers can fall back to the provider's own detection instead of a guess. The target language comes from `translationConfig.targetLang` (default English) or, for a
+ long-press compose translation, from the language chosen in the menu for that one message.
+ 
+ ## 8. Message-Menu Translation
+@@ -183,7 +188,7 @@ banned, or drain a paid balance.
+ |---|---|
+ | `translation/TranslationService.kt` | Compose-observable registry: `translateChatItem`, `translateTextNow`, `autoTranslateVisible`, `canUndoTranslation`, config/secrets access, rate limiting |
+ | `translation/TranslationModels.kt` | `TranslationProvider`, `TranslationConfig`, `TranslationSecrets`, `TranslationRateConfig`, `TranslationEntry`/status |
+-| `translation/TranslationLang.kt` | Language table and `detectLanguage` |
++| `translation/TranslationLang.kt` | Language table, `detectLanguage` and `detectLanguageOrNull` (script detection with an "unknown" result) |
+ | `translation/TranslationApi.kt` | Per-provider request-body builders and response parsers (pure, incl. Baidu MD5 signing) |
+ | `translation/TranslationHttp.kt` | `HttpResult` + `expect suspend httpGetText/httpPostJson` (+ Android/desktop actuals) |
+ | `views/chat/SendMsgView.kt` | Compose translate button placement |
+diff --git a/apps/multiplatform/spec/state.md b/apps/multiplatform/spec/state.md
+index 90bf7a60d..454ee40af 100644
+--- a/apps/multiplatform/spec/state.md
++++ b/apps/multiplatform/spec/state.md
+@@ -512,8 +512,8 @@ secrets are encrypted with `Cryptor` before they are stored.
+ 
+ | Key | Pref name | Type | Default | Purpose |
+ |---|---|---|---|---|
+-| `translationConfig` | `"TranslationConfig"` | `SharedPreference<TranslationConfig>` (stored as JSON) | `TranslationConfig()` | `provider` (`GOOGLE` default), `targetLang` (`"en"`), `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), `baiduAppId`, `aiBaseUrl` (`https://api.deepseek.com/v1`) / `aiModel` (`deepseek-chat`), `customBaseUrl` / `customModel` |
+-| `translationSecrets` | `"TranslationSecrets"` | `SharedPreference<String?>` | `null` | `TranslationSecrets` JSON (`baiduKey`, `aiApiKey`, `customApiKey`) encrypted with `Cryptor.encryptText` (plaintext fallback if the cryptor is unavailable) |
++| `translationConfig` | `"TranslationConfig"` | `SharedPreference<TranslationConfig>` (stored as JSON) | `TranslationConfig()` | `provider` (`GOOGLE` default), `targetLang` (`"en"`), `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), `baiduAppId`, `aiBaseUrl` (`https://api.deepseek.com/v1`) / `aiModel` (`deepseek-chat`) |
++| `translationSecrets` | `"TranslationSecrets"` | `SharedPreference<String?>` | `null` | `TranslationSecrets` JSON (`baiduKey`, `aiApiKey`) encrypted with `Cryptor.encryptText` (plaintext fallback if the cryptor is unavailable) |
+ | `translationSecretsIv` | `"TranslationSecretsIv"` | `SharedPreference<String?>` | `null` | Base64 IV used to encrypt `translationSecrets` |
+ | `translationAutoTranslate` | `"TranslationAutoTranslate"` | `SharedPreference<Boolean>` | `false` | Automatically translate the messages visible in the viewport, rate-limited |
+ 

@@ -43,8 +43,15 @@ fun languageDisplayName(code: String): String =
  * [translationLanguages], defaulting to "en" for Latin-script text (European languages can't be
  * separated cheaply and English is a safe default for the skip check).
  */
-fun detectLanguage(text: String): String {
-  if (text.isBlank()) return "en"
+fun detectLanguage(text: String): String = detectLanguageOrNull(text) ?: "en"
+
+/**
+ * Same detection as [detectLanguage], but returns `null` when the script is inconclusive (Latin
+ * script, where European languages cannot be separated cheaply). Providers that can detect the
+ * source language themselves are better left to do so in that case.
+ */
+fun detectLanguageOrNull(text: String): String? {
+  if (text.isBlank()) return null
   var cjk = 0
   var hiraKata = 0
   var hangul = 0
@@ -82,7 +89,7 @@ fun detectLanguage(text: String): String {
   if (thai > 0) return "th"
   if (devanagari > 0) return "hi"
   if (cjk > 0) return "zh"
-  return "en"
+  return null
 }
 
 /**

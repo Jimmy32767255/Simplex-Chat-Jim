@@ -28,6 +28,8 @@ actual fun isAppVisibleAndFocused(): Boolean = isAppOnForeground
 // the manifest declares the scheme
 actual fun appLinkSchemeRegistered(): Boolean = true
 
+actual val systemLanguageCode: String get() = Locale.getDefault().language
+
 @SuppressLint("StaticFieldLeak")
 lateinit var androidAppContext: Context
 var mainActivity: WeakReference<FragmentActivity> = WeakReference(null)

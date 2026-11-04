@@ -100,7 +100,22 @@ class TranslationApiTest {
 
   @Test
   fun testBingBody() {
-    assertEquals("""[{"Text":"hi"}]""", bingTranslateBody("hi"))
+    // The free edge endpoint takes a bare array of strings (the old [{"Text": ...}] shape is rejected).
+    assertEquals("""["hi"]""", bingTranslateBody("hi"))
+  }
+
+  @Test
+  fun testBingUrl() {
+    // No token endpoint any more, and Chinese must carry the script.
+    assertEquals("https://edge.microsoft.com/translate/translatetext?from=&to=zh-Hans", bingTranslateUrl("zh"))
+    assertEquals("https://edge.microsoft.com/translate/translatetext?from=&to=en", bingTranslateUrl("en"))
+  }
+
+  @Test
+  fun testMsLangCode() {
+    assertEquals("zh-Hans", msLangCode("zh"))
+    assertEquals("zh-Hant", msLangCode("zh-TW"))
+    assertEquals("ja", msLangCode("ja"))
   }
 
   // ---- Baidu ----
@@ -118,6 +133,39 @@ class TranslationApiTest {
     assertEquals("spa", baiduLangCode("es"))
     assertEquals("en", baiduLangCode("en"))
     assertEquals("de", baiduLangCode("de"))
+  }
+
+  @Test
+  fun testBaiduUrlUsesDetectedSource() {
+    val withSource = baiduTranslateUrl("app", "你好", "123", "key", "en", "zh")
+    assertTrue(withSource.contains("&from=zh&"))
+    // Latin script is inconclusive locally, so Baidu is left to detect it.
+    val auto = baiduTranslateUrl("app", "hello", "123", "key", "zh", null)
+    assertTrue(auto.contains("&from=auto&"))
+    assertTrue(auto.contains("&to=zh&"))
+  }
+
+  @Test
+  fun testDetectLanguageOrNull() {
+    assertEquals("zh", detectLanguageOrNull("你好"))
+    assertEquals("ja", detectLanguageOrNull("こんにちは"))
+    assertEquals("ru", detectLanguageOrNull("Привет"))
+    assertNull(detectLanguageOrNull("hello"))
+    assertNull(detectLanguageOrNull(""))
+    // detectLanguage still defaults to English.
+    assertEquals("en", detectLanguage("hello"))
+  }
+
+  @Test
+  fun testParseBaiduMultiline() {
+    val body = """{"from":"en","to":"zh","trans_result":[{"src":"a","dst":"甲"},{"src":"b","dst":"乙"}]}"""
+    assertEquals("甲\n乙", parseBaiduResponse(body).translatedText)
+  }
+
+  @Test
+  fun testParseBaiduEmptyResult() {
+    val body = """{"from":"en","to":"zh","trans_result":[]}"""
+    assertEquals(TranslationStatus.ERROR, parseBaiduResponse(body).status)
   }
 
   @Test

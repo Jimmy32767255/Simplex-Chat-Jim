@@ -256,7 +256,7 @@ translation service (see `product/rules.md` RULE-31). Every value is stored loca
 
 | Row | Preference Key | Default | Description |
 |---|---|---|---|
-| Provider | `provider` (`TranslationProvider`) | `GOOGLE` | `GOOGLE` (free), `BING` (free), `BAIDU` (needs an API Key), `AI` (OpenAI Responses protocol, DeepSeek default) or `CUSTOM` (OpenAI-compatible endpoint) |
+| Provider | `provider` (`TranslationProvider`) | `GOOGLE` | `GOOGLE` (free), `BING` (free), `BAIDU` (needs an API Key) or `AI` (OpenAI Responses protocol, DeepSeek default) |
 | Default target language | `targetLang` | `English` | Language used by a single tap on the compose-bar translate button |
 | Auto-translate | `translationAutoTranslate` | Off | Translate the messages currently visible in the viewport; a message's in-flight request is cancelled as soon as it scrolls out of view |
 | Request interval (ms) | `requestIntervalMs` | `600` | Minimum spacing between translation requests |
@@ -267,9 +267,9 @@ Provider-specific fields appear only for the selected provider:
 
 | Field | Provider | Description |
 |---|---|---|
-| API Key | Baidu / AI / Custom | Encrypted with `Cryptor` before it is written to `translationSecrets` (Google and Bing use keyless public endpoints) |
+| API Key | Baidu / AI | Encrypted with `Cryptor` before it is written to `translationSecrets` (Google and Bing use keyless public endpoints) |
 | Baidu AppID + secret | Baidu | Baidu translate credentials |
-| Base URL + model + API Key | AI / Custom | `AI` defaults to base URL `https://api.deepseek.com/v1` and model `deepseek-chat`; `CUSTOM` defaults are empty and must be filled by the user (OpenAI-compatible endpoint) |
+| Base URL + model + API Key | AI | Defaults to base URL `https://api.deepseek.com/v1` and model `deepseek-chat` (OpenAI Responses protocol) |
 
 ## Source Files
 

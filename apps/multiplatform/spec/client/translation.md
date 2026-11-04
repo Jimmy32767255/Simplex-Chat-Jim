@@ -44,10 +44,9 @@ Three entry points share one service:
 | Provider | Cost | Auth | Notes |
 |---|---|---|---|
 | `GOOGLE` | free | none | Default provider |
-| `BING` | free | none (short-lived bearer token) | Free edge endpoint |
+| `BING` | free | none (keyless edge endpoint) | Free Edge endpoint; the token endpoint it used to require was retired in 2026 and is no longer called |
 | `BAIDU` | free tier | AppID + secret key | Needs the Baidu AppID + secret key |
 | `AI` | paid | API Key | OpenAI **Responses** protocol; defaults to DeepSeek (`https://api.deepseek.com/v1`, model `deepseek-chat`) |
-| `CUSTOM` | user's | API Key | OpenAI-compatible endpoint with a user-supplied base URL / model / key (defaults empty) |
 
 Adding a provider is a client-only change: describe its request/response in `TranslationApi` and (if it
 needs a non-trivial HTTP shape) its call in `TranslationHttp`. The core is never touched.
@@ -59,8 +58,8 @@ and 3). See [spec/state.md](../state.md) §5 "Chat Translation (client-only)".
 
 | Key | Type | Contents |
 |---|---|---|
-| `translationConfig` | `SharedPreference<TranslationConfig>` (stored as a JSON string) | `provider`, `targetLang`, `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), plus the non-secret provider fields `baiduAppId`, `aiBaseUrl`/`aiModel`, `customBaseUrl`/`customModel` |
-| `translationSecrets` | `SharedPreference<String?>` | The whole `TranslationSecrets` JSON (`baiduKey`, `aiApiKey`, `customApiKey`), encrypted with `Cryptor.encryptText`; falls back to plaintext only if the platform cryptor is unavailable |
+| `translationConfig` | `SharedPreference<TranslationConfig>` (stored as a JSON string) | `provider`, `targetLang`, `rate` (`requestIntervalMs` 600, `maxConcurrent` 2, `batchLimit` 20), plus the non-secret provider fields `baiduAppId`, `aiBaseUrl`/`aiModel` |
+| `translationSecrets` | `SharedPreference<String?>` | The whole `TranslationSecrets` JSON (`baiduKey`, `aiApiKey`), encrypted with `Cryptor.encryptText`; falls back to plaintext only if the platform cryptor is unavailable |
 | `translationSecretsIv` | `SharedPreference<String?>` | Base64 IV used to encrypt `translationSecrets` |
 | `translationAutoTranslate` | `SharedPreference<Boolean>` | Viewport auto-translation switch (default `false`) |
 
@@ -102,13 +101,18 @@ Keeping them pure lets them be unit-tested without network access.
 
 - **Google** (`googleTranslateUrl` / `parseGoogleResponse`) — GET `translate_a/single?...&sl=auto&tl=<target>&q=<text>`,
   concatenate the `[0][*][0]` segments and read the detected language from index `[2]`.
-- **Bing** (`bingAuthUrl` / `bingTranslateUrl` / `bingTranslateBody` / `parseBingResponse`) — GET a
-  short-lived bearer token from `edge.microsoft.com/translate/auth`, then POST the text array to
-  `api-edge.cognitive.microsofttranslator.com/translate`; parse `[0].translations[0].text` (and
-  `detectedLanguage.language`).
+- **Bing** (`bingTranslateUrl` / `msLangCode` / `bingTranslateBody` / `parseBingResponse`) — POST a bare
+  JSON array of strings (`["text"]`) to `edge.microsoft.com/translate/translatetext?from=&to=<code>`; no
+  token is requested any more, because the token endpoint (`edge.microsoft.com/translate/auth`) and the
+  `api-edge.cognitive.microsofttranslator.com` endpoint that consumed it were retired in 2026. Parse
+  `[0].translations[0].text` (and `detectedLanguage.language`). `msLangCode` maps Chinese to the
+  script-qualified `zh-Hans` / `zh-Hant`, which the endpoint requires.
 - **Baidu** (`baiduSign` / `baiduTranslateUrl` / `baiduLangCode` / `parseBaiduResponse`) — sign with
-  `md5Hex(appId + q + salt + key)`, map the language to Baidu's code and parse `trans_result[].dst`.
-- **AI / Custom** (`aiResponsesUrl` / `aiSystemPrompt` / `aiResponsesBody` / `parseAiResponsesResponse`) —
+  `md5Hex(appId + q + salt + key)`, map the language to Baidu's code and parse `trans_result[].dst`, one
+  entry per input line, re-joined with newlines. The source language is passed explicitly as `from` when
+  the script is unambiguous (`detectLanguageOrNull`), because Baidu's own detection (`from=auto`)
+  mislabels some inputs and then returns the text unchanged; Latin-script text still uses `auto`.
+- **AI** (`aiResponsesUrl` / `aiSystemPrompt` / `aiResponsesBody` / `parseAiResponsesResponse`) —
   OpenAI **Responses** protocol: POST `{baseUrl}/responses` (the `/responses` suffix is appended unless
   already present) with `model` and a system instruction to translate into the target language; parse
   `output_text` or `output[].content[].text`, with chat-completions fallbacks.
@@ -132,7 +136,8 @@ stack.
 
 `TranslationLang.kt` provides the supported language table and the pure `detectLanguage` function used by
 the message-menu flow when the source language is not known (translate as `auto` where the provider
-supports it). The target language comes from `translationConfig.targetLang` (default English) or, for a
+supports it). `detectLanguageOrNull` is the same detection but returns `null` for inconclusive (Latin)
+input, so callers can fall back to the provider's own detection instead of a guess. The target language comes from `translationConfig.targetLang` (default English) or, for a
 long-press compose translation, from the language chosen in the menu for that one message.
 
 ## 8. Message-Menu Translation
@@ -183,7 +188,7 @@ banned, or drain a paid balance.
 |---|---|
 | `translation/TranslationService.kt` | Compose-observable registry: `translateChatItem`, `translateTextNow`, `autoTranslateVisible`, `canUndoTranslation`, config/secrets access, rate limiting |
 | `translation/TranslationModels.kt` | `TranslationProvider`, `TranslationConfig`, `TranslationSecrets`, `TranslationRateConfig`, `TranslationEntry`/status |
-| `translation/TranslationLang.kt` | Language table and `detectLanguage` |
+| `translation/TranslationLang.kt` | Language table, `detectLanguage` and `detectLanguageOrNull` (script detection with an "unknown" result) |
 | `translation/TranslationApi.kt` | Per-provider request-body builders and response parsers (pure, incl. Baidu MD5 signing) |
 | `translation/TranslationHttp.kt` | `HttpResult` + `expect suspend httpGetText/httpPostJson` (+ Android/desktop actuals) |
 | `views/chat/SendMsgView.kt` | Compose translate button placement |

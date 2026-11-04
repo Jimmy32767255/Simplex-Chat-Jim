@@ -753,7 +753,7 @@ Enforcement:
 ### RULE-31: Translation Is a Client-Side, Rate-Limited, Non-Exportable Service
 
 1. **Pure-client and pluggable.** Translation is implemented entirely in the Kotlin client. The
-   `TranslationProvider` is a pluggable choice (`GOOGLE`, `BING`, `BAIDU`, `AI`, `CUSTOM`) dispatched
+   `TranslationProvider` is a pluggable choice (`GOOGLE`, `BING`, `BAIDU`, `AI`) dispatched
    through `TranslationService`; the Haskell core and the network protocol MUST NOT be changed. A
    provider is added by describing its request/response in `TranslationApi` and its HTTP in
    `TranslationHttp` — never by touching the core.

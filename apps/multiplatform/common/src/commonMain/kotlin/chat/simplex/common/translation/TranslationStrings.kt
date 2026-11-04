@@ -1,6 +1,7 @@
 package chat.simplex.common.translation
 
 import chat.simplex.common.model.ChatController
+import chat.simplex.common.platform.systemLanguageCode
 
 /**
  * Localized strings for the in-app translation feature.
@@ -12,10 +13,18 @@ import chat.simplex.common.model.ChatController
  * feature self-contained. Language is inferred from the app's interface language preference.
  */
 object TranslationStrings {
-  private fun isZh(): Boolean {
-    val lang = runCatching { ChatController.appPrefs.appLanguage.get() }.getOrNull()
-    return lang?.startsWith("zh") == true
+  /**
+   * The language the interface is actually displayed in. The preference is `null` (or "system") when
+   * the app follows the system language, in which case the platform locale decides - so reading the
+   * preference alone made every non-English system show English.
+   */
+  private fun effectiveLanguage(): String? {
+    val pref = runCatching { ChatController.appPrefs.appLanguage.get() }.getOrNull()
+    if (pref != null && pref != "system") return pref
+    return runCatching { systemLanguageCode }.getOrNull()
   }
+
+  private fun isZh(): Boolean = effectiveLanguage()?.startsWith("zh") == true
 
   fun t(en: String, zh: String): String = if (isZh()) zh else en
 
@@ -50,9 +59,6 @@ object TranslationStrings {
   val aiBaseUrl get() = t("API base URL", "API 地址")
   val aiModel get() = t("Model", "模型")
   val aiApiKey get() = t("API key", "API 密钥")
-  val customBaseUrl get() = t("Custom API base URL", "自定义 API 地址")
-  val customModel get() = t("Custom model", "自定义模型")
-  val customApiKey get() = t("Custom API key", "自定义 API 密钥")
   val providerSetup get() = t("Configure the fields below for the selected provider.", "请为所选提供商配置下方字段。")
   val googleFreeNote get() = t("Google Translate (free) uses a public endpoint and needs no key.", "谷歌翻译（免费）使用公开接口，无需密钥。")
   val bingFreeNote get() = t("Bing Translator (free) uses a public endpoint and needs no key.", "必应翻译（免费）使用公开接口，无需密钥。")

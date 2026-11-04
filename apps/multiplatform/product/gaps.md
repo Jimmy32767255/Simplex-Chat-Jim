@@ -16,6 +16,7 @@ This document catalogs known gaps in the multiplatform codebase (Android and Des
 8. [Desktop: App Link Registration](#gap-08-desktop-app-link-registration)
 9. [Desktop: Emoji Picker Without Skin Tones and Localized Search](#gap-09-desktop-emoji-picker-without-skin-tones-and-localized-search)
 10. [Badges: Limits on Moving a Badge to a New Device or Profile](#gap-10-badges-limits-on-moving-a-badge-to-a-new-device-or-profile)
+11. [Localization: Translation Copy Cannot Use MR Resources](#gap-11-localization-translation-copy-cannot-use-mr-resources)
 
 ---
 
@@ -377,3 +378,39 @@ A subscriber who moves the badge again before the previous key's credential expi
 1. Restore by a receipt code for Stripe and crypto purchases, shared with iOS.
 2. Announce a limited move on the first Restore.
 3. Before a Play plan change becomes possible, credit its new token without waiting for Restore.
+
+---
+
+## GAP-11: Localization: Translation Copy Cannot Use MR Resources
+
+**Severity:** Low
+**Category:** Localization
+**Platforms:** Android, Desktop
+
+### Description
+
+The in-app translation feature keeps its copy in `TranslationStrings` (a Kotlin `t(en, zh)` table keyed off
+the interface language) instead of `MR/strings.xml`. That is forced, not preferred: moko-resources 0.23.0
+generates one giant `MR$strings.<clinit>` holding every string, and with ~3 000 strings it already reaches
+method bytecode offset ~65 390 of the JVM's 65 535-byte per-method limit, so adding a few dozen more strings
+makes the whole Desktop build fail with "Method too large". moko also supports only its fixed resource types
+(`strings`, `plurals`, `images`, `fonts`, `files`, `colors`, `assets`), so an extra `translation.xml` file is
+never generated — verified by adding one and inspecting the generated `MR.kt`.
+
+### Affected Locations
+
+- `common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationStrings.kt` — bilingual table
+- `common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationLang.kt` — English-only language names
+- `common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationModels.kt` — English-only provider names
+
+### Impact
+
+Only English and Simplified Chinese are available; every other interface language shows English for the
+translation feature, and provider/language names are English everywhere. `systemLanguageCode` fixes the
+language *selection* (including the `null` / `"system"` preference), not the coverage.
+
+### Recommendation
+
+Revisit once upstream splits `MR.strings` (e.g. moko moving to per-file classes, or the string table being
+reduced). Until then, an extensible lookup table loaded from a bundled per-language resource would be the
+alternative, at the cost of hand-authored translations.

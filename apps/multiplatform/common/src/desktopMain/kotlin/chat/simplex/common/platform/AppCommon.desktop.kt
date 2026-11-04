@@ -15,6 +15,8 @@ actual val deviceName = generalGetString(MR.strings.desktop_device)
 
 actual fun isAppVisibleAndFocused() = simplexWindowState.windowFocused.value
 
+actual val systemLanguageCode: String get() = Locale.getDefault().language
+
 @Suppress("ConstantLocale")
 val defaultLocale: Locale = Locale.getDefault()
 

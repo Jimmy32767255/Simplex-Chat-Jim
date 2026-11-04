@@ -46,12 +46,9 @@ fun TranslationSettingsView(close: () -> Unit) {
   val baiduAppId = remember { mutableStateOf(TextFieldValue(initialConfig.baiduAppId)) }
   val aiBaseUrl = remember { mutableStateOf(TextFieldValue(initialConfig.aiBaseUrl)) }
   val aiModel = remember { mutableStateOf(TextFieldValue(initialConfig.aiModel)) }
-  val customBaseUrl = remember { mutableStateOf(TextFieldValue(initialConfig.customBaseUrl)) }
-  val customModel = remember { mutableStateOf(TextFieldValue(initialConfig.customModel)) }
 
   val baiduKey = remember { mutableStateOf(TextFieldValue(initialSecrets.baiduKey)) }
   val aiApiKey = remember { mutableStateOf(TextFieldValue(initialSecrets.aiApiKey)) }
-  val customApiKey = remember { mutableStateOf(TextFieldValue(initialSecrets.customApiKey)) }
 
   // Parse the numeric rate fields, falling back to the last saved value on empty/invalid input,
   // then clamp to the valid range with normalized().
@@ -73,15 +70,12 @@ fun TranslationSettingsView(close: () -> Unit) {
         baiduAppId = baiduAppId.value.text.trim(),
         aiBaseUrl = aiBaseUrl.value.text.trim(),
         aiModel = aiModel.value.text.trim(),
-        customBaseUrl = customBaseUrl.value.text.trim(),
-        customModel = customModel.value.text.trim(),
       )
     )
     TranslationService.saveSecrets(
       TranslationSecrets(
         baiduKey = baiduKey.value.text.trim(),
         aiApiKey = aiApiKey.value.text.trim(),
-        customApiKey = customApiKey.value.text.trim(),
       )
     )
   }
@@ -93,8 +87,7 @@ fun TranslationSettingsView(close: () -> Unit) {
         provider.value, targetLang.value,
         requestInterval.value.text, maxConcurrent.value.text, batchLimit.value.text,
         baiduAppId.value.text, aiBaseUrl.value.text, aiModel.value.text,
-        customBaseUrl.value.text, customModel.value.text,
-        baiduKey.value.text, aiApiKey.value.text, customApiKey.value.text,
+        baiduKey.value.text, aiApiKey.value.text,
       )
     }
       .drop(1)
@@ -229,36 +222,6 @@ fun TranslationSettingsView(close: () -> Unit) {
               )
             }
             SectionTextFooter(TranslationStrings.deepseekDefault)
-          }
-        }
-        TranslationProvider.CUSTOM -> {
-          SectionView(TranslationStrings.providerSetup) {
-            Column(Modifier.padding(horizontal = DEFAULT_PADDING)) {
-              DefaultConfigurableTextField(
-                customBaseUrl,
-                TranslationStrings.customBaseUrl,
-                modifier = Modifier.fillMaxWidth(),
-                isValid = { true },
-                keyboardActions = KeyboardActions(onNext = { defaultKeyboardAction(ImeAction.Next) }),
-                keyboardType = KeyboardType.Text,
-              )
-              DefaultConfigurableTextField(
-                customModel,
-                TranslationStrings.customModel,
-                modifier = Modifier.fillMaxWidth(),
-                isValid = { true },
-                keyboardActions = KeyboardActions(onNext = { defaultKeyboardAction(ImeAction.Next) }),
-                keyboardType = KeyboardType.Text,
-              )
-              DefaultConfigurableTextField(
-                customApiKey,
-                TranslationStrings.customApiKey,
-                modifier = Modifier.fillMaxWidth(),
-                isValid = { true },
-                keyboardActions = KeyboardActions(onDone = { defaultKeyboardAction(ImeAction.Done) }),
-                keyboardType = KeyboardType.Password,
-              )
-            }
           }
         }
       }

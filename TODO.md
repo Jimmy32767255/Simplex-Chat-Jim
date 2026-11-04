@@ -191,8 +191,8 @@
 - [x] 应用内聊天翻译：长按任意消息气泡即可翻译并以双语对照显示，输入框发送键旁新增翻译键，设置页可选翻译服务商并配置密钥，自动翻译当前视区消息并按速率限制批量处理
   - 已实现（基于 7.0.4）：消息菜单翻译——长按/右键任意消息气泡，弹出菜单新增「翻译」项（图标 `ic_translate`），点击后自动识别源语言并翻译；译文以「原文 + 译文」双语气泡在该消息下方追加显示，属非破坏性展示，不修改原消息内容。
   - 已实现（基于 7.0.4）：发送键旁翻译键——输入框发送键左侧新增 36dp 圆形翻译键（`ic_translate`）。单击把输入框当前文本翻译为默认目标语言（默认英语）；长按弹出语言选择菜单，选中后本次翻译为该语言（仅本次有效，不改默认设置）；翻译后再点一次撤销回原文，若翻译后又编辑了文本则不可撤销、此时点击改为重新翻译（是否可撤销由 `ComposeState` 新增的 `translateOriginal`/`translateResult` 字段判断）。
-  - 已实现（基于 7.0.4）：设置页——设置新增翻译设置界面（标题 `translation_settings`，即「翻译消息 / Translate messages」），可配置服务提供商 provider（Google 免费、Bing 免费、百度（需 API Key）、AI 翻译（OpenAI Responses 协议，默认 DeepSeek）、自定义（OpenAI 兼容端点，可自定义 base URL/模型/密钥））、默认目标语言 targetLang、自动翻译开关 autoTranslate，以及各提供商的 API Key。
-  - 已实现（基于 7.0.4）：密钥与端点——百度另存 AppID/密钥；AI 提供方默认 base URL `https://api.deepseek.com/v1`、模型 `deepseek-chat`，自定义方（custom）的 base URL/模型默认为空、由用户自填。所有密钥先用 `Cryptor` 加密再存本机，不随备份导出。
+  - 已实现（基于 7.0.4）：设置页——设置新增翻译设置界面（标题 `translation_settings`，即「翻译消息 / Translate messages」），可配置服务提供商 provider（Google 免费、Bing 免费、百度（需 API Key）、AI 翻译（OpenAI Responses 协议，默认 DeepSeek））、默认目标语言 targetLang、自动翻译开关 autoTranslate，以及各提供商的 API Key。
+  - 已实现（基于 7.0.4）：密钥与端点——百度另存 AppID/密钥；AI 提供方默认 base URL `https://api.deepseek.com/v1`、模型 `deepseek-chat`。所有密钥先用 `Cryptor` 加密再存本机，不随备份导出。
   - 已实现（基于 7.0.4）：自动翻译与限流——autoTranslate 只翻译当前视区可见消息（由当前视区可见项集合的变化触发，带 400ms 防抖；已翻译或正在翻译的消息不重复请求）；按速率限制批量处理：请求间隔 `requestIntervalMs`（默认 600）、最大并发 `maxConcurrent`（默认 2）、单次批量上限 `batchLimit`（默认 20）；手动翻译同样受最小间隔约束，防止被服务商封禁或耗尽余额。
   - 已实现（基于 7.0.4）：纯客户端本机存储——所有配置存本机 `AppPreferences`（JSON 字符串偏好 `translationConfig`，密钥加密存 `translationSecrets` + `translationSecretsIv`），**不进入 `AppSettings` 导出**；不修改核心（Haskell）与网络协议，便于日后跟随官方版本升级。
   - 改动文件：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/`（`TranslationModels.kt`、`TranslationLang.kt`、`TranslationApi.kt`、`TranslationHttp.kt`（`expect` suspend httpGetText/httpPostJson）+ desktop/android actual、`TranslationService.kt`）；`.../model/SimpleXAPI.kt`（`AppPreferences` 的四个翻译偏好与 `SHARED_PREFS_*` 常量）、`.../views/chat/ComposeView.kt`（`ComposeState.translateOriginal`/`translateResult`）；聊天侧 UI（消息菜单项、发送键翻译键、气泡译文、自动翻译可见区）在 `.../views/chat/`（`SendMsgView.kt`、`ChatItemView.kt`、`FramedItemView.kt` 及翻译界面），设置侧在 `.../views/usersettings/SettingsView.kt` 与 `TranslationSettingsView.kt`；`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`。
@@ -203,6 +203,20 @@
 none
 
 ## bug fix:
+
+- [x] 翻译功能三处问题：中文界面仍显示英文文案、除 AI 之外的所有翻译方式都失败、设置里多出一个「自定义」服务提供商
+  - 原因一（文案）：`TranslationStrings.isZh()` 只读 `appLanguage` 偏好，偏好为 `null`（默认「跟随系统」）或字面量 `"system"` 时一律判为非中文，于是中文系统的用户看到的全是英文。
+  - 原因二（必应）：代码走的是 `edge.microsoft.com/translate/auth` 取令牌 + `api-edge.cognitive.microsofttranslator.com/translate` 翻译的两步流程，而这两个端点在 2026 年已下线（实测 `/translate/auth` 直连与代理均返回 404），因此必应必然失败。
+  - 原因三（百度）：请求固定用 `from=auto`，完全依赖百度自己的语种识别；识别错时百度会把原文原样返回，看起来「翻译了跟没翻译一样」。另外多行文本的 `trans_result[]` 原来被直接首尾拼接、丢了换行，空结果会被当成成功但译文为空。
+  - 原因四（提供商）：`TranslationProvider.CUSTOM` 是「AI（OpenAI Responses）」的重复选项（同一个 `aiResponsesBody`/`parseAiResponsesResponse`，只是多一套 base URL/模型/密钥字段），属于多余的第五项。
+  - 修复方法（文案）：新增 `expect val systemLanguageCode: String`（desktop/android 均为 `Locale.getDefault().language`），`TranslationStrings.effectiveLanguage()` 在偏好为空或 `"system"` 时回退到系统语言，`isZh()` 据此判断，中文界面恢复中文。完整的 27 语言覆盖没有做：moko-resources 只支持固定的 7 类资源、无法新增 `translation.xml`，而 `MR$strings.<clinit>` 已逼近 JVM 单方法 64 KiB 上限（实测余量约 6 条字符串），新增文案必然 `Method too large`，已记入 `product/gaps.md` GAP-08 等官方拆分后再跟进。
+  - 修复方法（必应）：改用免费 Edge 端点 `POST edge.microsoft.com/translate/translatetext?from=&to=<code>`，请求体为裸 JSON 字符串数组 `["text"]`，无需令牌；新增 `msLangCode()` 把中文映射成端点要求的 `zh-Hans`/`zh-Hant`，`bingAuthUrl` 与令牌流程整体删除。
+  - 修复方法（百度）：新增 `detectLanguageOrNull()`（脚本识别，拉丁字母返回 `null`），百度请求在脚本明确时把 `from` 显式设为识别结果（`ja→jp`、`ko→kor` 等仍走 `baiduLangCode`），拉丁文本仍用 `auto`；`trans_result[]` 改为按行用换行符拼接，空结果返回 `ERROR` 而不是空译文。
+  - 修复方法（提供商）：删除 `TranslationProvider.CUSTOM`（枚举、`isConfigured`/`translateNow` 分支、设置页三个输入框、`TranslationConfig.customBaseUrl/customModel`、`TranslationSecrets.customApiKey` 及相关文案）。配置用 `ignoreUnknownKeys` 解析，旧配置里残留的 `custom*` 字段会被忽略，不需要迁移。
+  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/platform/AppCommon.kt`（`expect val systemLanguageCode`）、`.../desktopMain/.../platform/AppCommon.desktop.kt` 与 `.../androidMain/.../platform/AppCommon.android.kt`（actual）、`.../translation/TranslationStrings.kt`；`.../translation/TranslationApi.kt`（`bingTranslateUrl`/`msLangCode`/`bingTranslateBody`/`baiduTranslateUrl`/`parseBaiduResponse`）、`.../translation/TranslationLang.kt`（`detectLanguageOrNull`）、`.../translation/TranslationService.kt`（必应/百度分支，删除 CUSTOM）、`.../translation/TranslationModels.kt`、`.../views/usersettings/TranslationSettingsView.kt`。
+  - 测试：`apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TranslationApiTest.kt` 22 → 28 个用例（必应新端点的 URL 与请求体、`msLangCode`、百度显式 `from` 与 `auto` 回退、`detectLanguageOrNull`、多行拼接、空结果报错），`./gradlew :common:desktopTest --tests "chat.simplex.app.TranslationApiTest"` 28/28 通过，`./gradlew :common:compileKotlinDesktop` 与 `:common:compileDebugKotlinAndroid` 均编译通过。
+  - 未改核心与 `AppSettings`，未新增 MR 字符串，未新增偏好字段。
+  - 文档：`spec/client/translation.md`（提供商表、必然/百度请求说明、语言检测）、`spec/state.md`（§5 翻译配置字段）、`spec/architecture.md`（`systemLanguageCode` expect 与其行号）、`product/views/settings.md`、`product/rules.md`（RULE-31 提供商列表）、`product/gaps.md`（GAP-08）、`plans/2026-11-04-translation-provider-fixes.md`。
 
 - [x] 彩虹模式：聊天页面里的气泡颜色不变色，只有自定义主题页面的预览会变色
   - 原因：`SimpleXThemeOverride` 只把原始配色交给 `MaterialTheme` / `LocalAppColors`，完全没有套用彩虹相位；而聊天页面整体就包在它里面（`ChatView.kt` 用 `SimpleXThemeOverride(overrides ?: CurrentColors...)` 包住整个会话），所以设置页的色块会变色，真正进入聊天后气泡与界面色都不刷新。

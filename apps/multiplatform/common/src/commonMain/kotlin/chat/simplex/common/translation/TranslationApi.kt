@@ -130,15 +130,27 @@ internal fun parseGoogleResponse(body: String): TranslationEntry {
 
 // endregion
 
-// region ---- Bing (free edge endpoint; needs a short-lived bearer token) ----
+// region ---- Bing (free edge endpoint) ----
 
-internal fun bingAuthUrl(): String = "https://edge.microsoft.com/translate/auth"
-
+/**
+ * The legacy `edge.microsoft.com/translate/auth` token endpoint was retired in 2026, which made every
+ * Bing translation fail. The free Edge endpoint is now called directly: it needs no token and takes a
+ * bare JSON array of strings.
+ */
 internal fun bingTranslateUrl(targetLang: String): String =
-  "https://api-edge.cognitive.microsofttranslator.com/translate?api-version=3.0&from=&to=${urlEncode(targetLang)}"
+  "https://edge.microsoft.com/translate/translatetext?from=&to=${urlEncode(msLangCode(targetLang))}"
 
-internal fun bingTranslateBody(text: String): String =
-  buildJsonArray { add(buildJsonObject { put("Text", text) }) }.toString()
+/**
+ * Microsoft's own language codes: Chinese has to carry the script (`zh-Hans` / `zh-Hant`), otherwise
+ * the request is rejected.
+ */
+internal fun msLangCode(code: String): String = when (code) {
+  "zh" -> "zh-Hans"
+  "zh-TW", "zh-Hant" -> "zh-Hant"
+  else -> code
+}
+
+internal fun bingTranslateBody(text: String): String = buildJsonArray { add(text) }.toString()
 
 internal fun parseBingResponse(body: String): TranslationEntry {
   return try {
@@ -159,11 +171,24 @@ internal fun parseBingResponse(body: String): TranslationEntry {
 
 internal fun baiduSign(appId: String, q: String, salt: String, key: String): String = md5Hex(appId + q + salt + key)
 
-internal fun baiduTranslateUrl(appId: String, q: String, salt: String, key: String, targetLang: String): String {
+/**
+ * Builds a Baidu request. [sourceLang] is an already detected language code (or `null` when the
+ * script is inconclusive); when it is known it is sent explicitly as `from`, because Baidu's own
+ * detection (`from=auto`) mislabels some inputs and then returns the text unchanged.
+ */
+internal fun baiduTranslateUrl(
+  appId: String,
+  q: String,
+  salt: String,
+  key: String,
+  targetLang: String,
+  sourceLang: String? = null,
+): String {
   val sign = baiduSign(appId, q, salt, key)
   // Baidu uses its own language codes: zh, en, jp, kor, fra, de, spa, ru, ara, th, vie, ...
   val baiduLang = baiduLangCode(targetLang)
-  return "https://fanyi-api.baidu.com/api/trans/vip/translate?q=${urlEncode(q)}&from=auto&to=${urlEncode(baiduLang)}&appid=${urlEncode(appId)}&salt=${urlEncode(salt)}&sign=$sign"
+  val from = sourceLang?.let { baiduLangCode(it) } ?: "auto"
+  return "https://fanyi-api.baidu.com/api/trans/vip/translate?q=${urlEncode(q)}&from=${urlEncode(from)}&to=${urlEncode(baiduLang)}&appid=${urlEncode(appId)}&salt=${urlEncode(salt)}&sign=$sign"
 }
 
 internal fun baiduLangCode(code: String): String = when (code) {
@@ -188,12 +213,10 @@ internal fun parseBaiduResponse(body: String): TranslationEntry {
       return TranslationEntry(TranslationStatus.ERROR, error = "Baidu error $errCode: ${root["error_msg"]?.jsonPrimitive?.contentOrNull ?: ""}")
     }
     val from = root["from"]?.jsonPrimitive?.contentOrNull
-    val results = root["trans_result"]?.jsonArray
-    val sb = StringBuilder()
-    results?.forEach { item ->
-      item.jsonObject["dst"]?.jsonPrimitive?.contentOrNull?.let { sb.append(it) }
-    }
-    TranslationEntry(TranslationStatus.DONE, sb.toString(), detectedLang = from)
+    // Baidu returns one entry per input line, so the translation has to be re-joined with newlines.
+    val lines = root["trans_result"]?.jsonArray?.mapNotNull { it.jsonObject["dst"]?.jsonPrimitive?.contentOrNull }
+    if (lines.isNullOrEmpty()) return TranslationEntry(TranslationStatus.ERROR, error = "Baidu response has no translation")
+    TranslationEntry(TranslationStatus.DONE, lines.joinToString("\n"), detectedLang = from)
   } catch (e: Exception) {
     TranslationEntry(TranslationStatus.ERROR, error = "Baidu response parse error: ${e.message}")
   }
