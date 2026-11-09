@@ -280,6 +280,12 @@ none
   - 测试：`./gradlew :common:desktopTest` 全部通过（436 个用例、0 失败），`:common:compileKotlinDesktop` 与 `:common:compileDebugKotlinAndroid` 均编译通过。
   - 差异补丁：`diff/0000-todo-list.patch` 负责创建 `TODO.md`，`diff/0001`–`diff/0028` 仍是每项功能一个补丁，本条目见 `diff/0029-upgrade-to-7.1.2.patch`，全部按 7.1.2 基线重新生成。除 0000 以外的每个补丁按「上一个补丁对应的提交 → 本提交」生成（`git diff <上一补丁提交> <本提交> -- . ':(exclude)diff'`），因此夹在功能提交之间的纯 TODO 记录提交会并入紧随其后的那个补丁，保证从纯净 `v7.1.2` 顺序 `git apply` 能完整复现：已验证 30 个补丁按序全部应用成功，除 `diff/` 目录自身外，文件树与 `Jim` 完全一致。
 
+- [x] 桌面核心库按版本安装，并修复打包应用启动即崩溃
+  - **已完成（2026-11-09）**：`common/src/commonMain/cpp/desktop/libs/` 是不入库的预编译目录，之前留着 7.0.4 时期的 `libHSsimplexmq-7.0.0.6`，7.1.2 客户端解析 `usersList` 会失败。新增 `scripts/desktop/fetch-core-libs.sh`：按 `gradle.properties` 的 `desktop.version_name` 从官方桌面发行包提取同版本核心库（当前 `libHSsimplexmq-7.1.0.17`，169 个文件）并保留本地 `libapp-lib.so`。
+  - 装上 7.1.2 核心后应用在首帧崩溃：`SIGSEGV ... libHSzstd ... ZSTD_freeDDict+0x11`。原因是 GHC RTS 以 `RTLD_GLOBAL` 打开核心库，`libHSzstd` 导出了 268 个 `ZSTD_`/`ZDICT_` 符号，Mesa 的 `libgallium` 调用被解析到这份实现上（`libskiko` 本身不依赖 zstd）。`LD_PRELOAD` 真正的 `libzstd.so.1` 即可解决。
+  - 因为 jpackage 的 `bin/simplex` 是原生启动器、`simplex.cfg` 只能带 JVM 参数，改为在 `createDistributable` 后处理里把 `libzstd.so.1` 复制进 `lib/app` 并在应用根目录生成 `simplex` 包装脚本（`LD_PRELOAD` 后 exec `bin/simplex`）。启动入口用 `release/main/app/simplex/simplex`。
+  - 文档：`README.md`、`spec/architecture.md`、`plans/2026-11-09-desktop-core-libs-and-zstd-preload.md`；本条目见 `diff/0030-desktop-core-libs-and-zstd-preload.patch`。
+
 ## del:
 
 none

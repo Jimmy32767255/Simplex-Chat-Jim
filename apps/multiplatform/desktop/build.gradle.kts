@@ -333,3 +333,46 @@ val stageCoreLibs = tasks.register("stageCoreLibs") {
 }
 tasks.matching { it.name == "prepareAppResources" || it.name == "run" || it.name == "runDistributable" }
   .configureEach { dependsOn(stageCoreLibs) }
+
+// ---- Distribution launcher: preload libzstd ----
+// The Haskell core is opened by the GHC RTS with RTLD_GLOBAL, and libHSzstd exports the 268 ZSTD_/ZDICT_
+// symbols. Mesa's libgallium resolves them lazily, so after the core is loaded Mesa's zstd calls bind to
+// the Haskell copy and the OpenGL backend segfaults in ZSTD_freeDDict when it flushes the shader cache.
+// Preloading the real libzstd keeps both sides on one implementation. jpackage's launcher is a native
+// binary and simplex.cfg only carries JVM options, so the preload is applied by a wrapper beside `bin/`.
+val distAppDir = project.file("../release/main/app/simplex")
+val libzstdCandidates = listOfNotNull(
+  coreLibsSourceSubdir?.let { project.file("../common/src/commonMain/cpp/desktop/libs/$it/libzstd.so.1") },
+  File("/usr/lib/libzstd.so.1"),
+  File("/usr/lib/x86_64-linux-gnu/libzstd.so.1"),
+  File("/usr/lib/aarch64-linux-gnu/libzstd.so.1")
+)
+
+tasks.matching { it.name == "createDistributable" }.configureEach {
+  doLast {
+    if (coreLibsResourcesSubdir?.startsWith("linux") != true) return@doLast
+    if (!distAppDir.isDirectory) return@doLast
+    val zstd = libzstdCandidates.firstOrNull { it.isFile }
+    if (zstd == null) {
+      logger.warn("libzstd.so.1 not found, the launcher will fall back to the system library")
+    } else {
+      project.copy {
+        from(zstd)
+        into(File(distAppDir, "lib/app"))
+        rename { "libzstd.so.1" }
+      }
+    }
+    val wrapper = File(distAppDir, "simplex")
+    wrapper.writeText(
+      """
+      #!/bin/sh
+      # Preloads the real libzstd, see the comment next to the launcher task in desktop/build.gradle.kts.
+      APPDIR=${'$'}(dirname "${'$'}(readlink -f "${'$'}0")")
+      ZSTD="${'$'}APPDIR/lib/app/libzstd.so.1"
+      [ -f "${'$'}ZSTD" ] || ZSTD=/usr/lib/libzstd.so.1
+      LD_PRELOAD="${'$'}ZSTD${'$'}{LD_PRELOAD:+:${'$'}LD_PRELOAD}" exec "${'$'}APPDIR/bin/simplex" "${'$'}@"
+      """.trimIndent() + "\n"
+    )
+    wrapper.setExecutable(true)
+  }
+}

@@ -121,6 +121,12 @@ Contains:
   `prepareAppResources`, `run` and `runDistributable`, links instead of copying (~600 MB), and fails the
   build with an explicit message when the core libraries are missing, because an empty resources directory
   produces a package that crashes on startup with `UnsatisfiedLinkError`
+- `createDistributable` post-processing ([`build.gradle.kts`](../desktop/build.gradle.kts)) -- copies
+  `libzstd.so.1` into `lib/app` and writes the `simplex` wrapper next to `bin/`. The wrapper preloads it,
+  because the GHC RTS opens the core with `RTLD_GLOBAL` and `libHSzstd` exports the `ZSTD_*` symbols, which
+  would otherwise shadow Mesa's implementation and segfault the OpenGL backend in `ZSTD_freeDDict`
+- `core` libraries are not tracked by git; `scripts/desktop/fetch-core-libs.sh` installs the ones matching
+  `desktop.version_name` from the official release package
 
 ---
 

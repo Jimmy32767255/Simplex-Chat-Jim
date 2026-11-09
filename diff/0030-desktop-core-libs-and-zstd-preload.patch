@@ -1,0 +1,242 @@
+diff --git a/TODO.md b/TODO.md
+index dcb2287d3..9b38e1f8d 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -280,6 +280,12 @@ none
+   - 测试：`./gradlew :common:desktopTest` 全部通过（436 个用例、0 失败），`:common:compileKotlinDesktop` 与 `:common:compileDebugKotlinAndroid` 均编译通过。
+   - 差异补丁：`diff/0000-todo-list.patch` 负责创建 `TODO.md`，`diff/0001`–`diff/0028` 仍是每项功能一个补丁，本条目见 `diff/0029-upgrade-to-7.1.2.patch`，全部按 7.1.2 基线重新生成。除 0000 以外的每个补丁按「上一个补丁对应的提交 → 本提交」生成（`git diff <上一补丁提交> <本提交> -- . ':(exclude)diff'`），因此夹在功能提交之间的纯 TODO 记录提交会并入紧随其后的那个补丁，保证从纯净 `v7.1.2` 顺序 `git apply` 能完整复现：已验证 30 个补丁按序全部应用成功，除 `diff/` 目录自身外，文件树与 `Jim` 完全一致。
+ 
++- [x] 桌面核心库按版本安装，并修复打包应用启动即崩溃
++  - **已完成（2026-11-09）**：`common/src/commonMain/cpp/desktop/libs/` 是不入库的预编译目录，之前留着 7.0.4 时期的 `libHSsimplexmq-7.0.0.6`，7.1.2 客户端解析 `usersList` 会失败。新增 `scripts/desktop/fetch-core-libs.sh`：按 `gradle.properties` 的 `desktop.version_name` 从官方桌面发行包提取同版本核心库（当前 `libHSsimplexmq-7.1.0.17`，169 个文件）并保留本地 `libapp-lib.so`。
++  - 装上 7.1.2 核心后应用在首帧崩溃：`SIGSEGV ... libHSzstd ... ZSTD_freeDDict+0x11`。原因是 GHC RTS 以 `RTLD_GLOBAL` 打开核心库，`libHSzstd` 导出了 268 个 `ZSTD_`/`ZDICT_` 符号，Mesa 的 `libgallium` 调用被解析到这份实现上（`libskiko` 本身不依赖 zstd）。`LD_PRELOAD` 真正的 `libzstd.so.1` 即可解决。
++  - 因为 jpackage 的 `bin/simplex` 是原生启动器、`simplex.cfg` 只能带 JVM 参数，改为在 `createDistributable` 后处理里把 `libzstd.so.1` 复制进 `lib/app` 并在应用根目录生成 `simplex` 包装脚本（`LD_PRELOAD` 后 exec `bin/simplex`）。启动入口用 `release/main/app/simplex/simplex`。
++  - 文档：`README.md`、`spec/architecture.md`、`plans/2026-11-09-desktop-core-libs-and-zstd-preload.md`；本条目见 `diff/0030-desktop-core-libs-and-zstd-preload.patch`。
++
+ ## del:
+ 
+ none
+diff --git a/apps/multiplatform/README.md b/apps/multiplatform/README.md
+index 4c317d43c..749bd77df 100644
+--- a/apps/multiplatform/README.md
++++ b/apps/multiplatform/README.md
+@@ -40,6 +40,14 @@ git submodule update --init --recursive
+ # Build the core first (common:cmakeBuild, see below) instead of shipping a package that dies with
+ # UnsatisfiedLinkError on startup.
+ 
++# Desktop core libraries (needed by the desktop app, git-ignored)
++scripts/desktop/fetch-core-libs.sh
++# Installs the Haskell core (libsimplex, libHS*, ~620 MB) of the version in gradle.properties into
++# common/src/commonMain/cpp/desktop/libs/<platform>. A core from another version still starts but the
++# client cannot parse its responses (e.g. "failed to list users" from usersList).
++# The packaged app also gets a `simplex` wrapper next to `bin/` that preloads libzstd, see
++# spec/architecture.md and the launcher task in desktop/build.gradle.kts.
++
+ # Run desktop/JVM tests
+ ./gradlew desktopTest
+ 
+diff --git a/apps/multiplatform/desktop/build.gradle.kts b/apps/multiplatform/desktop/build.gradle.kts
+index 3ed5d05eb..e06f33a80 100644
+--- a/apps/multiplatform/desktop/build.gradle.kts
++++ b/apps/multiplatform/desktop/build.gradle.kts
+@@ -333,3 +333,46 @@ val stageCoreLibs = tasks.register("stageCoreLibs") {
+ }
+ tasks.matching { it.name == "prepareAppResources" || it.name == "run" || it.name == "runDistributable" }
+   .configureEach { dependsOn(stageCoreLibs) }
++
++// ---- Distribution launcher: preload libzstd ----
++// The Haskell core is opened by the GHC RTS with RTLD_GLOBAL, and libHSzstd exports the 268 ZSTD_/ZDICT_
++// symbols. Mesa's libgallium resolves them lazily, so after the core is loaded Mesa's zstd calls bind to
++// the Haskell copy and the OpenGL backend segfaults in ZSTD_freeDDict when it flushes the shader cache.
++// Preloading the real libzstd keeps both sides on one implementation. jpackage's launcher is a native
++// binary and simplex.cfg only carries JVM options, so the preload is applied by a wrapper beside `bin/`.
++val distAppDir = project.file("../release/main/app/simplex")
++val libzstdCandidates = listOfNotNull(
++  coreLibsSourceSubdir?.let { project.file("../common/src/commonMain/cpp/desktop/libs/$it/libzstd.so.1") },
++  File("/usr/lib/libzstd.so.1"),
++  File("/usr/lib/x86_64-linux-gnu/libzstd.so.1"),
++  File("/usr/lib/aarch64-linux-gnu/libzstd.so.1")
++)
++
++tasks.matching { it.name == "createDistributable" }.configureEach {
++  doLast {
++    if (coreLibsResourcesSubdir?.startsWith("linux") != true) return@doLast
++    if (!distAppDir.isDirectory) return@doLast
++    val zstd = libzstdCandidates.firstOrNull { it.isFile }
++    if (zstd == null) {
++      logger.warn("libzstd.so.1 not found, the launcher will fall back to the system library")
++    } else {
++      project.copy {
++        from(zstd)
++        into(File(distAppDir, "lib/app"))
++        rename { "libzstd.so.1" }
++      }
++    }
++    val wrapper = File(distAppDir, "simplex")
++    wrapper.writeText(
++      """
++      #!/bin/sh
++      # Preloads the real libzstd, see the comment next to the launcher task in desktop/build.gradle.kts.
++      APPDIR=${'$'}(dirname "${'$'}(readlink -f "${'$'}0")")
++      ZSTD="${'$'}APPDIR/lib/app/libzstd.so.1"
++      [ -f "${'$'}ZSTD" ] || ZSTD=/usr/lib/libzstd.so.1
++      LD_PRELOAD="${'$'}ZSTD${'$'}{LD_PRELOAD:+:${'$'}LD_PRELOAD}" exec "${'$'}APPDIR/bin/simplex" "${'$'}@"
++      """.trimIndent() + "\n"
++    )
++    wrapper.setExecutable(true)
++  }
++}
+diff --git a/apps/multiplatform/plans/2026-11-09-desktop-core-libs-and-zstd-preload.md b/apps/multiplatform/plans/2026-11-09-desktop-core-libs-and-zstd-preload.md
+new file mode 100644
+index 000000000..0ca6c2013
+--- /dev/null
++++ b/apps/multiplatform/plans/2026-11-09-desktop-core-libs-and-zstd-preload.md
+@@ -0,0 +1,46 @@
++# Desktop: core libraries per version and the libzstd preload
++
++Date: 2026-11-09
++Status: done
++
++## Problem
++
++Two failures appeared when the desktop app was built from this repository after the rebase onto 7.1.2:
++
++1. The Haskell core in `common/src/commonMain/cpp/desktop/libs/linux-x86_64` was `libHSsimplexmq-7.0.0.6`
++   from the 7.0.4 era. The directory is git-ignored, so nothing in the tree tied it to a client version.
++   With the 7.1.2 client the app started but `listUsers` failed (`failed to list users * usersList {...}`)
++   because the old core does not send the fields the newer model requires (`fullPreferences`,
++   `autoAcceptGroupInvitations`, `viewPwdHash`), so the UI stayed empty.
++2. After installing the 7.1.2 core the app crashed at the first frame with
++   `SIGSEGV ... libHSzstd-0.1.3.0-...so ZSTD_freeDDict+0x11` on the AWT event thread inside
++   `DirectContext_nFlushDefault`. GL initialisation on this machine also logs
++   `MESA: error: Failed to query drm device` / `failed to load driver: iris`.
++
++## Root causes
++
++1. Nothing pinned the core libraries to the client version; they were fetched once by hand.
++2. Symbol collision. The GHC RTS opens the package libraries with `RTLD_GLOBAL`, and `libHSzstd` exports
++   268 `ZSTD_*`/`ZDICT_*` symbols. Mesa's `libgallium` links `libzstd.so.1` and resolves those symbols
++   lazily, so after the core is loaded Mesa's calls bind to the Haskell copy and it frees a dictionary
++   that its own zstd never created. `LD_PRELOAD=/usr/lib/libzstd.so.1` binds the real implementation first
++   and the crash disappears; `nm -D` confirms `libskiko-linux-x64.so` has no zstd dependency at all, so the
++   collision is between Mesa and the Haskell core, not skiko.
++
++## Changes
++
++- `scripts/desktop/fetch-core-libs.sh` installs the core of the version in `gradle.properties` from the
++  official desktop package (`simplex-desktop-ubuntu-24_04-<arch>.deb`), keeping the locally built
++  `libapp-lib.so`. It prints the installed `libHSsimplexmq-*` version for verification.
++- `desktop/build.gradle.kts`: a `doLast` on `createDistributable` copies `libzstd.so.1` into `lib/app` and
++  writes a `simplex` wrapper next to `bin/` that preloads it via `LD_PRELOAD`. jpackage's launcher is a
++  native binary and `simplex.cfg` only accepts JVM options, so a wrapper is the only place to set it.
++
++## Verification
++
++- `scripts/desktop/fetch-core-libs.sh` → 169 libraries, `Core: libHSsimplexmq-7.1.0.17`.
++- `./gradlew :desktop:createDistributable` → BUILD SUCCESSFUL, the wrapper and `lib/app/libzstd.so.1` are
++  present afterwards.
++- Launching `release/main/app/simplex/simplex` keeps the window open with the 7.1.2 client and the 7.1.2
++  core, no `usersList` error and no `hs_err` file; launching `bin/simplex` directly still crashes on this
++  machine, which is why the wrapper is the documented entry point.
+diff --git a/apps/multiplatform/spec/architecture.md b/apps/multiplatform/spec/architecture.md
+index ef917cebd..efb1cee50 100644
+--- a/apps/multiplatform/spec/architecture.md
++++ b/apps/multiplatform/spec/architecture.md
+@@ -121,6 +121,12 @@ Contains:
+   `prepareAppResources`, `run` and `runDistributable`, links instead of copying (~600 MB), and fails the
+   build with an explicit message when the core libraries are missing, because an empty resources directory
+   produces a package that crashes on startup with `UnsatisfiedLinkError`
++- `createDistributable` post-processing ([`build.gradle.kts`](../desktop/build.gradle.kts)) -- copies
++  `libzstd.so.1` into `lib/app` and writes the `simplex` wrapper next to `bin/`. The wrapper preloads it,
++  because the GHC RTS opens the core with `RTLD_GLOBAL` and `libHSzstd` exports the `ZSTD_*` symbols, which
++  would otherwise shadow Mesa's implementation and segfault the OpenGL backend in `ZSTD_freeDDict`
++- `core` libraries are not tracked by git; `scripts/desktop/fetch-core-libs.sh` installs the ones matching
++  `desktop.version_name` from the official release package
+ 
+ ---
+ 
+diff --git a/scripts/desktop/fetch-core-libs.sh b/scripts/desktop/fetch-core-libs.sh
+new file mode 100755
+index 000000000..85d7e9707
+--- /dev/null
++++ b/scripts/desktop/fetch-core-libs.sh
+@@ -0,0 +1,80 @@
++#!/usr/bin/env bash
++# Installs the Haskell core libraries (libsimplex, libHS*, libcrypto, libffi) that the desktop app
++# links against into apps/multiplatform/common/src/commonMain/cpp/desktop/libs/<platform>.
++#
++# That directory is not tracked by git (apps/multiplatform/.gitignore): the libraries are prebuilt
++# binaries, not source. Without them `:desktop:stageCoreLibs` fails, and with libraries from another
++# version the app starts but cannot parse core responses (for example "failed to list users" from
++# `usersList`), so the client and the core have to come from the same release.
++#
++# The libraries are extracted from the official desktop package of the same version, which keeps the
++# client code in this repository and the packaged core in sync.
++#
++# Usage:
++#   scripts/desktop/fetch-core-libs.sh [version]
++#
++# The version defaults to `desktop.version_name` from apps/multiplatform/gradle.properties. Set
++# HTTPS_PROXY / https_proxy to download through a proxy, for example https_proxy=http://127.0.0.1:1080.
++#
++# `libapp-lib.so` is built from this repository by `common:cmakeBuild` and is preserved.
++
++set -euo pipefail
++
++repo_root="$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)"
++gradle_props="$repo_root/apps/multiplatform/gradle.properties"
++version="${1:-$(sed -n 's/^desktop\.version_name=//p' "$gradle_props" | tr -d '[:space:]')}"
++
++if [ -z "$version" ]; then
++  echo "Cannot determine the version, pass it as the first argument" >&2
++  exit 1
++fi
++
++case "$(uname -m)" in
++  x86_64 | amd64) deb_arch=x86_64 ;;
++  aarch64 | arm64) deb_arch=aarch64 ;;
++  *)
++    echo "Unsupported architecture: $(uname -m)" >&2
++    exit 1
++    ;;
++esac
++
++libs_dir="$repo_root/apps/multiplatform/common/src/commonMain/cpp/desktop/libs/linux-$deb_arch"
++work_dir="$repo_root/apps/multiplatform/build/dl/core-$version-$deb_arch"
++deb="$work_dir/simplex-desktop.deb"
++url="https://github.com/simplex-chat/simplex-chat/releases/download/v$version/simplex-desktop-ubuntu-24_04-$deb_arch.deb"
++
++mkdir -p "$work_dir"
++if [ ! -f "$deb" ]; then
++  echo "Downloading $url"
++  curl --fail --location --retry 3 -o "$deb" "$url"
++fi
++
++echo "Extracting the core libraries"
++rm -rf "$work_dir/extract"
++mkdir -p "$work_dir/extract"
++(
++  cd "$work_dir/extract"
++  ar x "$deb" data.tar.zst
++  tar --zstd -xf data.tar.zst ./opt/simplex/lib/app/resources
++)
++
++src="$work_dir/extract/opt/simplex/lib/app/resources"
++if [ ! -d "$src" ]; then
++  echo "Unexpected package layout: $src is missing" >&2
++  exit 1
++fi
++
++mkdir -p "$libs_dir"
++# libapp-lib is compiled from common/src/commonMain/cpp, keep the local build instead of the packaged one.
++if [ -f "$libs_dir/libapp-lib.so" ]; then
++  cp -a "$libs_dir/libapp-lib.so" "$work_dir/libapp-lib.so"
++fi
++find "$libs_dir" -maxdepth 1 -name '*.so*' -delete
++cp -a "$src"/. "$libs_dir"/
++if [ -f "$work_dir/libapp-lib.so" ]; then
++  cp -a "$work_dir/libapp-lib.so" "$libs_dir/libapp-lib.so"
++fi
++
++core_version="$(strings "$libs_dir/libsimplex.so" | grep -o 'libHSsimplexmq-[0-9.]*' | head -1 || true)"
++echo "Installed $(find "$libs_dir" -maxdepth 1 -name '*.so*' | wc -l) libraries into ${libs_dir#"$repo_root"/}"
++echo "Core: ${core_version:-unknown} (expected version $version)"

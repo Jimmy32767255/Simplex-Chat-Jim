@@ -40,6 +40,14 @@ git submodule update --init --recursive
 # Build the core first (common:cmakeBuild, see below) instead of shipping a package that dies with
 # UnsatisfiedLinkError on startup.
 
+# Desktop core libraries (needed by the desktop app, git-ignored)
+scripts/desktop/fetch-core-libs.sh
+# Installs the Haskell core (libsimplex, libHS*, ~620 MB) of the version in gradle.properties into
+# common/src/commonMain/cpp/desktop/libs/<platform>. A core from another version still starts but the
+# client cannot parse its responses (e.g. "failed to list users" from usersList).
+# The packaged app also gets a `simplex` wrapper next to `bin/` that preloads libzstd, see
+# spec/architecture.md and the launcher task in desktop/build.gradle.kts.
+
 # Run desktop/JVM tests
 ./gradlew desktopTest
 
