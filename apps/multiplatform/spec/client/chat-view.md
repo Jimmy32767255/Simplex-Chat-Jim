@@ -123,7 +123,7 @@ The message list is a `LazyColumnWithScrollBar` with `reverseLayout = true`, mea
 - **Scroll To Item:** `scrollToItem` lambda supports animated scrolling to a specific item ID, used by search result taps and quoted message navigation.
 - **Unread Marking:** `MarkItemsReadAfterDelay` composable marks newly visible received items as read after a brief delay.
 - **Date Separators:** `DateSeparator` composable renders between messages when the date changes (via `ItemSeparation.date`).
-- **Automatic translation:** when `translationAutoTranslate` is on, the items currently visible in the viewport (from `listState.layoutInfo.visibleItemsInfo`) are translated in rate-limited batches (`TranslationService`, `batchLimit`/`maxConcurrent`/`requestIntervalMs`); each translated message shows the result as a bilingual line (原文 + 译文) under the original bubble, and a message that scrolls out of view has its in-flight request cancelled. The original `ChatItem` content is never modified (PC46, RULE-31).
+- **Automatic translation:** when `translationAutoTranslate` is on, the items currently visible in the viewport (from `listState.layoutInfo.visibleItemsInfo`) are translated in rate-limited batches (`TranslationService`, `batchLimit`/`maxConcurrent`/`requestIntervalMs`); each translated message shows the result as a bilingual line (原文 + 译文) under the original bubble, and a message that scrolls out of view has its in-flight request cancelled. The original `ChatItem` content is never modified (PC47, RULE-31).
 - **Rainbow message text:** when `rainbowMessageText` is on (and rainbow mode is enabled), `MarkdownText` takes its default text color from `rememberRainbowMessageTextColor()` instead of `MaterialTheme.colors.onSurface`, so every markdown surface (text bubbles, quotes, message details) cycles its hue together. The option is exclusive with rainbow chat bubbles (RULE-29).
 - **Timestamps:** every time of day goes through `getTimestampText` → `timeOfDayPattern(preferredTimeFormatUses24Hour())`, i.e. `HH:mm` or `h:mm a` depending on the `TimeFormat` preference (`SYSTEM` follows `systemUses24HourFormat()`). The date part stays localized (see `product/rules.md` RULE-27).
 - **Swipe to Reply:** `SwipeToDismiss` modifier on each item (EndToStart direction, 30dp threshold) sets `ComposeContextItem.QuotedItem`.
@@ -283,7 +283,7 @@ Context menu actions are built dynamically in `ChatItemView` based on message ty
 | **Select** | Any selectable item | Enters multi-select mode (`selectedChatItems`) |
 | **React** | Message content, reactions enabled | Opens emoji picker; calls `apiChatItemReaction` |
 | **Report** | Received group message, reports enabled | Sets `ComposeContextItem.ReportedItem` with reason |
-| **Translate** | Message content (text/link), translation configured | Calls `TranslationService.translateChatItem(itemId, text)`, auto-detects the source language and appends the result as a bilingual line under the original bubble; the `ChatItem` is not modified (PC46, RULE-31) |
+| **Translate** | Message content (text/link), translation configured | Calls `TranslationService.translateChatItem(itemId, text)`, auto-detects the source language and appends the result as a bilingual line under the original bubble; the `ChatItem` is not modified (PC47, RULE-31) |
 | **Info** | Any message | Opens `ChatItemInfoView` in end modal |
 | **Copy** | Text content present | Copies text to clipboard |
 | **Save** | Image/video/file with completed download | Saves media to device |
@@ -400,14 +400,14 @@ Wired sites: `ChatInfoView.kt` `ChatInfoHeader`, `group/GroupChatInfoView.kt` `G
 | `ContextItemView.kt` | Reply/edit/forward context indicator |
 | `ScanCodeView.kt` | QR code scanner |
 | `SelectableChatItemToolbars.kt` | Multi-select toolbar (delete, forward, moderate, copy) |
-| `SendMsgView.kt` | Text input field, send button, voice record button, preview button (PC45) and translate button (PC46) |
+| `SendMsgView.kt` | Text input field, send button, voice record button, preview button (PC46) and translate button (PC47) |
 | `VerifyCodeView.kt` | Contact/member encryption verification |
 
 ### `views/chat/item/`
 
 | File | Description |
 |---|---|
-| `ChatItemView.kt` | Message type routing, context menu (incl. the Translate action), reactions (PC46) |
+| `ChatItemView.kt` | Message type routing, context menu (incl. the Translate action), reactions (PC47) |
 | `CIBrokenComposableView.kt` | Fallback for rendering errors |
 | `CICallItemView.kt` | Call event display (incoming/outgoing/missed) |
 | `CIChatFeatureView.kt` | Chat feature change event |
@@ -424,7 +424,7 @@ Wired sites: `ChatInfoView.kt` `ChatInfoHeader`, `group/GroupChatInfoView.kt` `G
 | `CIVoiceView.kt` | Voice message (waveform + player) |
 | `DeletedItemView.kt` | Deleted message placeholder; `ItemTextCard`, the card of deleted and error items |
 | `EmojiItemView.kt` | Large emoji-only message |
-| `FramedItemView.kt` | Message bubble frame (quoted item, text, media); renders the bilingual translation line for a translated message (PC46) |
+| `FramedItemView.kt` | Message bubble frame (quoted item, text, media); renders the bilingual translation line for a translated message (PC47) |
 | `ImageFullScreenView.kt` | Fullscreen image gallery |
 | `MarkdownFileView.kt` | Markdown file viewer, formatted or as text |
 | `IntegrityErrorItemView.kt` | Message integrity error |
@@ -456,8 +456,8 @@ Wired sites: `ChatInfoView.kt` `ChatInfoHeader`, `group/GroupChatInfoView.kt` `G
 
 | File | Description |
 |---|---|
-| `ChatInfoImage.kt` | Profile image composables (`ProfileImage`, `ChatInfoImage`), the opt-in avatar `onClick`, `ProfileImageViewer` and `showProfileImageModal` (PC35) |
-| `SubscriptionStatusDot.kt` | Shared connection network status dot (active / pending / removed / no subscription) used by the chat title, the chat list rows, the group member rows and the contact info page (PC37) |
+| `ChatInfoImage.kt` | Profile image composables (`ProfileImage`, `ChatInfoImage`), the opt-in avatar `onClick`, `ProfileImageViewer` and `showProfileImageModal` (PC36) |
+| `SubscriptionStatusDot.kt` | Shared connection network status dot (active / pending / removed / no subscription) used by the chat title, the chat list rows, the group member rows and the contact info page (PC38) |
 
 ### Relay Rejection Surface
 

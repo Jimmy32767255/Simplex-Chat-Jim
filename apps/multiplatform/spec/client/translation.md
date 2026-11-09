@@ -4,7 +4,7 @@
 >
 > **Related product:** [product/views/chat.md](../../product/views/chat.md) (message menu, compose bar),
 > [product/views/settings.md](../../product/views/settings.md) (translation settings page),
-> [product/rules.md](../../product/rules.md) (RULE-31) · **Concept:** PC46 · **State:** [spec/state.md](../state.md)
+> [product/rules.md](../../product/rules.md) (RULE-31) · **Concept:** PC47 · **State:** [spec/state.md](../state.md)
 
 ## Table of Contents
 

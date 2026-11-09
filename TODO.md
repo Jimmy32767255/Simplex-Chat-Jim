@@ -1,6 +1,6 @@
 # 我给 SimpleX 的建议/想要的功能：
 
-目前所有更改以 7.0.4 为基础版本，改完一个就在这个文档的对应条目下面新增详细说明，并且将更改存储为差异补丁文件（diff），在进行更改时，应尽量考虑可移植/可升级性，为以后适配官方更高版本做准备。
+目前所有更改以 7.1.2 为基础版本（2026-11-09 由 7.0.4 变基而来，旧条目里写的「基于 7.0.4」指当时实现的基线），改完一个就在这个文档的对应条目下面新增详细说明，并且将更改存储为差异补丁文件（diff），在进行更改时，应尽量考虑可移植/可升级性，为以后适配官方更高版本做准备。
 
 对于 AI：假如遇到无法实现、实现困难、官方已实现、破坏现有逻辑和功能、或者改动不确定的地方，请询问我
 
@@ -29,7 +29,7 @@
   - 本次添加的所有服务器共用同一份设置（「用于新连接」开关、角色等），逐行解析出各自所属的服务器运营商后再分别写入服务器列表，因此同一批可以混入不同运营商的地址。
   - 校验按行独立进行：只要有一行非法就会显示警告图标，但不会阻止其余合法地址被添加；非法地址会在提示框里逐条列出。多行输入时「测试服务器」不可用（结果有歧义），二维码也只在恰好一个合法地址时显示。
   - 编辑已有服务器时行为不变（`allowMultipleAddresses` 默认 `false`），避免影响既有流程。
-  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt`（新增 `serverAddresses`，重写 `addServer` 支持批量）、`.../networkAndServers/ProtocolServerView.kt`（`CustomServer` 新增 `allowMultipleAddresses` 参数）、`apps/multiplatform/common/src/commonMain/resources/MR/{base,zh-rCN}/strings.xml`（新增提示文案 `smp_servers_new_server_multiple_hint`）。
+  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/NewServerView.kt`（新增 `serverAddresses`，重写 `addServer` 支持批量）、`.../networkAndServers/ProtocolServerView.kt`（`CustomServer` 新增 `allowMultipleAddresses` 参数）、`apps/multiplatform/common/src/commonMain/moko-resources/{base,zh-rCN}/strings.xml`（新增提示文案 `smp_servers_new_server_multiple_hint`）。
   - 不修改核心（Haskell）与网络协议，仅把多行地址在客户端展开成多条既有的 `UserServer` 记录，便于日后跟随官方版本升级。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/BatchServersTest.kt`（6 个用例，覆盖单地址、多地址、`\r\n`/`\r` 换行、空行与空白、去重顺序、空输入），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
 - [x] 服务器分组和备注（对手动添加的服务器允许手动分组和添加备注，不然现在全是地址根本不可读）
@@ -37,7 +37,7 @@
   - 分组/备注只保存在客户端偏好里（`AppPreferences.serverMetadata`，`Map<String, ServerMeta>`，以服务器地址字符串为键），**不会**写进 `UserServer`：因为 `UserServer` 会被序列化成核心命令 `/_servers` 并从句柄端读回，任何客户端专属字段都会在下一次往返时丢失。因此不动核心（Haskell）与网络协议，便于日后跟随官方版本升级。
   - 编辑服务器地址时分组/备注会跟着迁移到新地址（旧键会被删除）；分组与备注都清空时对应记录会被删除，不留空条目。
   - 批量添加服务器时，本次成功添加的每个地址都会写入同一份分组/备注（非法地址会被跳过）。
-  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`（新增 `ServerMeta`、`SHARED_PREFS_SERVER_METADATA`、`serverMetadata`）、`.../views/usersettings/networkAndServers/ProtocolServersView.kt`（`ServersSection`、`serverGroup`、`updatedServerMetadata`、`saveServerMetadata`）、`.../networkAndServers/ProtocolServerView.kt`（`ServerGroupAndNoteSection`）、`.../networkAndServers/NewServerView.kt`、`apps/multiplatform/common/src/commonMain/resources/MR/{base,zh-rCN}/strings.xml`。
+  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`（新增 `ServerMeta`、`SHARED_PREFS_SERVER_METADATA`、`serverMetadata`）、`.../views/usersettings/networkAndServers/ProtocolServersView.kt`（`ServersSection`、`serverGroup`、`updatedServerMetadata`、`saveServerMetadata`）、`.../networkAndServers/ProtocolServerView.kt`（`ServerGroupAndNoteSection`）、`.../networkAndServers/NewServerView.kt`、`apps/multiplatform/common/src/commonMain/moko-resources/{base,zh-rCN}/strings.xml`。
   - 与条目 1 一致，未加入 `AppSettings` 跨设备导入/导出结构，备份格式保持不变（代价是分组/备注不会随设备迁移一起带走，日后如需可再补上，新增可空字段是向后兼容的）。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ServerMetadataTest.kt`（8 个用例，覆盖新增/更新/清空删除/改地址迁移/保留其他条目/分组名归一化），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
 - [x] 查看和复制头像（点击群和其他用户头像的时候）
@@ -60,7 +60,7 @@
   - 收起后会隐藏该区块里的「添加成员」按钮、成员搜索框、自己的那一行以及下方所有成员行，只保留「N 位成员 + 连接率」这行标题，因此在成员很多的群里可以快速滑到页面下方的群设置、清空聊天、删除群组、退出群组等操作。
   - 折叠状态按群保存、仅在弹窗打开期间有效（`rememberSaveable(groupInfo.id)`）：浏览某位成员详情再返回不会丢失，关闭弹窗后重置；不写入偏好设置，也未加入 `AppSettings` 跨设备导入/导出结构。收起不会清空成员搜索词或已勾选的成员，展开后恢复原状。
   - 可见性判断抽成语义化的纯函数 `groupMembersSectionVisible(nextConnectPrepared, useRelays)` 与 `groupMembersRowsVisible(nextConnectPrepared, useRelays, collapsed)`，成员区原有的显示条件（非中继群、且不在 `nextConnectPrepared` 状态）保持不变。
-  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`、`apps/multiplatform/common/src/commonMain/resources/MR/{base,zh-rCN}/strings.xml`（新增 `collapse_verb`，复用已有的 `expand_verb`）。
+  - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/group/GroupChatInfoView.kt`、`apps/multiplatform/common/src/commonMain/moko-resources/{base,zh-rCN}/strings.xml`（新增 `collapse_verb`，复用已有的 `expand_verb`）。
   - 测试：`apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupMembersConnectionRateTest.kt` 扩充至 10 个用例（新增成员区与成员行可见性判定），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
 - [ ] 删除已保存的消息（长按一条消息点开信息的时候，允许在历史记录那里对任何历史记录进行仅客户端侧的删除）
   - **暂缓（基于 7.0.4，经确认后跳过）**：已核实这条需求有两种理解，且成本差别很大，与用户确认后决定先跳过、继续其余条目。
@@ -75,7 +75,7 @@
   - 没有状态时圆点不渲染任何内容（`SubscriptionStatusDot(null)` 直接返回），不占位、不影响行高；成员行额外要求 `activeConn != null`，联系人要求 `ready && active`（与信息页一致）。
   - 与条目 1、5、6、8 一致：未改动 `AppSettings` 跨设备导入/导出结构，未改核心（纯客户端显示），未新增字符串（复用已有的 `icon_descr_server_status_connected`/`icon_descr_server_status_disconnected`/`icon_descr_server_status_error`）。
   - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/helpers/SubscriptionStatusDot.kt`（新增）、`.../model/ChatModel.kt`（`connectionSubStatuses`、`connectionSubStatus`）、`.../model/SimpleXAPI.kt`（`CR.SubscriptionStatusEvt` 处理）、`.../views/chat/ChatView.kt`、`.../views/chatlist/ChatPreviewView.kt`、`.../views/chat/group/GroupChatInfoView.kt`、`.../views/chat/ChatInfoView.kt`（`SubStatusRow` 改用公共组件，删除私有 `ServerImage`）。
-  - 文档：`product/concepts.md`（PC37）、`product/rules.md`（RULE-22）、`product/README.md`、`product/views/{chat-list,chat,contact-info,group-info}.md`、`spec/impact.md`（新增 PC37 行与 `SubscriptionStatusDot.kt` 行，并补齐缺失的 PC33–PC36 图例）、`spec/state.md`、`spec/client/{chat-list,chat-view}.md`。
+  - 文档：`product/concepts.md`（PC38）、`product/rules.md`（RULE-22）、`product/README.md`、`product/views/{chat-list,chat,contact-info,group-info}.md`、`spec/impact.md`（新增 PC38 行与 `SubscriptionStatusDot.kt` 行，并补齐缺失的 PC34–PC37 图例）、`spec/state.md`、`spec/client/{chat-list,chat-view}.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ConnectionSubStatusTest.kt`（7 个用例，覆盖无连接、无状态、实时事件优先、回退到 `connectionStats`、忽略其它连接的状态、`Removed`、`NoSub`），`./gradlew :common:desktopTest` 全部通过。差异补丁见 `diff/`。
 - [ ] 反撤回（拒绝任何来自服务端的删除信息请求，比如管理员删除，也忽略限时消息超时自动删除，要能允许对每一个私聊/群设置）
   - **暂缓（基于 7.0.4，经确认后跳过）**：已核实 7.0.4 核心（Haskell）的三种删除机制，纯客户端无法做到「拒绝删除 + 保留内容 + 忽略限时超时」，与用户确认后决定先跳过、其余条目照旧。
@@ -92,8 +92,8 @@
   - 导入：文件解析失败弹「导入服务器出错」；成功则按协议分别校验每个地址（用核心的 `parseServerAddress`），与所在列表协议不一致、无法解析或无效的计入 `invalid`，已存在于同协议的计入 `duplicates`，**从不替换现有列表**。有效的服务器追加到 `OperatorTag` 相同的分组；文件里没带标签或找不到该分组时落到「无 operator」分组，必要时新建。确认框会先列出「将添加 N 个 / 已存在跳过 N 个 / 无效跳过 N 个」，确认后写回 `serverMetadata` 并复用既有 `saveServers`（`setUserServers` + 刷新 `currUserServers`/`userServers`），与手动添加服务器走同一条保存与校验路径。
   - 结构与可测性：纯逻辑单独放在 `ServersBackup.kt`；因为 `chatParseServer` 是 JNI 调用、桌面单测无法加载，地址解析器以参数注入（默认 `ServerAddress.parseServerAddress`），导出过滤、JSON 编解码、合并去重与元数据合并都可单测。UI 必须放在 `NetworkAndServers.kt` 内，因为 `saveServers` 是文件私有。
   - 不改动 `AppSettings`/核心：没有新增或改动 `/_servers`（`UserServer` 仍会被核心原样回读），备份 JSON 只是客户端本地文件；与条目 1、4、5、6、8、10 的约定一致。导入的服务器一律 `preset = false`、`deleted = false`、无 `remoteHostId`/`serverId`。
-  - 改动位置：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ServersBackup.kt`（`ServersBackup`、`ServersBackupItem`、`serversBackupOf`、`exportServersBackup`、`parseServersBackup`、`mergeServersBackup`、`importedServerMetadata`）；`.../networkAndServers/NetworkAndServers.kt`（`ServersImportExportSection`、`serversImportSummary` 及调用点）；`common/src/commonMain/resources/MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（各 13 条新字符串）。
-  - 文档：`product/concepts.md`（PC38）、`product/rules.md`（RULE-23）、`product/README.md`、`product/views/settings.md`（新增「Import and Export」小节）、`spec/impact.md`、`spec/api.md`（§2.11 服务器备份 JSON 格式）、`spec/state.md`。
+  - 改动位置：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/usersettings/networkAndServers/ServersBackup.kt`（`ServersBackup`、`ServersBackupItem`、`serversBackupOf`、`exportServersBackup`、`parseServersBackup`、`mergeServersBackup`、`importedServerMetadata`）；`.../networkAndServers/NetworkAndServers.kt`（`ServersImportExportSection`、`serversImportSummary` 及调用点）；`common/src/commonMain/moko-resources/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（各 13 条新字符串）。
+  - 文档：`product/concepts.md`（PC39）、`product/rules.md`（RULE-23）、`product/README.md`、`product/views/settings.md`（新增「Import and Export」小节）、`spec/impact.md`、`spec/api.md`（§2.11 服务器备份 JSON 格式）、`spec/state.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ServersBackupTest.kt`（17 个用例：导出过滤预设/已删除/空地址、保留设置与分组备注、XFTP 导出、JSON 往返与非法输入、合并到同名 operator 分组、无标签回退、新建无 operator 分组、去重、已删除地址视为不存在、无效与协议不匹配、保留导入设置、同组追加 SMP+XFTP、元数据写回与清理陈旧项），`./gradlew :common:desktopTest` 全部通过（17/17）。差异补丁见 `diff/`。
 - [x] 在主页聊天列表的群名称左侧显示群成员连接率圆点（把「群成员连接率和百分比显示」里的那个会变色点也放到主页群名左边，样式同条目 10 的网络状态图标；主页列表本身没有成员数据，需要后台预取每个群的成员列表）
   - 已实现（基于 7.0.4）：主页聊天列表里，普通群聊的名称左侧新增成员连接率圆点——全部成员已连接为绿色 `ic_circle_filled`，部分连接为黄色 `ic_pending_filled`，无人连接为灰色 `ic_error_filled`。它与群详情页成员列表标题用的是同一个组件 `GroupMembersConnectionRateDot` 和同一套计算 `groupMembersConnection`/`groupMembersConnectionRate`，两处不会出现不一致。
@@ -102,7 +102,7 @@
   - 圆点只在成员列表已知时显示（不会为了"占位"而显示未知状态），中继群和 `nextConnectPrepared` 状态的群不显示（与群详情页 `groupMembersSectionVisible` 的判断一致），无圆点时不留空隙、不影响行高。
   - 改动位置：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chatlist/ChatPreviewView.kt`（群名左侧圆点）、`.../views/chatlist/ChatListView.kt`（后台预取）、`.../views/chat/group/GroupChatInfoView.kt`（抽出公共组件 `GroupMembersConnectionRateDot`）、`.../model/ChatModel.kt`（`groupMembersForRate`、`groupRateRequested`、`updateGroupMembersForRate`、`groupChatsForConnectionRate`）、`.../model/SimpleXAPI.kt`（`CR.GroupMemberUpdated` 刷新缓存）。
   - 与条目 1、5、6、8、10 一致：不修改核心（Haskell）与网络协议，不修改 `AppSettings` 跨设备导入/导出结构，未新增字符串（复用已有的 `ic_circle_filled`/`ic_pending_filled`/`ic_error_filled`），缓存只在本次会话内存中存在、不写入磁盘。
-  - 文档：`product/concepts.md`（PC39）、`product/rules.md`（RULE-24）、`product/README.md`、`product/views/chat-list.md`、`product/views/group-info.md`、`spec/impact.md`、`spec/state.md`、`spec/client/chat-list.md`。
+  - 文档：`product/concepts.md`（PC40）、`product/rules.md`（RULE-24）、`product/README.md`、`product/views/chat-list.md`、`product/views/group-info.md`、`spec/impact.md`、`spec/state.md`、`spec/client/chat-list.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/GroupConnectionRateCacheTest.kt`（10 个用例：普通群/频道/未激活成员/已请求/非群聊的预取筛选，以及成员更新时的替换、追加活跃成员、移除失效成员、忽略未缓存群、不追加失效的新成员），`./gradlew :common:desktopTest` 全部通过（10/10，全部 17 个测试类无失败）。差异补丁见 `diff/`。
 
 - [x] 在设置里添加一个开关允许将收藏视为置顶（开启后已收藏的联系人或群会永远显示在主页对话列表的最上方）
@@ -110,17 +110,17 @@
   - 排序实现是纯显示层的：`ChatModel.kt` 新增 `isFavoriteChat(chat)`（即 `chat.chatInfo.chatSettings?.favorite == true`，与收藏筛选和星标图标用同一个字段）和 `favoritesPinnedFirst(chats, favoritesAsPinned)`（用 `partition` 稳定分组，收藏在前、其余在后，两组内部原有顺序不变）；`ChatListView` 在 `filteredChats(...)` 之后调用它，偏好关闭时原样返回。`ChatModel.chats` 的顺序、内核数据和数据库都没有被改动，关掉开关立即恢复原顺序。
   - 只影响主页对话列表：复用 `filteredChats` 的其他界面（例如分享列表）不会被重排；搜索/筛选结果同样适用这条规则（收藏永远在上方），这一点也已写进文档。
   - 不修改核心（Haskell）与网络协议，不修改 `AppSettings` 跨设备导入/导出结构（新的偏好只是本机设置），未改任何既有字符串。
-  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`（`favoritesAsPinned` + `SHARED_PREFS_FAVORITES_AS_PINNED`）、`.../model/ChatModel.kt`（`isFavoriteChat`、`favoritesPinnedFirst`）、`.../views/chatlist/ChatListView.kt`（应用排序）、`.../views/usersettings/SettingsView.kt`（「对话列表」分区与开关）、`common/src/commonMain/resources/MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 3 条字符串）。
-  - 文档：`product/rules.md`（RULE-25）、`product/concepts.md`（PC40）、`product/README.md`、`product/views/chat-list.md`（Chat List Order）、`product/views/settings.md`（Chat List Section）、`spec/client/chat-list.md`（Chat List Order）、`spec/state.md`（`favoritesAsPinned`）、`spec/impact.md`、`plans/2026-10-22-favorites-pinned-first.md`。
+  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/SimpleXAPI.kt`（`favoritesAsPinned` + `SHARED_PREFS_FAVORITES_AS_PINNED`）、`.../model/ChatModel.kt`（`isFavoriteChat`、`favoritesPinnedFirst`）、`.../views/chatlist/ChatListView.kt`（应用排序）、`.../views/usersettings/SettingsView.kt`（「对话列表」分区与开关）、`common/src/commonMain/moko-resources/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 3 条字符串）。
+  - 文档：`product/rules.md`（RULE-25）、`product/concepts.md`（PC41）、`product/README.md`、`product/views/chat-list.md`（Chat List Order）、`product/views/settings.md`（Chat List Section）、`spec/client/chat-list.md`（Chat List Order）、`spec/state.md`（`favoritesAsPinned`）、`spec/impact.md`、`plans/2026-10-22-favorites-pinned-first.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/FavoritesPinnedFirstTest.kt`（8 个用例：关闭时顺序不变、收藏移到最上方、两组内部顺序保持、没有收藏/全是收藏时不变、空列表、无聊天设置的对话不算收藏、联系人与群都被识别），`./gradlew :common:desktopTest` 全部通过（8/8，全部 19 个测试类共 115 个用例无失败），`:common:compileDebugKotlinAndroid` 也通过。差异补丁见 `diff/`。
 
 - [x] 添加选中消息后批量复制到剪贴板的功能（包含发送者名称（如果有备注先用备注）、发送时间（不是收到时间）和正文内容（最新版本））
   - 已实现（基于 7.0.4）：多选工具栏（删除/举报/转发那一行）最右侧新增「复制选中消息」按钮，一键把选中的消息复制为一整段文本，说明文字为内容描述（`copy_selected_messages`），使用现有的 `ic_content_copy` 图标，无可复制内容时置灰。每条消息的格式为 `发送者, 发送时间` 换行 `正文`，消息之间用一个空行分隔，顺序与聊天中的对话顺序一致，最旧的消息在最前面（`ChatModel.chatItems` 本身就是最旧在前，界面只是用 `reverseLayout` 反向渲染；复制时由 `selectedChatItemsInOrder` 原样保留这个顺序，不做反转）。
   - 三处要求的取值：① 发送者名称为收件消息的发送者——群聊取群成员、私聊取联系人，并按 `localAlias.ifEmpty { displayName }` 优先使用「备注」（`ciSenderName`）；自己发送的消息与本地笔记没有发送者名称，只复制时间，与聊天里的显示一致。② 时间用 `meta.itemTs`（发送时间）经现有的 `getTimestampText` 格式化，绝不使用 `meta.createdAt`（收到时间），也不需要新增时间格式字符串。③ 正文用 `ChatItem.content.text`，即内核在每次编辑后替换成的最新版本；历史版本只存在 `ChatItemInfo.itemVersions` 里，需要额外请求，因此批量复制不拉取它、不产生网络往返。
   - 边界：只复制可复制的项（`canCopyChatItem` 排除墓碑/实时的语音占位（`isLiveDummy`）与举报内容），已删除项会被跳过，不会产生空段落；文件与语音按 `ChatItem.text` 复制成文件名或「语音消息（时长）」的描述，而不是像单选复制那样在桌面端先下载再复制路径（批量下载不可行）；复制上限 200 条（与删除一致），避免超大选择卡住界面或撑爆剪贴板。
-  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`（新增纯函数 `ciSenderName`、`canCopyChatItem`、`chatItemToText`、`chatItemsToText`、`selectedChatItemsInOrder`，时间格式化由调用方注入以便测试）、`.../views/chat/SelectableChatItemToolbars.kt`（复制按钮 + `recheckItems` 里的可用性计算）、`.../views/chat/ChatView.kt`（两处工具栏调用点的 `copyItems` 回调；举报内容那一处传空实现）、`common/src/commonMain/resources/MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 1 条字符串）。
+  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`（新增纯函数 `ciSenderName`、`canCopyChatItem`、`chatItemToText`、`chatItemsToText`、`selectedChatItemsInOrder`，时间格式化由调用方注入以便测试）、`.../views/chat/SelectableChatItemToolbars.kt`（复制按钮 + `recheckItems` 里的可用性计算）、`.../views/chat/ChatView.kt`（两处工具栏调用点的 `copyItems` 回调；举报内容那一处传空实现）、`common/src/commonMain/moko-resources/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 1 条字符串）。
   - 与条目 1、5、6、8、10、13、14 一致：不修改核心（Haskell）与网络协议，不修改 `AppSettings` 跨设备导入/导出结构，不新增偏好或持久化状态，纯客户端拼接文本。
-  - 文档：`product/rules.md`（RULE-26）、`product/concepts.md`（PC41）、`product/README.md`、`product/views/chat.md`（多选工具栏与右键菜单表格）、`spec/client/chat-view.md`（§3 消息列表与源文件表）、`spec/impact.md`、`plans/2026-10-28-copy-selected-messages.md`。
+  - 文档：`product/rules.md`（RULE-26）、`product/concepts.md`（PC42）、`product/README.md`、`product/views/chat.md`（多选工具栏与右键菜单表格）、`spec/client/chat-view.md`（§3 消息列表与源文件表）、`spec/impact.md`、`plans/2026-10-28-copy-selected-messages.md`。
   - 修复记录：初次提交（`19a6203e2`）里复制顺序反了——误以为 `ChatsContext.chatItems` 是最新在前，于是多做了一次 `asReversed()`，导致最新的消息跑到文本开头。实际上该列表是最旧在前（界面靠 `reverseLayout` + `asReversed()` 渲染），已去掉多余的反转，并抽出 `selectedChatItemsInOrder` 把「原样保留列表顺序」这件事固定下来（附两个用例）。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/SelectedMessagesCopyTest.kt`（14 个用例：群消息用备注、群消息无备注用昵称、私聊用备注/无备注、自己的消息无名称、用的是发送时间而不是收到时间、多条消息按对话顺序并用空行分隔、已删除项被跳过、文件消息复制文件名、空选择得空文本、`canCopyChatItem` 判断、本地笔记无发送者名称、选择顺序保留最旧在前、选择忽略未选中项并保持顺序），`./gradlew :common:desktopTest` 全部通过（14/14，全部 20 个测试类共 129 个用例无失败）。差异补丁见 `diff/`。
 
@@ -138,7 +138,7 @@
   - 立即生效：解析函数读取 `AppPreferences.timeFormat.state`，切换下拉框会让所有正在显示的时间重新组合，无需重启或重新拉取数据。
   - 不修改核心（Haskell）与网络协议，不修改 `AppSettings` 跨设备导入/导出结构（时间制式只是本机显示设置）。
   - 改动文件：`.../model/SimpleXAPI.kt`（`TimeFormat`、`AppPreferences.timeFormat`、`SHARED_PREFS_TIME_FORMAT`）、`.../model/ChatModel.kt`（`uses24HourFormat`、`timeOfDayPattern`、`timeOfDayPatternWithSeconds`、`preferredTimeFormatUses24Hour`、`getTimestampText`、`localTimestamp`）、新增 `.../platform/TimeFormat.kt` 与 `TimeFormat.android.kt`、`TimeFormat.desktop.kt`、`.../views/usersettings/SettingsView.kt`（下拉框）、`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 5 条字符串）。
-  - 文档：`product/rules.md`（RULE-27）、`product/concepts.md`（PC42）、`product/README.md`、`product/views/settings.md`（Time Format Section）、`spec/state.md`（`timeFormat`）、`spec/architecture.md`（expect/actual 表）、`spec/impact.md`、`spec/client/chat-view.md`、`plans/2026-11-02-own-name-and-time-format.md`。
+  - 文档：`product/rules.md`（RULE-27）、`product/concepts.md`（PC43）、`product/README.md`、`product/views/settings.md`（Time Format Section）、`spec/state.md`（`timeFormat`）、`spec/architecture.md`（expect/actual 表）、`spec/impact.md`、`spec/client/chat-view.md`、`plans/2026-11-02-own-name-and-time-format.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/TimeFormatTest.kt`（4 个用例：`SYSTEM` 跟随系统、显式选项覆盖系统、两种时间模式、默认值为 `SYSTEM`），`./gradlew :common:desktopTest` 全部通过（21 个测试类、137 个用例无失败），`:common:compileDebugKotlinAndroid` 也通过。差异补丁见 `diff/`。
 
 - [x] 在聊天记录多选模式下加入像 QQ / 微信一样的「选择到此处」按钮，放在视图的顶端和底端
@@ -146,7 +146,7 @@
   - 行与消息的对应：列表渲染的是 `MergedItems`（同一发送者连续消息合并成一行、可折叠），范围以「行」为单位整行选取（`mergedItemChatItemIds`），因此折叠的群组会和手动点它一样被整组选中；行号取 `MergedItems.indexInParentItems`（即 LazyColumn 的行号），不是 `chatsContext.chatItems` 的下标。边缘行取自 `listState.layoutInfo.visibleItemsInfo`（列表是 `reverseLayout = true`，所以顶端是最大行号、底端是最小行号），保证选的是屏幕上真正看到的那一行。
   - 范围说明：没有选中项、没有锚点、或范围没有新增任何消息（`selectionToHereAddsItems`）时两个按钮都不渲染，避免出现空操作；纯客户端视图状态，未改核心、未新增偏好或 `AppSettings` 字段、未新增数据库写入。
   - 改动文件：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/ChatSelectionRange.kt`（`mergedItemChatItemIds`、`selectionRangeRows`、`selectionToHereIds`、`selectionToHereAddsItems`、`visibleEdgeRows` 纯函数）、`.../views/chat/ChatView.kt`（`selectionAnchor`、两处 `SelectToHereButton` 调用、`SelectToHereButton` 组合函数）、`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 `select_to_here`）。
-  - 文档：`product/views/chat.md`（多选工具栏表新增 Select to here 行与锚点说明）、`spec/client/chat-view.md`（Selection Mode / Select to here 条目）、`product/rules.md`（新增第 16 节 RULE-28）、`product/concepts.md`（PC43）、`spec/impact.md`（PC43 与 `views/chat/ChatSelectionRange.kt` 行）、`plans/2026-11-02-select-to-here-range.md`。
+  - 文档：`product/views/chat.md`（多选工具栏表新增 Select to here 行与锚点说明）、`spec/client/chat-view.md`（Selection Mode / Select to here 条目）、`product/rules.md`（新增第 16 节 RULE-28）、`product/concepts.md`（PC44）、`spec/impact.md`（PC44 与 `views/chat/ChatSelectionRange.kt` 行）、`plans/2026-11-02-select-to-here-range.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ChatSelectionRangeTest.kt`（9 个用例：单条消息的行只含一个 id、折叠组整组展开、锚点向上／向下的范围行、锚点行等于边缘行、没有锚点或边缘行未知时返回空、范围展开为合并行的全部 id、只补未选中的 id、反向列表的可见边缘行），`./gradlew :common:desktopTest` 全部通过（22 个测试类、146 个用例无失败）。差异补丁见 `diff/`。
 
 - [x] 在 设置→外观→自定义主题→颜色调整 里加入「彩虹模式」开关（开启后界面颜色会一直循环彩虹变色，RGB 效果），颜色色块本身也跟着循环
@@ -155,7 +155,7 @@
   - 颜色调整里的 8 个色块也用同一相位着色，所以列表里的色块和界面颜色始终一致。
   - 改动文件：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt`；`.../ui/theme/Theme.kt`（`SimpleXTheme` 改用 `displayedColors` / `displayedAppColors`）；`.../views/usersettings/Appearance.kt`（`CustomizeThemeColorsSection` 新增开关行、说明页脚与动画色块）；`.../model/SimpleXAPI.kt`（新增 `rainbowThemeColors` 偏好，键 `"RainbowThemeColors"`，默认关闭）；`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 `rainbow_mode`、`rainbow_mode_footer`）。
   - 兼容性：纯客户端显示开关，未改核心、未新增数据库写入、未加入 `AppSettings` 导出字段（核心会丢弃未知字段，且这种本机视觉效果不该被带到别的设备）。
-  - 文档：`spec/services/theme.md`（新增 Rainbow mode 小节与源文件表行）、`spec/state.md`（UI 偏好表新增 `rainbowThemeColors`）、`product/rules.md`（新增第 17 节 RULE-29）、`product/concepts.md`（PC44）、`spec/impact.md`（PC44 与 `ui/theme/Rainbow.kt`、`Theme.kt`、`Appearance.kt` 行）、`product/views/settings.md`（外观表新增 Rainbow mode 行）、`plans/2026-11-02-rainbow-theme-mode.md`。
+  - 文档：`spec/services/theme.md`（新增 Rainbow mode 小节与源文件表行）、`spec/state.md`（UI 偏好表新增 `rainbowThemeColors`）、`product/rules.md`（新增第 17 节 RULE-29）、`product/concepts.md`（PC45）、`spec/impact.md`（PC45 与 `ui/theme/Rainbow.kt`、`Theme.kt`、`Appearance.kt` 行）、`product/views/settings.md`（外观表新增 Rainbow mode 行）、`plans/2026-11-02-rainbow-theme-mode.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/RainbowTest.kt`（13 个用例：RGB→HSV 的三原色与灰色、HSV→RGB 往返、`shiftHue` 保持饱和度／明度／透明度、色相按度数移动、360° 为一圈且可逆、无彩色不变、相位整圈回到起点、步长与周期一致、相位 0 时调色板不变、只偏移有彩色、`AppColors` 六个字段全部偏移且原对象不变、默认关闭），`./gradlew :common:desktopTest` 通过（23 个测试类、159 个用例无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
 
 - [x] 彩虹模式增强：可调变色速度、聊天颜色可选择是否参与、消息文字也可彩虹（与聊天颜色互斥）、低性能模式（解决开启后手机端主页卡顿）
@@ -166,7 +166,7 @@
   - 设置界面：`CustomizeThemeColorsSection` 在彩虹开关下面新增「速度」下拉（`ExposedDropDownSettingRow` + `RainbowSpeed.entries`）与三个开关（聊天颜色、消息文字、低性能模式），以及两段页脚说明；这些行只在彩虹模式打开时出现。
   - 改动文件：`.../ui/theme/Rainbow.kt`（速度／低性能／文字颜色／互斥判定）、`.../ui/theme/Theme.kt`（气泡颜色开关）、`.../views/chat/item/TextItemView.kt`（`MarkdownText` 默认文字色）、`.../views/usersettings/Appearance.kt`（新增速度下拉与三个开关）、`.../model/SimpleXAPI.kt`（新增 `RainbowSpeed` 枚举与 `rainbowSpeed`、`rainbowChatColors`、`rainbowMessageText`、`rainbowLowPerformance` 四个偏好，键 `"RainbowSpeed"` / `"RainbowChatColors"` / `"RainbowMessageText"` / `"RainbowLowPerformance"`）、`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 9 条字符串）。
   - 兼容性：仍是纯客户端显示偏好，未改核心、未新增数据库写入、未加入 `AppSettings`；`rainbowChatColors` 默认开启，所以对已经在用彩虹模式的人是纯增量，关掉才改变行为。
-  - 文档：`spec/services/theme.md`（Rainbow mode 小节重写，新增速度／低性能／文字颜色／互斥的表格行与说明）、`spec/state.md`（`RainbowSpeed` 锚点与四个偏好行）、`product/rules.md`（RULE-29 新增第 6–8 条不变式并更新 Enforcement）、`product/concepts.md`（PC44 源文件）、`spec/impact.md`（`TextItemView.kt` 行加入 PC44）、`product/views/settings.md`（外观表新增四行）、`spec/client/chat-view.md`（Rainbow message text 条目）、`plans/2026-11-03-rainbow-options.md`。
+  - 文档：`spec/services/theme.md`（Rainbow mode 小节重写，新增速度／低性能／文字颜色／互斥的表格行与说明）、`spec/state.md`（`RainbowSpeed` 锚点与四个偏好行）、`product/rules.md`（RULE-29 新增第 6–8 条不变式并更新 Enforcement）、`product/concepts.md`（PC45 源文件）、`spec/impact.md`（`TextItemView.kt` 行加入 PC45）、`product/views/settings.md`（外观表新增四行）、`spec/client/chat-view.md`（Rainbow message text 条目）、`plans/2026-11-03-rainbow-options.md`。
   - 测试：`RainbowTest.kt` 扩到 19 个用例（新增：速度决定周期长度、低性能模式更新更慢但周期不变、快速档整圈仍回到起点、聊天颜色与文字互斥且文字优先、关掉聊天颜色时只保留界面循环、文字颜色随相位变化且在深浅主题下都保持可读、速度偏好可写入读回），`./gradlew :common:desktopTest` 通过（25 个测试类、179 个用例无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
 
 - [x] 消息输入框发送键旁边放一个预览键，点击后打开一个界面显示该信息发送后的样子（渲染）（编辑 Markdown 消息时很有用）
@@ -176,7 +176,7 @@
   - 近似范围：@提及、链接和表情依赖具体会话（成员、链接模式、图片解析），预览里按普通 Markdown 显示，并在页脚写明，避免给出“完全一致”的错觉。
   - 改动文件：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/MessagePreviewView.kt`；`.../views/chat/SendMsgView.kt`（发送按钮所在行改为 `Row`，预览键放在发送键前面）；`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`（新增 `preview_message`、`preview_message_footer`）。
   - 兼容性：纯客户端 UI，未改核心、未新增偏好与数据库写入、未加入 `AppSettings`；桌面端与 Android 共用同一套 Compose 代码。
-  - 文档：`spec/client/compose.md`（新增第 8 节 Message Preview，源文件表两行）、`product/views/chat.md`（Compose Bar 表新增 Preview button 行）、`product/rules.md`（新增第 18 节 RULE-30）、`product/concepts.md`（PC45）、`spec/impact.md`（PC45 与 `SendMsgView.kt`、`MessagePreviewView.kt` 行）、`product/README.md`、`plans/2026-11-03-message-preview.md`。
+  - 文档：`spec/client/compose.md`（新增第 8 节 Message Preview，源文件表两行）、`product/views/chat.md`（Compose Bar 表新增 Preview button 行）、`product/rules.md`（新增第 18 节 RULE-30）、`product/concepts.md`（PC46）、`spec/impact.md`（PC46 与 `SendMsgView.kt`、`MessagePreviewView.kt` 行）、`product/README.md`、`plans/2026-11-03-message-preview.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/MessagePreviewTest.kt`（4 个用例：普通文本可预览、空白文本不可预览、发送过程中不可预览、Markdown 文本可预览），`./gradlew :common:desktopTest` 通过（24 个测试类无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
 
 - [x] 复制聊天消息的时候带上引用（回复）的内容，格式是在正文前面加上一段 `[引用：“$MSG”——$USER_NAME]`
@@ -196,7 +196,7 @@
   - 已实现（基于 7.0.4）：自动翻译与限流——autoTranslate 只翻译当前视区可见消息（由当前视区可见项集合的变化触发，带 400ms 防抖；已翻译或正在翻译的消息不重复请求）；按速率限制批量处理：请求间隔 `requestIntervalMs`（默认 600）、最大并发 `maxConcurrent`（默认 2）、单次批量上限 `batchLimit`（默认 20）；手动翻译同样受最小间隔约束，防止被服务商封禁或耗尽余额。
   - 已实现（基于 7.0.4）：纯客户端本机存储——所有配置存本机 `AppPreferences`（JSON 字符串偏好 `translationConfig`，密钥加密存 `translationSecrets` + `translationSecretsIv`），**不进入 `AppSettings` 导出**；不修改核心（Haskell）与网络协议，便于日后跟随官方版本升级。
   - 改动文件：新增 `apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/translation/`（`TranslationModels.kt`、`TranslationLang.kt`、`TranslationApi.kt`、`TranslationHttp.kt`（`expect` suspend httpGetText/httpPostJson）+ desktop/android actual、`TranslationService.kt`）；`.../model/SimpleXAPI.kt`（`AppPreferences` 的四个翻译偏好与 `SHARED_PREFS_*` 常量）、`.../views/chat/ComposeView.kt`（`ComposeState.translateOriginal`/`translateResult`）；聊天侧 UI（消息菜单项、发送键翻译键、气泡译文、自动翻译可见区）在 `.../views/chat/`（`SendMsgView.kt`、`ChatItemView.kt`、`FramedItemView.kt` 及翻译界面），设置侧在 `.../views/usersettings/SettingsView.kt` 与 `TranslationSettingsView.kt`；`MR/base/strings.xml` 与 `MR/zh-rCN/strings.xml`。
-  - 文档：`product/concepts.md`（PC46）、`product/rules.md`（RULE-31）、`product/README.md`、`product/views/{chat,settings}.md`、`spec/impact.md`（PC46）、`spec/state.md`、`spec/client/{chat-view,compose,translation}.md`、`plans/2026-11-04-in-app-chat-translation.md`。
+  - 文档：`product/concepts.md`（PC47）、`product/rules.md`（RULE-31）、`product/README.md`、`product/views/{chat,settings}.md`、`spec/impact.md`（PC47）、`spec/state.md`、`spec/client/{chat-view,compose,translation}.md`、`plans/2026-11-04-in-app-chat-translation.md`。
 
 ## mod:
 
@@ -243,7 +243,7 @@ none
   - `SimpleXThemeOverride` 现在同样读取相位，并用 `rainbowColors` / `rainbowAppColors` 换算出本屏的 `displayedColors` / `displayedAppColors` 后再交给 `MaterialTheme` 与 `LocalAppColors`，因此会话页的界面色与气泡会像设置页预览一样实时循环；它仍然只改“显示”，不改每聊天的主题与已保存的 `ThemeOverrides`。
   - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt`（新增 `LocalRainbowPhase`、`rememberRainbowPhaseTimer`，`rememberRainbowPhase` 改为读 CompositionLocal）、`.../ui/theme/Theme.kt`（`SimpleXTheme` 下发相位，`SimpleXThemeOverride` 套用相位）。
   - 兼容性：纯显示层修复，未改核心、未新增偏好或 `AppSettings` 字段，也不改变任何已保存颜色。
-  - 文档：`spec/services/theme.md`（Rainbow mode 表格新增 `LocalRainbowPhase` / `rememberRainbowPhaseTimer`，并说明相位必须来自唯一计时器、`SimpleXThemeOverride` 也套用相位）、`product/rules.md`（RULE-29 第 2、6 条与 Enforcement 更新）、`product/concepts.md`（PC44 源文件）、`spec/impact.md`（`Theme.kt`、`Rainbow.kt` 行）、`plans/2026-11-03-fix-rainbow-in-chat.md`。
+  - 文档：`spec/services/theme.md`（Rainbow mode 表格新增 `LocalRainbowPhase` / `rememberRainbowPhaseTimer`，并说明相位必须来自唯一计时器、`SimpleXThemeOverride` 也套用相位）、`product/rules.md`（RULE-29 第 2、6 条与 Enforcement 更新）、`product/concepts.md`（PC45 源文件）、`spec/impact.md`（`Theme.kt`、`Rainbow.kt` 行）、`plans/2026-11-03-fix-rainbow-in-chat.md`。
   - 测试：`./gradlew :common:desktopTest` 全部通过（25 个测试类、179 个用例无失败），`./gradlew :common:compileDebugKotlinAndroid` 编译通过。差异补丁见 `diff/`。
 
 - [x] 群成员连接率似乎忘记排除自己了，导致永远无法达到百分之一百
@@ -259,7 +259,7 @@ none
   - 修复方法：新增统一解析器 `ChatModel.connectionStatus(conn)`（内部是纯函数 `connectionStatus(conn, liveStatuses, openChatAgentConnId, openChatStatus)`），优先级为「事件里该连接的最新状态 → 该连接上次拉取的 `ConnectionStats.subStatus` → 当前打开聊天的状态（且仅当 `conn.agentConnId == chatAgentConnId`，避免串到别的聊天）」。主页列表、私聊标题、群成员列表、联系人信息页、群成员信息页全部改为读它；后两者保留自己的 `cStats.subStatus` 仅作为解析器还未知时的兜底。
   - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`（`ChatModel.connectionStatus` + 纯函数）、`.../views/chat/ChatView.kt`（`ChatInfoToolbarTitle`）、`.../views/chat/ChatInfoView.kt`（联系人页网络状态行）、`.../views/chat/group/GroupChatInfoView.kt`（`MemberRow`）、`.../views/chat/group/GroupMemberInfoView.kt`（成员信息页网络状态行）、`.../views/chatlist/ChatPreviewView.kt`（`chatPreviewTitle`）。
   - 未改核心、未新增字符串、未新增偏好或 `AppSettings` 字段；状态仍是会话内的内存缓存，不落盘。
-  - 文档：`product/rules.md`（RULE-22 新增「全应用统一状态源」条款及条目）、`product/views/contact-info.md`、`product/views/chat.md`、`product/concepts.md`（PC37）、`spec/state.md`、`spec/client/chat-view.md`、`spec/client/chat-list.md`、`spec/impact.md`、`plans/2026-10-22-fix-status-dot-source.md`。
+  - 文档：`product/rules.md`（RULE-22 新增「全应用统一状态源」条款及条目）、`product/views/contact-info.md`、`product/views/chat.md`、`product/concepts.md`（PC38）、`spec/state.md`、`spec/client/chat-view.md`、`spec/client/chat-list.md`、`spec/impact.md`、`plans/2026-10-22-fix-status-dot-source.md`。
   - 测试：扩充 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ConnectionSubStatusTest.kt` 到 12 个用例（新增「能取到当前打开聊天的状态」「不会把别的聊天的状态拿来用」「没有连接时忽略打开聊天的状态」「事件状态优先于打开聊天的状态」「`ConnectionStats` 优先于打开聊天的状态」），`./gradlew :common:desktopTest` 全部通过（12/12，全部 17 个测试类无失败）。差异补丁见 `diff/`。
 
 - [x] 程序刚启动的时候连线连接状态的那个点不会显示，需要手动点进去一次才行
@@ -268,10 +268,17 @@ none
   - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt`（`connectionStatusRequested`、`chatsForConnectionStatus`）、`.../views/chatlist/ChatListView.kt`（后台预取）。
   - 未改核心、未新增字符串/偏好/`AppSettings` 字段，仍是会话内内存状态，不落盘；订阅事件到来时仍会覆盖这些值。
   - 范围说明：只对私聊连接做预取（每个联系人本会话最多一次）。群成员的圆点仍需等订阅事件或打开该成员信息页，因为按成员逐个请求在大群里会是一次打开就几十上百次调用；如果之后需要，可在这个基础上再加按群成员的懒加载。
-  - 文档：`product/rules.md`（RULE-22 新增第 5 条「状态本会话只请求一次且在后台」）、`product/views/chat-list.md`、`product/concepts.md`（PC37）、`spec/client/chat-list.md`（Connection Status Dot）、`spec/state.md`（`connectionStatusRequested`）、`spec/impact.md`、`plans/2026-10-22-fix-status-dot-startup.md`。
+  - 文档：`product/rules.md`（RULE-22 新增第 5 条「状态本会话只请求一次且在后台」）、`product/views/chat-list.md`、`product/concepts.md`（PC38）、`spec/client/chat-list.md`（Connection Status Dot）、`spec/state.md`（`connectionStatusRequested`）、`spec/impact.md`、`plans/2026-10-22-fix-status-dot-startup.md`。
   - 测试：新增 `apps/multiplatform/common/src/commonTest/kotlin/chat/simplex/app/ConnectionStatusPrefetchTest.kt`（9 个用例：需要预取的私聊／状态已知／已请求过／无连接／未 ready／未 active／群聊／混合场景只返回待请求的／每个连接都参与判断），`./gradlew :common:desktopTest` 全部通过（9/9，全部 18 个测试类共 107 个用例无失败）。差异补丁见 `diff/`。
 
 - [ ] 好像有性能问题，在主页滚动列表会很卡
+
+- [x] 升级到官方 7.1.2（在保留全部特色功能的前提下变基）
+  - **已完成（2026-11-09，基于 7.1.2）**：把原先基于 7.0.4 的 34 个提交整体变基到官方 `v7.1.2`，逐个提交解决冲突，最终 34 个提交全部落在 7.1.2 之上，特色功能一项没丢。
+  - 上游 7.1.x 的主要变化与对应处理：① 界面字符串资源目录由 `common/src/commonMain/resources/MR/` 迁到 `common/src/commonMain/moko-resources/`（moko-resources 0.27.1），文档里的旧路径已同步；② 0.27 的 `MR.strings` / `MR.images` 条目改成扩展属性，`import chat.simplex.res.MR` 不再暴露它们，本仓库新增或改动的 4 个文件改用 `import chat.simplex.res.*`（`MessagePreviewView.kt`、`SubscriptionStatusDot.kt`、`TranslationSettingsView.kt`、`CopiedQuoteTest.kt`）；③ 官方新增「终端聊天布局」概念占用 PC32，本仓库原有 PC32–PC46 顺延为 PC33–PC47，`PC1 through PC…` 的范围写法统一为 `PC1 through PC47`（`product/concepts.md`、`spec/impact.md`、`spec/README.md`、`spec/client/*.md` 同步）；④ 官方把消息元信息布局重构成 `ItemWithMeta(meta = …)`、成员列表搜索改成 `showMemberSearch`、`ComposeState` 新增 `sendIncognito`，本仓库的译文行、成员列表折叠、翻译输入状态都按新结构重新接入。
+  - 已知限制：`product/gaps.md` 的 GAP-11（翻译文案不走 MR 资源）原本是 moko 0.23 的单方法 64KB 上限所迫，0.27 已把字符串拆成多个分组类，该限制不再成立；现有 `TranslationStrings` 只是历史实现，后续可选迁移到 MR。
+  - 测试：`./gradlew :common:desktopTest` 全部通过（436 个用例、0 失败），`:common:compileKotlinDesktop` 与 `:common:compileDebugKotlinAndroid` 均编译通过。
+  - 差异补丁：`diff/0000-todo-list.patch` 负责创建 `TODO.md`，`diff/0001`–`diff/0028` 仍是每项功能一个补丁，本条目见 `diff/0029-upgrade-to-7.1.2.patch`，全部按 7.1.2 基线重新生成。除 0000 以外的每个补丁按「上一个补丁对应的提交 → 本提交」生成（`git diff <上一补丁提交> <本提交> -- . ':(exclude)diff'`），因此夹在功能提交之间的纯 TODO 记录提交会并入紧随其后的那个补丁，保证从纯净 `v7.1.2` 顺序 `git apply` 能完整复现：已验证 30 个补丁按序全部应用成功，除 `diff/` 目录自身外，文件树与 `Jim` 完全一致。
 
 ## del:
 

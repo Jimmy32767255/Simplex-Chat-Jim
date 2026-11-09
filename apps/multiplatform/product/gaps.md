@@ -16,7 +16,7 @@ This document catalogs known gaps in the multiplatform codebase (Android and Des
 8. [Desktop: App Link Registration](#gap-08-desktop-app-link-registration)
 9. [Desktop: Emoji Picker Without Skin Tones and Localized Search](#gap-09-desktop-emoji-picker-without-skin-tones-and-localized-search)
 10. [Badges: Limits on Moving a Badge to a New Device or Profile](#gap-10-badges-limits-on-moving-a-badge-to-a-new-device-or-profile)
-11. [Localization: Translation Copy Cannot Use MR Resources](#gap-11-localization-translation-copy-cannot-use-mr-resources)
+11. [Localization: Translation Copy Bypasses MR Resources](#gap-11-localization-translation-copy-bypasses-mr-resources)
 
 ---
 
@@ -381,7 +381,7 @@ A subscriber who moves the badge again before the previous key's credential expi
 
 ---
 
-## GAP-11: Localization: Translation Copy Cannot Use MR Resources
+## GAP-11: Localization: Translation Copy Bypasses MR Resources
 
 **Severity:** Low
 **Category:** Localization
@@ -390,12 +390,14 @@ A subscriber who moves the badge again before the previous key's credential expi
 ### Description
 
 The in-app translation feature keeps its copy in `TranslationStrings` (a Kotlin `t(en, zh)` table keyed off
-the interface language) instead of `MR/strings.xml`. That is forced, not preferred: moko-resources 0.23.0
-generates one giant `MR$strings.<clinit>` holding every string, and with ~3 000 strings it already reaches
-method bytecode offset ~65 390 of the JVM's 65 535-byte per-method limit, so adding a few dozen more strings
-makes the whole Desktop build fail with "Method too large". moko also supports only its fixed resource types
-(`strings`, `plurals`, `images`, `fonts`, `files`, `colors`, `assets`), so an extra `translation.xml` file is
-never generated — verified by adding one and inspecting the generated `MR.kt`.
+the interface language) instead of the `moko-resources` string tables. When the feature was written on the
+7.0.4 base (moko-resources 0.23.x) this was forced: the plugin generated a single `MR$strings` class holding
+every string, and with ~3 000 strings it already sat at method bytecode offset ~65 390 of the JVM's
+65 535-byte per-method limit, so a few dozen more strings failed the Desktop build with "Method too large".
+Upstream 7.1.2 moves to moko-resources 0.27.1, which splits the generated strings into per-group classes
+(`CommonMainStrings0…62`) and lifts that limit, so the constraint no longer applies — the table is now
+historical, not forced. moko still supports only its fixed resource types (`strings`, `plurals`, `images`,
+`fonts`, `files`, `colors`, `assets`), so a separate `translation.xml` file remains impossible.
 
 ### Affected Locations
 
@@ -411,6 +413,6 @@ language *selection* (including the `null` / `"system"` preference), not the cov
 
 ### Recommendation
 
-Revisit once upstream splits `MR.strings` (e.g. moko moving to per-file classes, or the string table being
-reduced). Until then, an extensible lookup table loaded from a bundled per-language resource would be the
-alternative, at the cost of hand-authored translations.
+Migrate `TranslationStrings` to ordinary `MR.strings` entries now that moko-resources 0.27.1 generates the
+strings in per-group classes; until then, an extensible lookup table loaded from a bundled per-language
+resource would be the alternative, at the cost of hand-authored translations.

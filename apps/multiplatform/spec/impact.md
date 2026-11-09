@@ -43,20 +43,20 @@
 | PC31 | Channels (Relays) |
 | PC32 | Terminal Chat Layout |
 | PC32 | Desktop Message Sending Keys |
-| PC33 | Receiving Address Switch |
-| PC34 | Server Grouping and Notes |
-| PC35 | Profile Image Viewer |
-| PC36 | Group Members Connection Rate |
-| PC37 | Connection Network Status Dot |
-| PC38 | Servers Import and Export |
-| PC39 | Chat List Group Connection Rate |
-| PC40 | Favorites Pinned First |
-| PC41 | Selected Messages Copy |
-| PC42 | Time Format |
-| PC43 | Range Selection |
-| PC44 | Rainbow Mode |
-| PC45 | Message Preview |
-| PC46 | Chat Translation |
+| PC34 | Receiving Address Switch |
+| PC35 | Server Grouping and Notes |
+| PC36 | Profile Image Viewer |
+| PC37 | Group Members Connection Rate |
+| PC38 | Connection Network Status Dot |
+| PC39 | Servers Import and Export |
+| PC40 | Chat List Group Connection Rate |
+| PC41 | Favorites Pinned First |
+| PC42 | Selected Messages Copy |
+| PC43 | Time Format |
+| PC44 | Range Selection |
+| PC45 | Rainbow Mode |
+| PC46 | Message Preview |
+| PC47 | Chat Translation |
 
 ---
 
@@ -68,14 +68,14 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `App.kt` | PC1 through PC32 | High | Root composable — navigation scaffold for all features |
+| `App.kt` | PC1 through PC47 | High | Root composable — navigation scaffold for all features |
 | `AppLock.kt` | PC22 | Medium | App lock state and authorization lifecycle |
-| `model/ChatModel.kt` | PC1 through PC42 | High | Central state object — every feature reads or writes here; also holds the session-local per-connection status map (`connectionSubStatuses`) with its resolvers (`connectionSubStatus`, `ChatModel.connectionStatus`), the set of connections whose stats were already requested (`connectionStatusRequested`) and its selector (`chatsForConnectionStatus`), and the session-local chat-list cache of group member lists (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`), and the favorites-first ordering helpers (`isFavoriteChat`, `favoritesPinnedFirst`), the selected-messages copy formatters (`ciSenderName`, `canCopyChatItem`, `chatItemToText`, `chatItemsToText`, `selectedChatItemsInOrder`), and the time-of-day formatting (`uses24HourFormat`, `timeOfDayPattern`, `timeOfDayPatternWithSeconds`, `getTimestampText`, `localTimestamp`) |
-| `model/SimpleXAPI.kt` | PC1 through PC46 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` and the chat-list member cache from `CR.GroupMemberUpdated`; hosts the translation preferences (`translationConfig`, `translationSecrets`, `translationSecretsIv`, `translationAutoTranslate`) that stay out of `AppSettings` |
+| `model/ChatModel.kt` | PC1 through PC47 | High | Central state object — every feature reads or writes here; also holds the session-local per-connection status map (`connectionSubStatuses`) with its resolvers (`connectionSubStatus`, `ChatModel.connectionStatus`), the set of connections whose stats were already requested (`connectionStatusRequested`) and its selector (`chatsForConnectionStatus`), and the session-local chat-list cache of group member lists (`groupMembersForRate`, `groupRateRequested`, `updateGroupMembersForRate`, `groupChatsForConnectionRate`), and the favorites-first ordering helpers (`isFavoriteChat`, `favoritesPinnedFirst`), the selected-messages copy formatters (`ciSenderName`, `canCopyChatItem`, `chatItemToText`, `chatItemsToText`, `selectedChatItemsInOrder`), and the time-of-day formatting (`uses24HourFormat`, `timeOfDayPattern`, `timeOfDayPatternWithSeconds`, `getTimestampText`, `localTimestamp`) |
+| `model/SimpleXAPI.kt` | PC1 through PC47 | High | FFI bridge to Haskell core — all commands and responses; updates the connection status map from `CR.SubscriptionStatusEvt` and the chat-list member cache from `CR.GroupMemberUpdated`; hosts the translation preferences (`translationConfig`, `translationSecrets`, `translationSecretsIv`, `translationAutoTranslate`) that stay out of `AppSettings` |
 | `model/CryptoFile.kt` | PC10, PC23 | Medium | Encrypted file read/write helpers |
-| `platform/Core.kt` | PC1 through PC32 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
-| `platform/AppCommon.kt` | PC1 through PC32 | Medium | Shared app initialization logic |
-| `platform/Files.kt` | PC10, PC23, PC26, PC38 | Medium | File path resolution, temp dirs, encryption utilities, and the file chooser used by the server export/import |
+| `platform/Core.kt` | PC1 through PC47 | High | Native FFI declarations (`chatMigrateInit`, `chatSendCmd`, etc.) — all API traffic |
+| `platform/AppCommon.kt` | PC1 through PC47 | Medium | Shared app initialization logic |
+| `platform/Files.kt` | PC10, PC23, PC26, PC39 | Medium | File path resolution, temp dirs, encryption utilities, and the file chooser used by the server export/import |
 | `platform/NtfManager.kt` | PC18 | High | Notification manager expect declarations |
 | `platform/Notifications.kt` | PC18 | Medium | Notification channel and permission abstractions |
 | `platform/SimplexService.kt` | PC18 | Medium | Background service expect declarations |
@@ -83,9 +83,9 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `platform/VideoPlayer.kt` | PC10, PC17 | Low | Video playback abstractions |
 | `platform/Cryptor.kt` | PC23 | Medium | Keystore encryption expect declarations |
 | `platform/Share.kt` | PC10, PC12 | Low | Share sheet abstractions |
-| `platform/TimeFormat.kt` | PC42 | Low | `systemUses24HourFormat` expect declaration (+ Android/desktop actuals) — the OS 12/24-hour setting |
-| `platform/Images.kt` | PC10, PC19, PC35 | Low | Image processing utilities, incl. the `copyImageToClipboard` expect declaration |
-| `platform/Platform.kt` | PC1 through PC32 | Low | Platform detection and capability flags |
+| `platform/TimeFormat.kt` | PC43 | Low | `systemUses24HourFormat` expect declaration (+ Android/desktop actuals) — the OS 12/24-hour setting |
+| `platform/Images.kt` | PC10, PC19, PC36 | Low | Image processing utilities, incl. the `copyImageToClipboard` expect declaration |
+| `platform/Platform.kt` | PC1 through PC47 | Low | Platform detection and capability flags |
 | `platform/PlatformTextField.kt` | PC4 | Low | Native text input expect declarations |
 | `platform/Back.kt` | PC1 | Low | Back navigation handling |
 | `platform/UI.kt` | PC24 | Low | UI density and locale helpers |
@@ -99,8 +99,8 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
 | `ui/theme/ThemeManager.kt` | PC24 | Medium | Theme resolution engine — all color and wallpaper logic |
-| `ui/theme/Theme.kt` | PC24, PC32, PC44 | Medium | Theme composables and `SimpleXTheme`; `SimpleXTheme` runs the single rainbow timer, publishes `LocalRainbowPhase` and feeds the shifted colors to `MaterialTheme` / `LocalAppColors`, and `SimpleXThemeOverride` (which wraps a conversation) applies the same phase to the per-chat palette |
-| `ui/theme/Rainbow.kt` | PC44 | Low | Rainbow mode: `shiftHue`, `rainbowColors`, `rainbowAppColors`, `rememberRainbowPhaseTimer`, `LocalRainbowPhase` (pure hue rotation, no saved state) |
+| `ui/theme/Theme.kt` | PC24, PC32, PC45 | Medium | Theme composables and `SimpleXTheme`; `SimpleXTheme` runs the single rainbow timer, publishes `LocalRainbowPhase` and feeds the shifted colors to `MaterialTheme` / `LocalAppColors`, and `SimpleXThemeOverride` (which wraps a conversation) applies the same phase to the per-chat palette |
+| `ui/theme/Rainbow.kt` | PC45 | Low | Rainbow mode: `shiftHue`, `rainbowColors`, `rainbowAppColors`, `rememberRainbowPhaseTimer`, `LocalRainbowPhase` (pure hue rotation, no saved state) |
 | `ui/theme/Color.kt` | PC24 | Low | Color palette definitions |
 | `ui/theme/Shape.kt` | PC24 | Low | Shape token definitions |
 | `ui/theme/Type.kt` | PC24 | Low | Typography definitions |
@@ -109,10 +109,10 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/chatlist/ChatListView.kt` | PC1, PC28, PC37, PC39, PC40 | High | Main screen — chat list rendering, search, the favorites-first reordering when `favoritesAsPinned` is on, the background prefetch of group member lists for the connection-rate dot and of the still unknown connection statuses for the network status dots |
+| `views/chatlist/ChatListView.kt` | PC1, PC28, PC38, PC40, PC41 | High | Main screen — chat list rendering, search, the favorites-first reordering when `favoritesAsPinned` is on, the background prefetch of group member lists for the connection-rate dot and of the still unknown connection statuses for the network status dots |
 | `views/chatlist/GetStakeBanner.kt` | PC1 | Low | Crowdfunding banner and shared banner card chrome |
 | `views/chatlist/ChatListNavLinkView.kt` | PC1, PC2, PC3 | Medium | Navigation from chat list item to chat |
-| `views/chatlist/ChatPreviewView.kt` | PC1, PC2, PC3, PC11, PC37, PC39 | Medium | Chat row preview rendering, incl. the contact connection status dot and the group member connection-rate dot left of the name |
+| `views/chatlist/ChatPreviewView.kt` | PC1, PC2, PC3, PC11, PC38, PC40 | Medium | Chat row preview rendering, incl. the contact connection status dot and the group member connection-rate dot left of the name |
 | `views/chatlist/TagListView.kt` | PC28 | Medium | Chat tag filter UI |
 | `views/chatlist/UserPicker.kt` | PC19, PC21 | Medium | Multi-profile switcher overlay |
 | `views/chatlist/ShareListView.kt` | PC10 | Low | Share target list |
@@ -126,18 +126,18 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/chat/ChatView.kt` | PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC11, PC32, PC37, PC43 | High | Core conversation UI — most messaging features; the chat title shows the dot of the open chat's connection; the multi-select overlay renders the "select to here" pills at both list edges and keeps `selectionAnchor` |
-| `views/chat/ChatSelectionRange.kt` | PC43 | Low | Pure range helpers for "select to here": row-id expansion, range rows, ids to add and the visible top/bottom rows |
+| `views/chat/ChatView.kt` | PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9, PC11, PC32, PC38, PC44 | High | Core conversation UI — most messaging features; the chat title shows the dot of the open chat's connection; the multi-select overlay renders the "select to here" pills at both list edges and keeps `selectionAnchor` |
+| `views/chat/ChatSelectionRange.kt` | PC44 | Low | Pure range helpers for "select to here": row-id expansion, range rows, ids to add and the visible top/bottom rows |
 | `views/chat/ComposeView.kt` | PC4, PC6, PC9, PC10, PC11 | High | Message composition — send path for all messages |
-| `views/chat/SendMsgView.kt` | PC4, PC9, PC45, PC46 | Medium | Send button and voice record toggle; the preview button sits before the send button and the translation button sits to its left |
-| `views/chat/MessagePreviewView.kt` | PC45 | Low | Read-only rendered message preview: availability predicate, modal and toolbar button |
+| `views/chat/SendMsgView.kt` | PC4, PC9, PC46, PC47 | Medium | Send button and voice record toggle; the preview button sits before the send button and the translation button sits to its left |
+| `views/chat/MessagePreviewView.kt` | PC46 | Low | Read-only rendered message preview: availability predicate, modal and toolbar button |
 | `views/chat/ComposeEmojiPicker.kt` | PC4 | Low | Emoji button expect declaration, emoji insertion |
 | `views/chat/ComposeVoiceView.kt` | PC9 | Medium | Voice message recording UI |
 | `views/chat/ComposeFileView.kt` | PC10 | Low | File attachment preview in compose area |
 | `views/chat/ComposeImageView.kt` | PC10 | Low | Image attachment preview in compose area |
 | `views/chat/ContextItemView.kt` | PC6 | Low | Reply/edit quote preview |
 | `views/chat/SelectableChatItemToolbars.kt` | PC7, PC10 | Medium | Multi-select toolbar (delete, forward, moderate, copy of the selection) |
-| `views/chat/ChatInfoView.kt` | PC2, PC13, PC20, PC32, PC33, PC35, PC37 | Medium | Contact details, verification, receiving-address switch, the shared switch alerts, the clickable contact avatar, and the servers-section status dot (shared `SubscriptionStatusDot`) |
+| `views/chat/ChatInfoView.kt` | PC2, PC13, PC20, PC32, PC34, PC36, PC38 | Medium | Contact details, verification, receiving-address switch, the shared switch alerts, the clickable contact avatar, and the servers-section status dot (shared `SubscriptionStatusDot`) |
 | `views/chat/ContactPreferences.kt` | PC2, PC8 | Medium | Per-contact feature preferences |
 | `views/chat/ChatItemInfoView.kt` | PC2, PC3 | Low | Message delivery detail |
 | `views/chat/ChatItemsLoader.kt` | PC2, PC3 | Medium | Pagination and message loading logic |
@@ -154,10 +154,10 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/chat/item/ChatItemView.kt` | PC2, PC3, PC5, PC6, PC7, PC8, PC32, PC41, PC46 | High | Root chat item renderer with context menus; the single-message Copy action passes `ciTextWithQuote` to `copyItemToClipboard`, and the context menu adds a Translate action |
-| `views/chat/item/TextItemView.kt` | PC2, PC3, PC4, PC32, PC44 | Medium | Text message bubble rendering; `MarkdownText` resolves its default text color through `rememberRainbowMessageTextColor`, so rainbow message text reaches every markdown surface |
+| `views/chat/item/ChatItemView.kt` | PC2, PC3, PC5, PC6, PC7, PC8, PC32, PC42, PC47 | High | Root chat item renderer with context menus; the single-message Copy action passes `ciTextWithQuote` to `copyItemToClipboard`, and the context menu adds a Translate action |
+| `views/chat/item/TextItemView.kt` | PC2, PC3, PC4, PC32, PC45 | Medium | Text message bubble rendering; `MarkdownText` resolves its default text color through `rememberRainbowMessageTextColor`, so rainbow message text reaches every markdown surface |
 | `views/chat/item/MarkdownBlocks.kt` | PC4, PC32 | Medium | Block Markdown rendering; terminal block gaps and headings |
-| `views/chat/item/FramedItemView.kt` | PC4, PC6, PC10, PC11, PC32, PC46 | Medium | Framed (quoted/forwarded) message container; renders the bilingual translation line under a translated message |
+| `views/chat/item/FramedItemView.kt` | PC4, PC6, PC10, PC11, PC32, PC47 | Medium | Framed (quoted/forwarded) message container; renders the bilingual translation line under a translated message |
 | `views/chat/item/TerminalItemView.kt` | PC2, PC3, PC32 | Medium | Terminal layout rows, sender rows, time placement |
 | `views/chat/item/CIImageView.kt` | PC10 | Medium | Image message rendering |
 | `views/chat/item/CIVideoView.kt` | PC10 | Medium | Video message rendering |
@@ -183,9 +183,9 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC33, PC35, PC36, PC37, PC39 | High | Group management hub; includes the group-wide receiving-address switch row, the member-list connection rate dot (shared with the chat list) and collapse toggle, the per-member connection status dot, and the clickable group / member avatars |
+| `views/chat/group/GroupChatInfoView.kt` | PC3, PC14, PC15, PC16, PC30, PC34, PC36, PC37, PC38, PC40 | High | Group management hub; includes the group-wide receiving-address switch row, the member-list connection rate dot (shared with the chat list) and collapse toggle, the per-member connection status dot, and the clickable group / member avatars |
 | `views/chat/group/AddGroupMembersView.kt` | PC14, PC16 | Medium | Member invitation flow |
-| `views/chat/group/GroupMemberInfoView.kt` | PC3, PC14, PC16, PC30, PC31, PC33, PC35 | Medium | Member details and role management; relay-address + rejected-status info rows; per-member receiving-address switch; clickable avatar |
+| `views/chat/group/GroupMemberInfoView.kt` | PC3, PC14, PC16, PC30, PC31, PC34, PC36 | Medium | Member details and role management; relay-address + rejected-status info rows; per-member receiving-address switch; clickable avatar |
 | `views/chat/group/ChannelRelaysView.kt` | PC31 | Medium | Channel relay list, add/remove entries |
 | `views/chat/group/AddGroupRelayView.kt` | PC31 | Low | Add relay sheet |
 | `views/chat/group/GroupProfileView.kt` | PC3, PC14 | Medium | Group profile editing |
@@ -228,8 +228,8 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29, PC32, PC40, PC42, PC46 | Medium | Settings navigation hub, incl. the desktop message-sending section, the "Chat list" section with the favorites-as-pinned switch, the time-format dropdown and the chat-translation entry |
-| `views/usersettings/Appearance.kt` | PC24, PC32, PC44 | Low | Theme and appearance customization; `CustomizeThemeColorsSection` holds the rainbow toggle and animates the color swatches |
+| `views/usersettings/SettingsView.kt` | PC18, PC22, PC23, PC24, PC25, PC29, PC32, PC33, PC41, PC43, PC47 | Medium | Settings navigation hub, incl. the desktop message-sending section, the "Chat list" section with the favorites-as-pinned switch, the time-format dropdown and the chat-translation entry |
+| `views/usersettings/Appearance.kt` | PC24, PC32, PC45 | Low | Theme and appearance customization; `CustomizeThemeColorsSection` holds the rainbow toggle and animates the color swatches |
 | `views/usersettings/PrivacySettings.kt` | PC20, PC22 | Medium | Privacy and lock settings |
 | `views/usersettings/UserProfileView.kt` | PC19 | Medium | Profile display name and image editing |
 | `views/usersettings/UserProfilesView.kt` | PC19, PC21 | Medium | Multi-profile management |
@@ -247,13 +247,13 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `views/usersettings/HelpView.kt` | — | Low | Help and support links |
 | `views/usersettings/MarkdownHelpView.kt` | PC4 | Low | Markdown formatting guide |
 | `views/usersettings/VersionInfoView.kt` | — | Low | Version display |
-| `views/usersettings/networkAndServers/NetworkAndServers.kt` | PC25, PC38 | High | Server and network configuration hub, incl. the custom-server import/export section |
+| `views/usersettings/networkAndServers/NetworkAndServers.kt` | PC25, PC39 | High | Server and network configuration hub, incl. the custom-server import/export section |
 | `views/usersettings/networkAndServers/AdvancedNetworkSettings.kt` | PC25 | Medium | SOCKS proxy, timeouts, etc. |
 | `views/usersettings/networkAndServers/OperatorView.kt` | PC25 | Medium | Server operator management |
-| `views/usersettings/networkAndServers/ProtocolServersView.kt` | PC25, PC34 | Medium | SMP/XFTP server list, grouped by client-side group |
-| `views/usersettings/networkAndServers/ProtocolServerView.kt` | PC25, PC34 | Low | Individual server editing, incl. group/note |
-| `views/usersettings/networkAndServers/NewServerView.kt` | PC25, PC34 | Low | Add new server(s) by hand (one address per line for a batch), incl. group/note |
-| `views/usersettings/networkAndServers/ServersBackup.kt` | PC38 | Low | Custom-server JSON backup format and the pure export/merge logic used by import/export |
+| `views/usersettings/networkAndServers/ProtocolServersView.kt` | PC25, PC35 | Medium | SMP/XFTP server list, grouped by client-side group |
+| `views/usersettings/networkAndServers/ProtocolServerView.kt` | PC25, PC35 | Low | Individual server editing, incl. group/note |
+| `views/usersettings/networkAndServers/NewServerView.kt` | PC25, PC35 | Low | Add new server(s) by hand (one address per line for a batch), incl. group/note |
+| `views/usersettings/networkAndServers/ServersBackup.kt` | PC39 | Low | Custom-server JSON backup format and the pure export/merge logic used by import/export |
 | `views/usersettings/networkAndServers/ScanProtocolServer.kt` | PC25 | Low | QR scan for server address |
 
 ### 1.10 Views — Database & Migration
@@ -294,14 +294,14 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `views/helpers/AlertManager.kt` | PC1 through PC32 | Medium | Modal alert system used across all features |
-| `views/helpers/ModalView.kt` | PC1 through PC32 | Medium | Modal navigation stack |
-| `views/helpers/Utils.kt` | PC1 through PC32 | Low | Shared formatting, clipboard, and utility functions |
+| `views/helpers/AlertManager.kt` | PC1 through PC47 | Medium | Modal alert system used across all features |
+| `views/helpers/ModalView.kt` | PC1 through PC47 | Medium | Modal navigation stack |
+| `views/helpers/Utils.kt` | PC1 through PC47 | Low | Shared formatting, clipboard, and utility functions |
 | `views/helpers/DatabaseUtils.kt` | PC23 | Medium | Keystore passphrase and database helpers |
 | `views/helpers/LinkPreviews.kt` | PC11 | Medium | Link preview fetching and rendering |
 | `views/helpers/LocalAuthentication.kt` | PC22 | Medium | Biometric/passcode authentication expect |
 | `views/helpers/ChatWallpaper.kt` | PC24 | Low | Chat wallpaper rendering |
-| `views/helpers/ChatInfoImage.kt` | PC19, PC35 | Low | Profile image composable, opt-in clickable avatars, and the profile image viewer modal |
+| `views/helpers/ChatInfoImage.kt` | PC19, PC36 | Low | Profile image composable, opt-in clickable avatars, and the profile image viewer modal |
 | `views/helpers/ThemeModeEditor.kt` | PC24, PC32 | Low | Theme mode toggle |
 | `views/helpers/ChooseAttachmentView.kt` | PC10 | Low | Attachment picker |
 | `views/helpers/GetImageView.kt` | PC10, PC19 | Low | Image capture and crop |
@@ -313,8 +313,8 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `views/helpers/AnimationUtils.kt` | PC24 | Low | Animation helpers |
 | `views/helpers/DefaultDialog.kt` | — | Low | Dialog composable primitives |
 | `views/helpers/DefaultDropdownMenu.kt` | — | Low | Dropdown menu composable |
-| `views/helpers/Section.kt` | PC36 | Low | Settings section composable (incl. the section header with a trailing title button) |
-| `views/helpers/SubscriptionStatusDot.kt` | PC37 | Low | Shared connection network status dot (connected / connecting / error), extracted from the contact info page |
+| `views/helpers/Section.kt` | PC37 | Low | Settings section composable (incl. the section header with a trailing title button) |
+| `views/helpers/SubscriptionStatusDot.kt` | PC38 | Low | Shared connection network status dot (connected / connecting / error), extracted from the contact info page |
 | `views/helpers/SimpleButton.kt` | — | Low | Button composable |
 | `views/helpers/DefaultTopAppBar.kt` | — | Low | App bar composable |
 | `views/helpers/DefaultBasicTextField.kt` | PC4 | Low | Text field composable |
@@ -346,12 +346,12 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `translation/TranslationService.kt` | PC46 | High | Compose-observable translation registry: `translateChatItem`/`translateTextNow`/`autoTranslateVisible`, provider dispatch in `translateNow`, rate limiting (`requestIntervalMs`/`maxConcurrent`/`batchLimit`), and `canUndoTranslation` |
-| `translation/TranslationModels.kt` | PC46 | Medium | `TranslationProvider`, `TranslationConfig`, `TranslationSecrets`, `TranslationRateConfig`, `TranslationEntry`/status |
-| `translation/TranslationLang.kt` | PC46 | Low | Language table and `detectLanguage` pure function |
-| `translation/TranslationApi.kt` | PC46 | Medium | Per-provider request-body builders and response parsers (pure, incl. Baidu MD5 signing) |
-| `translation/TranslationHttp.kt` | PC46 | Low | `HttpResult` + `expect suspend httpGetText/httpPostJson` for the translation provider calls (+ Android/desktop actuals) |
-| `views/usersettings/TranslationSettingsView.kt` | PC46 | Medium | Chat-translation settings page: provider, keys, target language, auto-translate and rate limits |
+| `translation/TranslationService.kt` | PC47 | High | Compose-observable translation registry: `translateChatItem`/`translateTextNow`/`autoTranslateVisible`, provider dispatch in `translateNow`, rate limiting (`requestIntervalMs`/`maxConcurrent`/`batchLimit`), and `canUndoTranslation` |
+| `translation/TranslationModels.kt` | PC47 | Medium | `TranslationProvider`, `TranslationConfig`, `TranslationSecrets`, `TranslationRateConfig`, `TranslationEntry`/status |
+| `translation/TranslationLang.kt` | PC47 | Low | Language table and `detectLanguage` pure function |
+| `translation/TranslationApi.kt` | PC47 | Medium | Per-provider request-body builders and response parsers (pure, incl. Baidu MD5 signing) |
+| `translation/TranslationHttp.kt` | PC47 | Low | `HttpResult` + `expect suspend httpGetText/httpPostJson` for the translation provider calls (+ Android/desktop actuals) |
+| `views/usersettings/TranslationSettingsView.kt` | PC47 | Medium | Chat-translation settings page: provider, keys, target language, auto-translate and rate limits |
 
 ---
 
@@ -363,8 +363,8 @@ Path prefix: `android/src/main/java/chat/simplex/app/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `SimplexApp.kt` | PC1 through PC32 | High | Application class — initializes core, preferences, and notification channels |
-| `MainActivity.kt` | PC1 through PC32 | High | Single-activity host — intent handling, lifecycle, deep links |
+| `SimplexApp.kt` | PC1 through PC47 | High | Application class — initializes core, preferences, and notification channels |
+| `MainActivity.kt` | PC1 through PC47 | High | Single-activity host — intent handling, lifecycle, deep links |
 | `SimplexService.kt` | PC18 | High | Foreground service — keeps message receiver alive |
 | `CallService.kt` | PC17 | Medium | Foreground service for active calls |
 | `MessagesFetcherWorker.kt` | PC18 | Medium | WorkManager periodic message fetch |
@@ -378,17 +378,17 @@ Path prefix: `common/src/androidMain/kotlin/chat/simplex/common/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `platform/AppCommon.android.kt` | PC1 through PC32 | Medium | Android app initialization actual declarations |
+| `platform/AppCommon.android.kt` | PC1 through PC47 | Medium | Android app initialization actual declarations |
 | `platform/SimplexService.android.kt` | PC18 | Medium | Android foreground service actual implementation |
 | `platform/Files.android.kt` | PC10, PC23, PC26 | Medium | Android file paths and content-URI resolution |
 | `platform/Cryptor.android.kt` | PC23 | Medium | Android Keystore encryption actual implementation |
 | `platform/RecAndPlay.android.kt` | PC9 | Medium | Android MediaRecorder/MediaPlayer actual implementation |
 | `platform/VideoPlayer.android.kt` | PC10 | Low | Android ExoPlayer actual implementation |
 | `platform/Notifications.android.kt` | PC18 | Medium | Android notification channel creation |
-| `platform/Images.android.kt` | PC10, PC19, PC35 | Low | Android bitmap processing, incl. the FileProvider-backed image clipboard |
+| `platform/Images.android.kt` | PC10, PC19, PC36 | Low | Android bitmap processing, incl. the FileProvider-backed image clipboard |
 | `platform/PlatformTextField.android.kt` | PC4 | Low | Android native text field actual implementation |
 | `platform/Share.android.kt` | PC10 | Low | Android share intent actual implementation |
-| `translation/TranslationHttp.android.kt` | PC46 | Low | Android actual of the translation `httpGetText`/`httpPostJson` expect |
+| `translation/TranslationHttp.android.kt` | PC47 | Low | Android actual of the translation `httpGetText`/`httpPostJson` expect |
 | `platform/Back.android.kt` | PC1 | Low | Android back press handler |
 | `platform/UI.android.kt` | PC24 | Low | Android density and locale |
 | `platform/ScrollableColumn.android.kt` | PC1 | Low | Android lazy list actual implementation |
@@ -446,7 +446,7 @@ Path prefix: `desktop/src/jvmMain/kotlin/chat/simplex/desktop/`
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `Main.kt` | PC1 through PC32 | High | JVM entry point — Haskell init, migrations, app launch |
+| `Main.kt` | PC1 through PC47 | High | JVM entry point — Haskell init, migrations, app launch |
 
 ### 3.2 Desktop Platform Implementations (desktopMain)
 
@@ -461,7 +461,7 @@ Path prefix: `common/src/desktopMain/kotlin/chat/simplex/common/`
 | `WindowActivation.kt` | — | Low | `_NET_ACTIVE_WINDOW` request that raises the window on X11 and XWayland |
 | `platform/AppLinkScheme.desktop.kt` | — | Medium | Runtime `simplexchat:` and `simplex:` scheme registration (Windows HKCU, AppImage desktop entry) |
 | `model/NtfManager.desktop.kt` | PC18 | Medium | Desktop system tray notification display |
-| `platform/AppCommon.desktop.kt` | PC1 through PC32 | Medium | Desktop app initialization actual declarations |
+| `platform/AppCommon.desktop.kt` | PC1 through PC47 | Medium | Desktop app initialization actual declarations |
 | `platform/SimplexService.desktop.kt` | PC18 | Low | Desktop background receiver (no foreground service) |
 | `platform/Files.desktop.kt` | PC10, PC23, PC26 | Medium | Desktop file path resolution |
 | `platform/Cryptor.desktop.kt` | PC23 | Medium | Desktop keystore encryption actual implementation |
@@ -469,11 +469,11 @@ Path prefix: `common/src/desktopMain/kotlin/chat/simplex/common/`
 | `platform/VideoPlayer.desktop.kt` | PC10 | Low | Desktop VLC-based video player |
 | `platform/Videos.desktop.kt` | PC10 | Low | Desktop video utilities |
 | `platform/Notifications.desktop.kt` | PC18 | Low | Desktop notification setup |
-| `platform/Images.desktop.kt` | PC10, PC35 | Low | Desktop image processing, incl. the AWT image clipboard |
+| `platform/Images.desktop.kt` | PC10, PC36 | Low | Desktop image processing, incl. the AWT image clipboard |
 | `platform/AnimatedImage.desktop.kt` | PC10 | Low | Desktop animated image frame decoding (bounded) |
-| `platform/PlatformTextField.desktop.kt` | PC4, PC32 | Low | Desktop text field actual implementation |
+| `platform/PlatformTextField.desktop.kt` | PC4, PC32, PC33 | Low | Desktop text field actual implementation, including the configurable send / newline Enter keys |
 | `platform/Share.desktop.kt` | PC10 | Low | Desktop clipboard/share |
-| `translation/TranslationHttp.desktop.kt` | PC46 | Low | Desktop actual of the translation `httpGetText`/`httpPostJson` expect |
+| `translation/TranslationHttp.desktop.kt` | PC47 | Low | Desktop actual of the translation `httpGetText`/`httpPostJson` expect |
 | `platform/Back.desktop.kt` | PC1 | Low | Desktop back navigation |
 | `platform/UI.desktop.kt` | PC24 | Low | Desktop density and locale |
 | `platform/ScrollableColumn.desktop.kt` | PC1 | Low | Desktop lazy list |
@@ -526,13 +526,13 @@ The Haskell core is compiled as a shared native library (`libsimplex.so` / `libs
 
 | Source File | Product Concepts Affected | Risk Level | Notes |
 |-------------|--------------------------|------------|-------|
-| `src/Simplex/Chat.hs` | PC1 through PC32 | High | Main chat module — top-level orchestration |
-| `src/Simplex/Chat/Controller.hs` | PC1 through PC32 | High | Command processor — all API commands dispatched here |
-| `src/Simplex/Chat/Types.hs` | PC1 through PC32 | High | Core data types shared across all features |
-| `src/Simplex/Chat/Core.hs` | PC1 through PC32 | High | Chat engine lifecycle (start, stop, subscribe) |
-| `src/Simplex/Chat/Library/Commands.hs` | PC1 through PC32 | High | API command handler implementations |
-| `src/Simplex/Chat/Library/Internal.hs` | PC1 through PC32 | High | Internal helpers for command processing |
-| `src/Simplex/Chat/Library/Subscriber.hs` | PC1 through PC32 | High | Event subscriber — incoming message routing |
+| `src/Simplex/Chat.hs` | PC1 through PC47 | High | Main chat module — top-level orchestration |
+| `src/Simplex/Chat/Controller.hs` | PC1 through PC47 | High | Command processor — all API commands dispatched here |
+| `src/Simplex/Chat/Types.hs` | PC1 through PC47 | High | Core data types shared across all features |
+| `src/Simplex/Chat/Core.hs` | PC1 through PC47 | High | Chat engine lifecycle (start, stop, subscribe) |
+| `src/Simplex/Chat/Library/Commands.hs` | PC1 through PC47 | High | API command handler implementations |
+| `src/Simplex/Chat/Library/Internal.hs` | PC1 through PC47 | High | Internal helpers for command processing |
+| `src/Simplex/Chat/Library/Subscriber.hs` | PC1 through PC47 | High | Event subscriber — incoming message routing |
 | `src/Simplex/Chat/Protocol.hs` | PC2, PC3, PC4, PC5, PC6, PC7, PC32 | High | Chat-level message protocol (x-events) |
 | `src/Simplex/Chat/Messages.hs` | PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9 | High | Message types and content |
 | `src/Simplex/Chat/Messages/CIContent.hs` | PC4, PC5, PC6, PC7, PC8, PC9, PC11 | Medium | Chat item content variants |
@@ -542,8 +542,8 @@ The Haskell core is compiled as a shared native library (`libsimplex.so` / `libs
 | `src/Simplex/Chat/Files.hs` | PC10 | Medium | File transfer orchestration |
 | `src/Simplex/Chat/Delivery.hs` | PC2, PC3 | Medium | Message delivery engine |
 | `src/Simplex/Chat/Markdown.hs` | PC4 | Low | Markdown parsing for message formatting |
-| `src/Simplex/Chat/Store.hs` | PC1 through PC32 | High | Database store interface |
-| `src/Simplex/Chat/Store/Shared.hs` | PC1 through PC32 | Medium | Shared store utilities |
+| `src/Simplex/Chat/Store.hs` | PC1 through PC47 | High | Database store interface |
+| `src/Simplex/Chat/Store/Shared.hs` | PC1 through PC47 | Medium | Shared store utilities |
 | `src/Simplex/Chat/Store/Messages.hs` | PC4, PC5, PC6, PC7, PC8 | High | Message persistence |
 | `src/Simplex/Chat/Store/Groups.hs` | PC3, PC14, PC15, PC16, PC30, PC32 | High | Group persistence |
 | `src/Simplex/Chat/Store/Direct.hs` | PC2, PC12, PC13, PC32 | High | Contact persistence |
@@ -572,11 +572,11 @@ The Haskell core is compiled as a shared native library (`libsimplex.so` / `libs
 | `src/Simplex/Chat/Operators/Presets.hs` | PC25 | Low | Preset server operators |
 | `src/Simplex/Chat/Operators/Conditions.hs` | PC25 | Low | Operator usage conditions |
 | `src/Simplex/Chat/AppSettings.hs` | PC25, PC32 | Low | App settings sync types |
-| `src/Simplex/Chat/Mobile.hs` | PC1 through PC32 | High | C FFI exports — JNI bridge target |
+| `src/Simplex/Chat/Mobile.hs` | PC1 through PC47 | High | C FFI exports — JNI bridge target |
 | `src/Simplex/Chat/Mobile/File.hs` | PC10 | Medium | Mobile file read/write FFI |
-| `src/Simplex/Chat/Mobile/Shared.hs` | PC1 through PC32 | Medium | Shared FFI helpers |
+| `src/Simplex/Chat/Mobile/Shared.hs` | PC1 through PC47 | Medium | Shared FFI helpers |
 | `src/Simplex/Chat/Mobile/WebRTC.hs` | PC17 | Low | WebRTC FFI helpers |
-| `src/Simplex/Chat/View.hs` | PC1 through PC32 | Low | Terminal view rendering (not used by mobile/desktop UI) |
+| `src/Simplex/Chat/View.hs` | PC1 through PC47 | Low | Terminal view rendering (not used by mobile/desktop UI) |
 | `src/Simplex/Chat/Stats.hs` | PC25 | Low | Server statistics tracking |
 | `src/Simplex/Chat/Util.hs` | — | Low | General Haskell utilities |
 | `src/Simplex/Chat/Styled.hs` | — | Low | Terminal styled text (not used by mobile/desktop UI) |
