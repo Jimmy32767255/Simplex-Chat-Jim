@@ -32,6 +32,12 @@ git submodule update --init --recursive
 # or an app bundle without it.
 # The fdroiddata recipe defaults to assembleRelease and must be changed to assembleFossRelease.
 
+# Android core libraries (needed by the Android app, git-ignored)
+scripts/android/fetch-core-libs.sh
+# Installs libsimplex.so and libsupport.so of the version in gradle.properties from the official
+# Android release APK into common/src/commonMain/cpp/android/libs/<abi>. A core from another version
+# fails to link (undefined chat_* symbols, for example chat_parse_badge_code).
+
 # Desktop distribution (current OS)
 ./gradlew :desktop:packageDistributionForCurrentOS
 # The packaged app needs the Haskell core (libapp-lib, libsimplex, libHS*). The packaging tasks run

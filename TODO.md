@@ -286,6 +286,12 @@ none
   - 因为 jpackage 的 `bin/simplex` 是原生启动器、`simplex.cfg` 只能带 JVM 参数，改为在 `createDistributable` 后处理里把 `libzstd.so.1` 复制进 `lib/app` 并在应用根目录生成 `simplex` 包装脚本（`LD_PRELOAD` 后 exec `bin/simplex`）。启动入口用 `release/main/app/simplex/simplex`。
   - 文档：`README.md`、`spec/architecture.md`、`plans/2026-11-09-desktop-core-libs-and-zstd-preload.md`；本条目见 `diff/0030-desktop-core-libs-and-zstd-preload.patch`。
 
+- [x] 安卓核心库按版本安装，修复 7.1.2 链接失败
+  - **已完成（2026-11-10）**：`:android:buildCMakeRelWithDebInfo[arm64-v8a]` 与 `[armeabi-v7a]` 在链接 `libapp-lib.so` 时失败，报 `undefined symbol: chat_parse_badge_code`、`chat_resize_image_uri`、`chat_resize_image`、`chat_resize_image_fd_uri`、`chat_resize_image_fd`。原因是 `common/src/commonMain/cpp/android/libs/` 为不入库的预编译目录，里面仍是 7.0.4 时期的核心（`simplex-chat-7.0.0.12`），而 7.1.2 的 `simplex-api.c` 已引用这些新增的 `chat_*` 导出；Haskell 侧 `src/Simplex/Chat/Mobile.hs` 在 7.1.2 已导出它们，`v7.1.2..HEAD` 对 `src/` 与 cabal 无改动，因此替换官方 7.1.2 原生库即可，无需改核心。
+  - 新增 `scripts/android/fetch-core-libs.sh`：按 `gradle.properties` 的 `android.version_name` 从官方 Android 发行包（`simplex-aarch64.apk` / `simplex-armv7a.apk`）提取 `libsimplex.so` 与 `libsupport.so` 到 `libs/<abi>/`，下载缓存在 `apps/multiplatform/build/dl/core-<version>-android/`；当前安装的是 `simplex-chat-7.1.2.0`。
+  - 验证：脚本运行后两个 ABI 均报告 `simplex-chat-7.1.2.0`，复制出的库与成功构建所用文件 SHA-256 一致；`./gradlew :android:assembleFossDebug` 通过（`BUILD SUCCESSFUL in 4m 38s`，产出 `android-foss-arm64-v8a-debug.apk` 与 `android-foss-armeabi-v7a-debug.apk`，APK 内 `libsimplex.so` 为 7.1.2 大小）。
+  - 文档：`apps/multiplatform/README.md` 的构建命令新增说明；本条目见 `diff/0031-android-core-libs-per-version.patch`。
+
 ## del:
 
 none
