@@ -26,14 +26,15 @@
 Translation turns a message (or the text being composed) into another language by calling an external
 translation provider. It is a **pure-client** feature: it lives in
 `common/src/commonMain/kotlin/chat/simplex/common/translation/`, never sends anything to the SimpleX core
-and adds no protocol message. The translated text is shown as a two-line bubble below the original; the
-`ChatItem` content is never rewritten (RULE-31 invariants 1 and 4).
+and adds no protocol message. The translated text is shown as a bilingual line below the original message (below its time and
+reactions, in both the classic bubble and the flat row); the `ChatItem` content is never rewritten
+(RULE-31 invariants 1 and 4).
 
 Three entry points share one service:
 
 | Entry point | Trigger | Result |
 |---|---|---|
-| Message menu | Long-press / right-click a message bubble → **Translate** | Auto-detect source language, append the translation under the bubble |
+| Message menu | Long-press / right-click a message bubble → **Translate** | Auto-detect source language, append the translation below the message's time/reactions |
 | Compose button | `ic_translate` button left of the send button (tap / long-press) | Translate the compose text; tap = the configured compose target language (`targetLang`), long-press = pick one for this message |
 | Received messages | The two rows above plus automatic mode | Always translated into the **interface language** (`TranslationService.incomingTargetLang()`), never into `targetLang` |
 | Automatic | `translationAutoTranslate` on | Translate the messages currently visible in the viewport, rate-limited and cancelled on scroll-out |
@@ -157,7 +158,7 @@ with the `ic_translate` icon. Selecting it:
 1. reads the message text from `ChatItem.content.text`,
 2. calls `TranslationService.translateChatItem(itemId, text)` (the source language is detected and the
    target is the interface language, see §7),
-3. appends the result as a bilingual line (原文 + 译文) rendered inside `FramedItemView` under the bubble.
+3. appends the result as a bilingual line (原文 + 译文) rendered by `FramedItemView` below the message's own row — below its time and reactions, inside the classic bubble and below the flat row.
 
 The original message is untouched — this is a display-only decoration of the item, not an edit.
 

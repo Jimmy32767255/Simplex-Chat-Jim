@@ -1,0 +1,400 @@
+diff --git a/TODO.md b/TODO.md
+index c8779f9eb..8da5c9d7c 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -292,6 +292,14 @@ none
+   - 验证：脚本运行后两个 ABI 均报告 `simplex-chat-7.1.2.0`，复制出的库与成功构建所用文件 SHA-256 一致；`./gradlew :android:assembleFossDebug` 通过（`BUILD SUCCESSFUL in 4m 38s`，产出 `android-foss-arm64-v8a-debug.apk` 与 `android-foss-armeabi-v7a-debug.apk`，APK 内 `libsimplex.so` 为 7.1.2 大小）。
+   - 文档：`apps/multiplatform/README.md` 的构建命令新增说明；本条目见 `diff/0031-android-core-libs-per-version.patch`。
+ 
++- [x] 修复译文行在经典气泡与 7.1.2 扁平聊天布局中重叠、时间戳错位
++  - **已完成（2026-11-10，基于 7.1.2）**：7.1.2 把消息元信息重构成 `ItemWithMeta(meta = …)` 后，译文行被留在 `Box(BottomEnd)` 内、成了正文 `Column` 的兄弟节点，于是译文与最后一行文字重叠，时间/表情也被 `TerminalMetaLayout`/`bubbleMeta()` 对齐到译文上；同时译文仍用固定的 `lineHeight = 22.sp`，在 7.1.2 随字号缩放的 `chatTextStyle` 下多行译文行高不足而叠字，扁平布局也从未按 `CHAT_ITEM_TEXT_PADDING` 对齐。
++  - 修复：`FramedItemView` 把 `ItemWithMeta` 与译文行放进同一个外层 `Column`，译文始终位于整行（原文 + 时间/表情）下方。经典气泡因此重新包住译文，时间回到原文最后一行；扁平布局由 `TerminalMetaLayout` 只测量原文，时间/表情留在原文行，译文在下方按文本边距对齐。译文样式改为 `chatTextStyle(body1.fontSize, secondary)` 合并，并保留气泡尾巴的缩进；未改翻译服务、偏好、核心与协议。
++  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt`（`FramedItemView` 的布局、`Content` 抽取、`TranslationUnderBubble` 的样式与内边距）。
++  - 文档：`spec/client/chat-view.md`、`spec/client/translation.md`、`spec/impact.md`、`product/views/chat.md`、`product/README.md`、`product/concepts.md`、`product/rules.md`（RULE-31 第 4 条）、`plans/2026-11-10-translation-chat-layout-fix.md`。
++  - 测试：`./gradlew :common:compileKotlinDesktop` 通过；`./gradlew :common:desktopTest` 全套通过（含 BubbleLayoutTest、PriorityLayoutTest、TerminalMetaLayoutTest、TerminalMarkdownGapsTest、TerminalMetaCopyTest、TerminalChatItemRowTest）；另用一次性渲染探针在经典/扁平预览中确认时间戳留在原文行、译文在下一行且不重叠（探针已删除；桌面测试环境缺 Linux 核心库，DONE 状态无法在测试中渲染）。
++  - 差异补丁：`diff/0032-translation-chat-layout.patch`。
++
+ ## del:
+ 
+ none
+diff --git a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt
+index 39312e937..ab065e911 100644
+--- a/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt
++++ b/apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt
+@@ -270,15 +270,12 @@ fun FramedItemView(
+       }
+     )) {
+     var metaColor = MaterialTheme.colors.secondary
+-    ItemWithMeta(
+-      meta = { CIMetaView(ci, chatTTL, metaColor, showViaProxy = showViaProxy, showTimestamp = showTimestamp) },
+-      overlayMeta = if (captionlessMedia) { { Box(Modifier.padding(end = CHAT_ITEM_TEXT_PADDING)) { CIMetaView(ci, chatTTL, Color.White, showViaProxy = showViaProxy, showTimestamp = showTimestamp, lineHeightColor = messageTextColor()) } } } else null,
+-      metaReserved = metaReserved,
+-      gapBelowCard = terminalReactionsGap(ci).toDp(),
+-      endButton = endButton
+-    ) { inlineMeta ->
++    val meta: @Composable () -> Unit = { CIMetaView(ci, chatTTL, metaColor, showViaProxy = showViaProxy, showTimestamp = showTimestamp) }
++    val overlayMeta: (@Composable () -> Unit)? = if (captionlessMedia) { { Box(Modifier.padding(end = CHAT_ITEM_TEXT_PADDING)) { CIMetaView(ci, chatTTL, Color.White, showViaProxy = showViaProxy, showTimestamp = showTimestamp, lineHeightColor = messageTextColor()) } } } else null
++    val tailRendered = chatItemTailRendered(ci, tailVisible, revealed = true)
++    @Composable
++    fun Content(inlineMeta: (@Composable () -> Unit)?) {
+       Box(contentAlignment = Alignment.BottomEnd) {
+-        val tailRendered = chatItemTailRendered(ci, tailVisible, revealed = true)
+         Column(
+           Modifier
+             .width(IntrinsicSize.Max)
+@@ -481,6 +478,16 @@ fun FramedItemView(
+             inlineMeta()
+           }
+         }
++      }
++    }
++    Column {
++      ItemWithMeta(meta, overlayMeta, metaReserved, endButton = endButton, gapBelowCard = terminalReactionsGap(ci).toDp()) { Content(it) }
++      Box(
++        Modifier.padding(
++          start = if (!sent && tailRendered) msgTailWidthDp else 0.dp,
++          end = if (sent && tailRendered) msgTailWidthDp else 0.dp
++        )
++      ) {
+         TranslationUnderBubble(ci, linkMode)
+       }
+     }
+@@ -533,7 +540,8 @@ fun CIMarkdownText(
+ }
+ 
+ /**
+- * Renders the translation of a received/sent message underneath its bubble (bilingual, non-destructive).
++ * Renders the bilingual translation of a received/sent message below the item's time/reactions (inside the
++ * classic bubble, below the flat row); display-only and non-destructive.
+  * Shares the observable [TranslationService] registry with both manual (context menu) and automatic
+  * translation, so it needs no extra wiring. Renders nothing when there is no entry yet.
+  */
+@@ -541,18 +549,27 @@ fun CIMarkdownText(
+ fun TranslationUnderBubble(ci: ChatItem, linkMode: SimplexLinkMode) {
+   if (ci.id < 0 || ci.content.text.isEmpty()) return
+   val entry = TranslationService.entry(ci.id) ?: return
++  val terminal = LocalTerminalLayout.current
+   val scope = rememberCoroutineScope()
+   val secondary = MaterialTheme.colors.secondary
++  val body1 = MaterialTheme.typography.body1
++  val translationStyle = body1.copy(color = secondary, lineHeight = 22.sp).merge(chatTextStyle(body1.fontSize, secondary))
++  val retryStyle = translationStyle.copy(color = MaterialTheme.colors.primary)
+   Column(
+     Modifier
+       .widthIn(min = 80.dp)
+-      .padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
++      .padding(
++        start = CHAT_ITEM_TEXT_PADDING,
++        end = CHAT_ITEM_TEXT_PADDING,
++        top = if (terminal) 2.dp else 0.dp,
++        bottom = 6.dp,
++      )
+   ) {
+     when {
+       entry.isLoading -> {
+         Text(
+           TranslationStrings.translating,
+-          style = MaterialTheme.typography.body1.copy(color = secondary, lineHeight = 22.sp),
++          style = translationStyle,
+         )
+       }
+       entry.isDone -> {
+@@ -563,7 +580,7 @@ fun TranslationUnderBubble(ci: ChatItem, linkMode: SimplexLinkMode) {
+             parseToMarkdown(translated),
+             toggleSecrets = true,
+             linkMode = linkMode,
+-            style = MaterialTheme.typography.body1.copy(color = secondary, lineHeight = 22.sp),
++            style = translationStyle,
+           )
+         }
+       }
+@@ -571,14 +588,14 @@ fun TranslationUnderBubble(ci: ChatItem, linkMode: SimplexLinkMode) {
+         Row(verticalAlignment = Alignment.CenterVertically) {
+           Text(
+             "${TranslationStrings.translationFailed} ",
+-            style = MaterialTheme.typography.body1.copy(color = secondary, lineHeight = 22.sp),
++            style = translationStyle,
+           )
+           Text(
+             TranslationStrings.retry,
+             Modifier.clickable {
+               TranslationService.translateChatItem(ci.id, ci.content.text, scope = scope)
+             },
+-            style = MaterialTheme.typography.body1.copy(color = MaterialTheme.colors.primary, lineHeight = 22.sp),
++            style = retryStyle,
+           )
+         }
+       }
+diff --git a/apps/multiplatform/plans/2026-11-10-translation-chat-layout-fix.md b/apps/multiplatform/plans/2026-11-10-translation-chat-layout-fix.md
+new file mode 100644
+index 000000000..af5adcef1
+--- /dev/null
++++ b/apps/multiplatform/plans/2026-11-10-translation-chat-layout-fix.md
+@@ -0,0 +1,109 @@
++# Fix the translated-message line in the classic and flat chat layouts
++
++Date: 2026-11-10 · Baseline: SimpleX Chat 7.1.2 · Scope: `apps/multiplatform` (client only)
++
++## 1. Problem statement
++
++After the fork was rebased onto official 7.1.2, a translated message drew its bilingual line on top of
++the message instead of below it, and the time/status meta landed on the translation. The report
++(m00135) confirms the classic bubble layout is affected too, not only the new flat (`Terminal`) layout:
++at larger font scales the translated glyph lines also overlapped each other.
++
++Three independent causes:
++
++1. **The 7.1.2 `ItemWithMeta` refactor moved the translation out of the message column.** Upstream
++   replaced the ad-hoc meta placement with `ItemWithMeta(meta = …, content = …)`, and the rebase put
++   `TranslationUnderBubble` after the content `Column` but still inside
++   `Box(contentAlignment = Alignment.BottomEnd)` in `FramedItemView.kt`. A bottom-end sibling is aligned
++   with the content's last line, so in the classic bubble the translation covered the last text line and
++   `bubbleMeta()` put the time on the translation's baseline.
++2. **The translation kept the pre-7.1.2 fixed line height.** `TranslationUnderBubble` used
++   `body1.copy(color = secondary, lineHeight = 22.sp)`; 7.1.2 draws message text (and bubbles) with
++   `chatTextStyle`, whose line height scales as `fontSize × 22/16 × f(contrast)`. At raised font sizes
++   the fixed 22sp was too small, so wrapped translated lines overlapped each other.
++3. **The flat layout was never adapted.** In terminal rows the same sibling was measured as part of the
++   content by `TerminalMetaLayout`, so the time/reactions attached to the translation, and the fixed
++   bubble-era 12dp insets did not line up with the flat text edge.
++
++The translation service, preferences, `ChatItem` data and the core are not involved.
++
++## 2. Solution summary
++
++- Render `TranslationUnderBubble` after `ItemWithMeta` in an outer `Column` in both layouts, so the
++  translation is always below the whole item (message + time/reactions). The classic bubble background
++  grows to contain it; in terminal rows `TerminalMetaLayout` measures only the message, keeping the
++  time/reactions on the message's own last line.
++- Keep the message tail inset on the translation wrapper, so a sent bubble's tail still shows beside it.
++- Give the translation the 7.1.2 typography (`chatTextStyle(body1.fontSize, secondary)`) and the text
++  edge padding (`CHAT_ITEM_TEXT_PADDING`, 12dp), with a 2dp top gap in terminal rows.
++- No new state, no `AppSettings` change, no core/protocol change; still display-only and
++  non-destructive (RULE-31).
++
++## 3. Detailed technical design
++
++### 3.1 Placement in `FramedItemView`
++
++`FramedItemView` hoists `meta`, `overlayMeta` and `tailRendered` and extracts the old
++`Box(contentAlignment = Alignment.BottomEnd)` body into a local `Content(inlineMeta)` composable. The
++outer shape becomes:
++
++```kotlin
++Column {
++  ItemWithMeta(meta, overlayMeta, metaReserved, endButton, gapBelowCard = terminalReactionsGap(ci).toDp()) { Content(it) }
++  Box(Modifier.padding(start = if (!sent && tailRendered) msgTailWidthDp else 0.dp,
++                       end = if (sent && tailRendered) msgTailWidthDp else 0.dp)) {
++    TranslationUnderBubble(ci, linkMode)
++  }
++}
++```
++
++`:L483-L495` in `FramedItemView.kt`. `Content` keeps the message column and the `bubbleMeta()` time box
++unchanged (`:L276-L478`), which is why the time still sits on the message's last baseline in both
++layouts.
++
++### 3.2 Why below `ItemWithMeta`, not inside the content
++
++A probe confirmed that custom `VerticalAlignmentLine`s (`LastLineRight`, `CardTop`, `CardBottom`,
++`LastBaseline`) propagate through `Box`, `Column`, `PriorityLayout` and modifier chains. If the
++translation stays inside the measured content, `TerminalMetaLayout` sees the translation's baseline as
++the content's last baseline and moves the time onto it; in the classic layout `bubbleMeta()` does the
++same through `Box(BottomEnd)`. Measuring the translation outside `ItemWithMeta` removes it from the
++meta placement entirely.
++
++### 3.3 Typography and insets
++
++`TranslationUnderBubble` (`:L548-L603`) now builds
++
++```kotlin
++val translationStyle = body1.copy(color = secondary, lineHeight = 22.sp)
++  .merge(chatTextStyle(body1.fontSize, secondary))
++val retryStyle = translationStyle.copy(color = MaterialTheme.colors.primary)
++```
++
++and pads with `CHAT_ITEM_TEXT_PADDING` on both sides, `top = if (terminal) 2.dp else 0.dp`,
++`bottom = 6.dp`. Loading, done and error/retry texts all use these styles. This fixes the overlapping
++glyph lines and aligns the flat layout with the message text edge.
++
++## 4. Implementation steps
++
++1. Hoist `meta`, `overlayMeta`, `tailRendered`; extract `Content(inlineMeta)` in `FramedItemView`.
++2. Move `TranslationUnderBubble` out of `Content` into the outer `Column` after `ItemWithMeta`, with the
++   tail-width padding box.
++3. Apply `chatTextStyle` + `CHAT_ITEM_TEXT_PADDING` in `TranslationUnderBubble`.
++4. Compile (`:common:compileKotlinDesktop`), run the layout test classes, and visually check classic and
++   terminal previews with a temporary seeded translation.
++5. Update `spec/client/chat-view.md`, `spec/client/translation.md`, `spec/impact.md`,
++   `product/views/chat.md`, `product/README.md`, `product/concepts.md`, `product/rules.md` (RULE-31) and
++   this plan; add the TODO entry and the patch under `diff/`.
++
++## 5. Verification
++
++- `./gradlew :common:compileKotlinDesktop` — passed.
++- `./gradlew :common:desktopTest --tests BubbleLayoutTest --tests PriorityLayoutTest --tests
++  TerminalMetaLayoutTest --tests TerminalMarkdownGapsTest --tests TerminalMetaCopyTest --tests
++  TerminalChatItemRowTest` — passed.
++- Temporary render probe (deleted afterwards): with a `LOADING` translation seeded in
++  `TranslationService`, the classic preview shows the time on the original line and the translation on
++  the next line inside the bubble; the terminal preview shows the time line and the translation below
++  it, left-aligned at 12dp. A `DONE` translation cannot be rendered in desktop tests because the test
++  environment has no Linux core library (`chatParseMarkdown` `UnsatisfiedLinkError`).
+diff --git a/apps/multiplatform/product/README.md b/apps/multiplatform/product/README.md
+index 22a3df901..22d151bec 100644
+--- a/apps/multiplatform/product/README.md
++++ b/apps/multiplatform/product/README.md
+@@ -74,7 +74,7 @@ Core message composition, delivery, and interaction features.
+ | Time format | 12/24-hour convention for every time of day, following the system setting unless overridden in Settings | `common/src/commonMain/kotlin/chat/simplex/common/model/ChatModel.kt` |
+ | Rainbow mode | Switch in *Customize theme > Interface colors* that cycles the hue of every interface color, swatches included; display-only, the saved colors are untouched | `common/src/commonMain/kotlin/chat/simplex/common/ui/theme/Rainbow.kt` |
+ | Message preview | Eye button next to the send button: renders the composed text with the chat markdown renderer before it is sent; read-only | `common/src/commonMain/kotlin/chat/simplex/common/views/chat/MessagePreviewView.kt` |
+-| Chat translation | Translate any message from its menu into a non-destructive bilingual bubble, or translate the composed text with the button next to the send button (tap = default language, long-press = pick one for this message); providers (Google, Bing, Baidu, AI, custom) are configured in Settings with encrypted local keys, and automatic viewport translation is rate-limited | `common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt` |
++| Chat translation | Translate any message from its menu into a non-destructive bilingual line below the message, or translate the composed text with the button next to the send button (tap = default language, long-press = pick one for this message); providers (Google, Bing, Baidu, AI, custom) are configured in Settings with encrypted local keys, and automatic viewport translation is rate-limited | `common/src/commonMain/kotlin/chat/simplex/common/translation/TranslationService.kt` |
+ 
+ ### 2. Contacts
+ 
+diff --git a/apps/multiplatform/product/concepts.md b/apps/multiplatform/product/concepts.md
+index 3c4e5b840..0c9450fe5 100644
+--- a/apps/multiplatform/product/concepts.md
++++ b/apps/multiplatform/product/concepts.md
+@@ -65,7 +65,7 @@ This document provides a structured mapping between product-level concepts, thei
+ | PC44 | Range Selection | [views/chat.md](views/chat.md) | [spec/client/chat-view.md](../spec/client/chat-view.md) | `common/.../views/chat/ChatSelectionRange.kt` (`mergedItemChatItemIds`, `selectionRangeRows`, `selectionToHereIds`, `selectionToHereAddsItems`, `visibleEdgeRows`), `common/.../views/chat/ChatView.kt` (`selectionAnchor`, `SelectToHereButton`) | N/A (client-only) |
+ | PC45 | Rainbow Mode | [views/settings.md](views/settings.md) | [spec/services/theme.md](../spec/services/theme.md), [spec/state.md](../spec/state.md) | `common/.../ui/theme/Rainbow.kt` (`shiftHue`, `rainbowColors`, `rainbowAppColors`, `rainbowTextColor`, `rainbowCycleMillis`, `rainbowUpdateMillis`, `rainbowChatColorsActive`, `LocalRainbowPhase`, `rememberRainbowPhaseTimer`, `rememberRainbowPhase`, `rememberRainbowChatColors`, `rememberRainbowMessageTextColor`), `common/.../ui/theme/Theme.kt` (`SimpleXTheme` publishes the phase, `SimpleXThemeOverride` applies it), `common/.../views/usersettings/Appearance.kt` (`CustomizeThemeColorsSection`), `common/.../views/chat/item/TextItemView.kt` (`MarkdownText` text color), `common/.../model/SimpleXAPI.kt` (`rainbowThemeColors`, `rainbowSpeed`, `rainbowChatColors`, `rainbowMessageText`, `rainbowLowPerformance`, `RainbowSpeed`) | N/A (client-only) |
+ | PC46 | Message Preview | [views/chat.md](views/chat.md) | [spec/client/compose.md](../spec/client/compose.md) | `common/.../views/chat/MessagePreviewView.kt` (`messagePreviewAvailable`, `MessagePreviewView`, `showMessagePreview`, `MessagePreviewButton`), `common/.../views/chat/SendMsgView.kt` (preview button next to the send button) | N/A (client-only) |
+-| PC47 | Chat Translation | [views/chat.md](views/chat.md), [views/settings.md](views/settings.md) | [spec/client/translation.md](../spec/client/translation.md), [spec/client/chat-view.md](../spec/client/chat-view.md), [spec/client/compose.md](../spec/client/compose.md), [spec/state.md](../spec/state.md) | `common/.../translation/` (`TranslationService.kt`, `TranslationModels.kt`, `TranslationLang.kt`, `TranslationApi.kt`, `TranslationHttp.kt`), `common/.../model/SimpleXAPI.kt` (`AppPreferences.translationConfig`, `translationSecrets`, `translationSecretsIv`, `translationAutoTranslate`), `common/.../views/chat/ComposeView.kt` (`ComposeState.translateOriginal`, `translateResult`), `common/.../views/chat/SendMsgView.kt` (translate button), `common/.../views/chat/item/ChatItemView.kt` and `FramedItemView.kt` (message-menu item and bilingual bubble), `common/.../views/usersettings/SettingsView.kt` (`TranslationSettingsView` entry) | N/A (client-only) |
++| PC47 | Chat Translation | [views/chat.md](views/chat.md), [views/settings.md](views/settings.md) | [spec/client/translation.md](../spec/client/translation.md), [spec/client/chat-view.md](../spec/client/chat-view.md), [spec/client/compose.md](../spec/client/compose.md), [spec/state.md](../spec/state.md) | `common/.../translation/` (`TranslationService.kt`, `TranslationModels.kt`, `TranslationLang.kt`, `TranslationApi.kt`, `TranslationHttp.kt`), `common/.../model/SimpleXAPI.kt` (`AppPreferences.translationConfig`, `translationSecrets`, `translationSecretsIv`, `translationAutoTranslate`), `common/.../views/chat/ComposeView.kt` (`ComposeState.translateOriginal`, `translateResult`), `common/.../views/chat/SendMsgView.kt` (translate button), `common/.../views/chat/item/ChatItemView.kt` and `FramedItemView.kt` (message-menu item and bilingual line below the message), `common/.../views/usersettings/SettingsView.kt` (`TranslationSettingsView` entry) | N/A (client-only) |
+ 
+ **Legend for abbreviated paths:**
+ 
+diff --git a/apps/multiplatform/product/rules.md b/apps/multiplatform/product/rules.md
+index 31527f1e8..41369679b 100644
+--- a/apps/multiplatform/product/rules.md
++++ b/apps/multiplatform/product/rules.md
+@@ -768,7 +768,8 @@ Enforcement:
+    MUST never be exported and MUST never be written unencrypted.
+ 
+ 4. **Translation never mutates the message.** A message-menu translation appends the translated text
+-   below the original as a two-line bubble; it MUST NOT edit or replace the `ChatItem` content. The
++   below the original message (below its time and reactions) as a display-only bilingual line; it MUST
++   NOT edit or replace the `ChatItem` content. The
+    compose-bar translation keeps the original in `ComposeState.translateOriginal` and the translation in
+    `translateResult`, and can be undone only while the two agree with the current text (editing the text
+    after translating disables undo and the button re-translates instead).
+diff --git a/apps/multiplatform/product/views/chat.md b/apps/multiplatform/product/views/chat.md
+index cb0aa4ce3..ef5283a44 100644
+--- a/apps/multiplatform/product/views/chat.md
++++ b/apps/multiplatform/product/views/chat.md
+@@ -84,7 +84,7 @@ Long-press context menu on any message:
+ | Moderate | Group moderators can delete messages for all members (`moderateMessagesAlertDialog`) |
+ | React | Emoji reaction picker |
+ | Report | Report message to group moderators (`ComposeContextItem.ReportedItem` with `ReportReason`) |
+-| Translate | Translate the message with the configured provider and show the result as a bilingual bubble (原文 + 译文) below the message, without touching the original (RULE-31) |
++| Translate | Translate the message with the configured provider and show the result as a bilingual line (原文 + 译文) below the message's time/reactions, without touching the original (RULE-31) |
+ | Select multiple | Enters multi-select mode (`selectedChatItems`) with bulk delete/forward/archive/copy toolbar |
+ | Archive | Archive selected reports (moderators) |
+ 
+diff --git a/apps/multiplatform/spec/client/chat-view.md b/apps/multiplatform/spec/client/chat-view.md
+index 3a0085caf..5fe37694e 100644
+--- a/apps/multiplatform/spec/client/chat-view.md
++++ b/apps/multiplatform/spec/client/chat-view.md
+@@ -123,7 +123,7 @@ The message list is a `LazyColumnWithScrollBar` with `reverseLayout = true`, mea
+ - **Scroll To Item:** `scrollToItem` lambda supports animated scrolling to a specific item ID, used by search result taps and quoted message navigation.
+ - **Unread Marking:** `MarkItemsReadAfterDelay` composable marks newly visible received items as read after a brief delay.
+ - **Date Separators:** `DateSeparator` composable renders between messages when the date changes (via `ItemSeparation.date`).
+-- **Automatic translation:** when `translationAutoTranslate` is on, the items currently visible in the viewport (from `listState.layoutInfo.visibleItemsInfo`) are translated in rate-limited batches (`TranslationService`, `batchLimit`/`maxConcurrent`/`requestIntervalMs`); each translated message shows the result as a bilingual line (原文 + 译文) under the original bubble, and a message that scrolls out of view has its in-flight request cancelled. The original `ChatItem` content is never modified (PC47, RULE-31).
++- **Automatic translation:** when `translationAutoTranslate` is on, the items currently visible in the viewport (from `listState.layoutInfo.visibleItemsInfo`) are translated in rate-limited batches (`TranslationService`, `batchLimit`/`maxConcurrent`/`requestIntervalMs`); each translated message shows the result as a bilingual line (原文 + 译文) below the message's own row — below its time and reactions, inside the classic bubble and below the flat row — and a message that scrolls out of view has its in-flight request cancelled. The original `ChatItem` content is never modified (PC47, RULE-31).
+ - **Rainbow message text:** when `rainbowMessageText` is on (and rainbow mode is enabled), `MarkdownText` takes its default text color from `rememberRainbowMessageTextColor()` instead of `MaterialTheme.colors.onSurface`, so every markdown surface (text bubbles, quotes, message details) cycles its hue together. The option is exclusive with rainbow chat bubbles (RULE-29).
+ - **Timestamps:** every time of day goes through `getTimestampText` → `timeOfDayPattern(preferredTimeFormatUses24Hour())`, i.e. `HH:mm` or `h:mm a` depending on the `TimeFormat` preference (`SYSTEM` follows `systemUses24HourFormat()`). The date part stays localized (see `product/rules.md` RULE-27).
+ - **Swipe to Reply:** `SwipeToDismiss` modifier on each item (EndToStart direction, 30dp threshold) sets `ComposeContextItem.QuotedItem`.
+@@ -191,7 +191,7 @@ When `LocalTerminalLayout.current` is true, `ChatItemView` and the item views it
+ - `FramedItemView` has a transparent background. Headers (report, moderated, blocked, deleted, live, forwarded) and the quote have no background and start at the text edge. The quote has the bar of Markdown quotes ([`Modifier.quoteBar`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/MarkdownBlocks.kt#L166)), its text in `onSurface` at 70%, 15sp. The quote is a card (cards, below), [`terminalQuoteTop(item)`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TerminalItemView.kt#L150-L151) below the part above it: `TERMINAL_PARAGRAPH_GAP` below a report, deletion or live header, otherwise 0. The bar spans the whole quote row, including an image or video thumbnail; the thumbnail has the message corner clip of media (`thumbnailClip`, `clipChatItem`, rounded by the `chatItemRoundness` preference, square at 0) and stands 12dp after the quote text, or 12dp after the bar when the quote has no text and no sender (`QuotedMsgOrGap`, `QUOTE_BAR_GAP`); the file, voice and chat link icons of the quote have no top padding. Headers: `TERMINAL_HEADER_TOP_GAP` (2.5sp) above, `TERMINAL_HEADER_BOTTOM_GAP` (1.5sp) below; the header text uses `chatTextStyle` at its size in `secondary`, and the icon is centred on it and takes no height (`Modifier.inlineIcon()`).
+ - Images, videos, link previews and chat link cards are cards (below), start at the text edge, [`terminalCardTop(item)`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TerminalItemView.kt#L147-L148) below the part above them (`TERMINAL_PARAGRAPH_GAP` below a header or the quote, otherwise 0), and keep the message corner clip ([`mediaModifier`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt#L57)). Link previews and chat links are cards in the quote colour ([`cardModifier`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt#L59)). The item itself is not clipped (`clipChatItem` of `FramedItemView` and `ChatItemView` is skipped), so headings and emoji are drawn whole. Captions are selected by the classic conditions.
+ - Captions (user, D30): the text below an image, video, link preview, chat link card, voice message or file is laid out as the text of a close follow-up message, the time on it only. `PriorityLayout` measures it in the full width of the item (`limitToPriorityWidth = false`; classic: the width of the media) and places the elements at the start edge in both directions (`placeRelative`), the caption of a link preview has no width limit (classic: `DEFAULT_MAX_IMAGE_WIDTH`), and a chat link card keeps its own width (`width(IntrinsicSize.Max)`). Its gap below the media is the gap from the same media without text to a close follow-up message. An image or video without caption keeps the classic limit (`limitToPriorityWidth = true`): a quote or header above it takes the width of the media, so the white time over the media stays on its bottom end corner.
+-- [`CIMarkdownText`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt#L488): top padding [`terminalTextTop(item)`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TerminalItemView.kt#L141-L145): `TERMINAL_PARAGRAPH_GAP` below a card (the quote, or content other than text: an image, video, voice message, file, link preview or chat link card) and below a header when the text starts with a code block, table or rule; 0 instead when the text starts with empty lines (block Markdown: `leadingEmptyLines`; other text: a line break at its start, except in reports, whose first line holds the reason), which are then the gap (the larger of the two; cards, below); below a header (forwarded, deleted, live, report) and no quote, `TERMINAL_LEVEL_STEP` when the text starts with a heading; otherwise 0. No bottom padding. Its text style: `body1` in `messageTextColor()`, merged with `chatTextStyle` at the `body1` size. The default style of `MarkdownText` is classic and is used outside the rows (the compose context preview).
++- [`CIMarkdownText`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt#L498): top padding [`terminalTextTop(item)`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TerminalItemView.kt#L141-L145): `TERMINAL_PARAGRAPH_GAP` below a card (the quote, or content other than text: an image, video, voice message, file, link preview or chat link card) and below a header when the text starts with a code block, table or rule; 0 instead when the text starts with empty lines (block Markdown: `leadingEmptyLines`; other text: a line break at its start, except in reports, whose first line holds the reason), which are then the gap (the larger of the two; cards, below); below a header (forwarded, deleted, live, report) and no quote, `TERMINAL_LEVEL_STEP` when the text starts with a heading; otherwise 0. No bottom padding. Its text style: `body1` in `messageTextColor()`, merged with `chatTextStyle` at the `body1` size. The default style of `MarkdownText` is classic and is used outside the rows (the compose context preview).
+ - Code block cards, table cards and rules of `MarkdownBlocks` are cards (below) without margins; the gap between a card and the block next to it is the larger of `TERMINAL_PARAGRAPH_GAP` and the empty lines typed between them (bubbles: `TERMINAL_BLOCK_TOP_GAP` (5.75sp) above, `TERMINAL_BLOCK_BOTTOM_GAP` (5sp) below). The last block of a message without a meta line (`marksLastBlock`; a live message has the meta line with the typing indicator) is also marked with `messageLastLine()`: the time moved under it is `TERMINAL_META_GAP` below its edge (section 10). The typing line under a last card is `TERMINAL_PARAGRAPH_GAP` below it, or below the empty lines typed after it. In a message of rules only, the rules are at least as wide as the copy of the time (`ruleMinWidth` of `MarkdownBlocks`, measured by `MarkdownText`; user, D31), as in classic, where the meta line sets the width; the time stays beside them unless a wider quote or header widens the item so that the rule leaves no room for the time.
+ - Text blocks of [`MarkdownBlocks`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/MarkdownBlocks.kt#L59): a heading that does not start the text adds `TERMINAL_LEVEL_STEP` (4.75sp), also in bubbles (outside chats: no gap); above a heading that starts the text, the gap is the row gap (`terminalRowGap`) or `terminalTextTop`. A block after a heading, other than a heading, has `TERMINAL_HEADING_BOTTOM_GAP` (half of `TERMINAL_LEVEL_STEP`, 2.375sp) above it instead, so a heading is nearer to its own text than to the text above it. Each empty line typed before or between blocks and list entries (`emptyLines`; before the first block `leadingEmptyLines`) adds `emptyLineHeight`: in terminal rows `TERMINAL_PARAGRAPH_GAP`, the gap between messages (user); in bubbles and outside chats one line of the text style, its line height in proportion to the font size in px, as Android sets text line heights above font scale 1.05. The core sends `markdownBlocks` for text with block syntax or an empty line, up to 2000 markup tokens; text without them is one text in all layouts, each of its empty lines one line of the text style. After the last block, the empty lines are the line breaks of the tokens after it (the core removes one final line break of the text), less one when the text does not end with a line break (`trailingEmptyLines`), as in plain text, where the last line holds the time; when there are any, the meta line follows them, also in terminal rows. A gap has at most `MAX_EMPTY_LINES` (100) empty lines.
+ - Text styles: [`chatTextStyle(fontSize, color)`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TerminalItemView.kt#L82-L89) sets the line height to font size × `CHAT_LINE_HEIGHT_RATIO` (22/16) × f(w) and `LineHeightStyle(Proportional, Trim.None)`, in terminal rows and in bubbles (`usesChatTypography()`: `LocalTerminalLayout` or `LocalBubbleLayout`); outside chats it returns `TextStyle.Default`. Every line takes the full line height, one-line texts included. The space added to a line is split in the ratio of the font's ascent to its descent. On desktop each run of a line is given its own line box; with this alignment, runs of different sizes (the 12sp time in the copy of the meta) are placed on one baseline in a line of the body line height. f(w) = 1 − `CHAT_LINE_HEIGHT_CONTRAST_SLOPE` (0.1515) × (1 − w); w: the L* contrast of the text colour against `MaterialTheme.colors.background`, divided by that of `messageTextColor()`, limited to 0…1, and 1 when the message text has no contrast. Used for message text and captions (the style of `CIMarkdownText`), Markdown quotes (text colour at 70%), code, headings (body line height × scale), quote text and the quote's sender (in `body1`, Inter), the sender name and role, event texts ([`chatEventTextStyle(base)`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/CIEventView.kt#L20-L22): 12sp, `secondary`, merged into `base`, by default `LocalTextStyle.current`; in both layouts the text direction is left unspecified, which Compose resolves to the layout direction, so that an event starting with a name in the opposite direction keeps the copy of the time at the end of the row), header texts and the time. For names and the white time over media (`lineHeightColor` of `CIMetaView`), f is computed with the message text colour. Line heights in the light and dark themes: message text 22sp, quote text 19.6sp and 19.9sp, event text and time 15.1sp and 15.4sp.
+@@ -209,6 +209,7 @@ P       other messages, also of one sender; a sender change, above the name; abo
+ - Cards: images and videos, link previews, chat link cards, code blocks, tables and rules, files, voice messages, the quote, large emoji, group invitations, and the rounded cards of deleted and error items (`ItemTextCard`, `DecryptionErrorCard`). Each is marked with [`Modifier.messageCard()`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TerminalItemView.kt#L232); the marks are read in terminal rows only. A card has `TERMINAL_PARAGRAPH_GAP` next to text or another card of its item, as the top padding of the lower part. At the top of an item it has none above it: `TerminalChatItemRow` adds `TERMINAL_PARAGRAPH_GAP` under the sender row when the item reports a card at its top. At the bottom of an item it has none below it: `ItemWithMeta` adds `gapBelowCard` when the content reports a card at its bottom, [`terminalReactionsGap(item)`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TerminalItemView.kt#L153-L154), `TERMINAL_PARAGRAPH_GAP` when reactions follow as a line of text, otherwise 0.
+ - Event, feature and member-created items use [`chatEventPadding()`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/CIEventView.kt#L24-L27): in terminal rows the text edge at the sides and no padding above and below, so that the row gap, `TERMINAL_PARAGRAPH_GAP`, separates an event from the rows above and below it (classic: 6dp at the sides, above and below). The icons of feature and preference items are centred on the text and take no height (`Modifier.inlineIcon()`); the row of merged feature icons is one event text line high; both also in bubbles. `CIEventView` has no line limit in terminal rows, so the copy of the time stays at the end of the text (user, D23; classic: 4 lines). Voice and call items and reactions start at the text edge. The voice play button and file status circle are filled with the quote colour (`sentQuote`, `receivedQuote`; classic: `sentMessage`, `receivedMessage`).
+ - Time and status: placed at the end of the row by [`ItemWithMeta`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TerminalItemView.kt#L251-L265), the baseline of the time on the last baseline of the content (section 10). Message text ends with [`metaReserveCopy`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/CIMetaView.kt#L226-L272), in both layouts: a transparent copy of the meta with no-break spaces, in `FontWeight.Normal`. In the terminal layout the copy starts with a word joiner (U+2060), which forbids a line break before the copy, also after the three spaces of an idle live message (`noTyping`), so the time is not moved alone to the next line. In bubbles the copy starts with a breaking space (`breakBefore`, user) when text precedes it in its paragraph, so the time alone moves to the next line when it does not fit; the copy of the meta line under a last card or rule (`range` empty) starts without a space. The direction mark of its paragraph follows (U+200E left-to-right, U+200F right-to-left), so that the bidirectional algorithm places the copy at the end of the line, also after words in the other direction on a wrapped last line. Its spaces and texts are appended by [`reserveSpaceForMeta`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/CIMetaView.kt#L144-L224), which has the conditions of `CIMetaText`, except that the timer is reserved for every timed message, and returns the classic string unchanged, through span parameters: icon spaces and the spaces between them are no-break spaces at the `body1` size in dp (16dp converted to sp with the density, so that they keep their width at every font scale, as the icons do; also after a heading and in event text), 18dp for each icon, wider than a 12dp icon with its spacer (15dp or 16dp); after the 17dp icons one more space is added (22.5dp against 21dp): the sent and received status icons (`tallStatusIcon`, also used by `CIMetaText`) and the via-proxy icon; the time and the timer text of a disappearing message are at 12sp. The copy includes the file encryption and signature icons (`encrypted` and `signedFileVerified` of `MarkdownText`, passed by `CIMarkdownText` from the item). In the terminal layout, when the last word and the copy do not fit in the line, the last word moves to the next line with the time. Text whose paragraph direction (`textLayoutDirection`: right-to-left when the first 50 characters of the message text hold a right-to-left character; all blocks and lines of a message take it) differs from the outer direction (`parentDirection`, passed by the blocks and by the meta line of a live message; otherwise `LocalLayoutDirection`) ends with a line break instead of the copy, so the time is placed on an added empty line. Emoji, and the last code block, table or rule of a message, report their width (`Modifier.messageLastLine()`); the time moves under them when the row leaves no room for it beside them. The meta line with the time is drawn under such a block only for live messages, for the typing indicator, and after empty lines at the end of the text. File text keeps the space reserved for the time at the end of its size line. Images and videos without a caption (`captionlessMedia`) keep the meta in `secondary` beside the media when it fits in the row, otherwise the meta is drawn over the bottom end of the media in white, as in the classic layout (`overlayMeta`). Event items are wrapped in [`ChatEventWithMeta`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/CIEventView.kt#L29-L42), which passes the separator and the end of the event text apart (`separator`, `ts`): in the classic layout two spaces and the time without a style, in the terminal layout three transparent no-break spaces in `chatEventStyle` and the transparent `metaReserveCopy` of the meta without status and edit icons, so the last word of the event text is moved to the next line with the time when they do not fit. Each view puts the separator where the classic layout has two spaces (user, D28): after the event text, or in the "Open" and "Accept" links, so the classic output is unchanged.
++- Translation: a translated item renders [`TranslationUnderBubble`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt#L548-L603) in an outer `Column` after [`ItemWithMeta`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TerminalItemView.kt#L251-L265), so [`TerminalMetaLayout`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TerminalItemView.kt#L268-L307) measures only the message: the time and reactions stay on the message's last line and the bilingual line follows them at the text edge, in `chatTextStyle` at the `body1` size in `secondary`.
+ - Group invitations, deleted items and error items (`IntegrityErrorItemView`, `CIRcvDecryptionError`) keep their rounded coloured card.
+ 
+ ### Bubbles
+@@ -217,8 +218,9 @@ When `LocalBubbleLayout.current` is true (classic chats, provided by `ChatView`
+ 
+ - Texts use `chatTextStyle`, as terminal rows: message text, captions, Markdown blocks, quote text and sender (`body1`, Inter), headers, the time, event texts; the texts of `DeletedItemView` and error items through [`bubbleTextStyle(fontSize, color)`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TerminalItemView.kt#L91-L93), `chatTextStyle` in bubbles only, so the cards of terminal rows keep their style (the one-line text of `MarkedDeletedItemView` keeps its style, its line height rounded by `bubbleLineHeight`). Call items are drawn as in master: `ChatItemView` provides `LocalBubbleLayout` false for them. Markdown blocks in bubbles have the heading gaps, heading sizes and `headingBox` of terminal rows; cards and rules have `TERMINAL_BLOCK_TOP_GAP` (5.75sp) above and `TERMINAL_BLOCK_BOTTOM_GAP` (5sp) below, and each empty line typed is one line of the text style.
+ - On desktop, [`bubbleLineHeight(lineHeight)`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TerminalItemView.kt#L95-L101) rounds a line height in bubbles to whole pixels, with the proportional alignment of `chatTextStyle`: `chatTextStyle` applies it in bubbles, and so do the last text of a group invitation (18sp, or "Tap to join" at the line height of Inter, `INTER_LINE_HEIGHT`), "Fix connection" of decryption errors and the size line of files (the line height of Inter) and the text of `MarkedDeletedItemView` (22sp); on Android the line heights are unchanged. Skia draws the baseline of a line at its top plus the rounded ascent and reports the rounded line height less the descent, which Compose rounds into `FirstBaseline` and `LastBaseline`; both are one pixel row only when ascent and descent add up to whole pixels, so the time, placed by reported baselines, is drawn on the baseline of the text (owner report).
+-- `BUBBLE_TEXT_INSET` (11dp, user) is the distance from a bubble or band edge to the capitals of the text under it, and from the last baseline to the edge under it; in dp, so it keeps its size at larger fonts (user). Message text, captions and an emoji under a quote or header have [`bubbleTextBoxPadding()`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt#L574-L581): that inset less the space of 16sp text with the full line height above its capitals (`BUBBLE_LINE_ABOVE_CAPS`, 6sp) and under its last baseline (`BUBBLE_LINE_BELOW_BASELINE`, 4.375sp), at least 0; 5dp and 6.625dp at font scale 1. `BUBBLE_SIDE_INSET` (14dp, user) is the distance from the bubble sides to message text, captions, an emoji under a quote or header and the end of the time. Header bands, the quote band and deleted and error items use [`Modifier.bubbleTextPadding(firstLineFontSize, bottom)`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt#L570-L572): `BUBBLE_SIDE_INSET` at the sides and the inset by the first and last baselines; a header followed by a quote or a forwarded header has no inset below. The header starts at `BUBBLE_SIDE_INSET` and its icon takes no height. Deleted and error items are drawn by [`ItemTextCard`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/DeletedItemView.kt#L34-L53) (`DeletedItemView`, `MarkedDeletedItemView`, `CIMsgError`) and the private `DecryptionErrorCard` (the decryption error items), each with one switch between the bubble and the rounded card of terminal rows: in bubbles they fill the shape of `clipChatItem` (`Surface` with its default `RectangleShape`, user). That shape has no tail for items without message content ([`shapeStyleWithTail`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.kt#L1333-L1385): `msgContent` null; user): deleted, moderated, blocked, error, decryption error and invalid JSON items. [`chatItemTailRendered(chatItem, tailVisible, revealed)`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.kt#L1224-L1226) tells whether the tail is drawn, from the shape style of the item as `clipChatItem` computes it; `FramedItemView`, `chatItemOffset` and the sender rows of `ChatItemsList` use it. The file row ends `BUBBLE_TEXT_INSET` under the baseline of its size line; the ink bottom of the file icon is aligned to that baseline ([`fileIconOnBaseline`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/CIFileView.kt#L255-L261): the icon size × `FILE_ICON_INK_INSET`, the space under the ink of `ic_draft_filled`, rounded down).
+-- The time: [`Modifier.bubbleMeta()`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt#L583-L587) places the baseline of the time `BUBBLE_TEXT_INSET` above the bubble bottom, on the last baseline of the text; ticks without a time where they stand next to a time (`metaBaseline`, shared with `TerminalMetaLayout`). In deleted and error items the time follows the text on its last baseline (`bubbleMetaOnBaseline`, the text aligned by `LastBaseline`), so a wrapped text keeps the time on its last line; in group invitations [`MetaOnLastBaseline(meta, content)`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt#L595-L607) places it at the end of the card on its last baseline (the card bottom without a baseline, in intrinsic measurement; user). Message text, an emoji under a quote or header, decryption errors and group invitations end with `metaReserveCopy`; after text it starts with a breaking space (`breakBefore`), so the time alone moves to the next line, except in group invitations, where the word joiner keeps the time with the last word (user); the size line of a file keeps the string of `reserveSpaceForMeta`.
++- `BUBBLE_TEXT_INSET` (11dp, user) is the distance from a bubble or band edge to the capitals of the text under it, and from the last baseline to the edge under it; in dp, so it keeps its size at larger fonts (user). Message text, captions and an emoji under a quote or header have [`bubbleTextBoxPadding()`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt#L648-L653): that inset less the space of 16sp text with the full line height above its capitals (`BUBBLE_LINE_ABOVE_CAPS`, 6sp) and under its last baseline (`BUBBLE_LINE_BELOW_BASELINE`, 4.375sp), at least 0; 5dp and 6.625dp at font scale 1. `BUBBLE_SIDE_INSET` (14dp, user) is the distance from the bubble sides to message text, captions, an emoji under a quote or header and the end of the time. Header bands, the quote band and deleted and error items use [`Modifier.bubbleTextPadding(firstLineFontSize, bottom)`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt#L644-L646): `BUBBLE_SIDE_INSET` at the sides and the inset by the first and last baselines; a header followed by a quote or a forwarded header has no inset below. The header starts at `BUBBLE_SIDE_INSET` and its icon takes no height. Deleted and error items are drawn by [`ItemTextCard`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/DeletedItemView.kt#L34-L53) (`DeletedItemView`, `MarkedDeletedItemView`, `CIMsgError`) and the private `DecryptionErrorCard` (the decryption error items), each with one switch between the bubble and the rounded card of terminal rows: in bubbles they fill the shape of `clipChatItem` (`Surface` with its default `RectangleShape`, user). That shape has no tail for items without message content ([`shapeStyleWithTail`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.kt#L1333-L1385): `msgContent` null; user): deleted, moderated, blocked, error, decryption error and invalid JSON items. [`chatItemTailRendered(chatItem, tailVisible, revealed)`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/ChatItemView.kt#L1224-L1226) tells whether the tail is drawn, from the shape style of the item as `clipChatItem` computes it; `FramedItemView`, `chatItemOffset` and the sender rows of `ChatItemsList` use it. The file row ends `BUBBLE_TEXT_INSET` under the baseline of its size line; the ink bottom of the file icon is aligned to that baseline ([`fileIconOnBaseline`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/CIFileView.kt#L255-L261): the icon size × `FILE_ICON_INK_INSET`, the space under the ink of `ic_draft_filled`, rounded down).
++- The time: [`Modifier.bubbleMeta()`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt#L656-L660) places the baseline of the time `BUBBLE_TEXT_INSET` above the bottom of the message row, on the last baseline of the text; a translation line drawn after the row extends the bubble below the time; ticks without a time where they stand next to a time (`metaBaseline`, shared with `TerminalMetaLayout`). In deleted and error items the time follows the text on its last baseline (`bubbleMetaOnBaseline`, the text aligned by `LastBaseline`), so a wrapped text keeps the time on its last line; in group invitations [`MetaOnLastBaseline(meta, content)`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt#L669-L681) places it at the end of the card on its last baseline (the card bottom without a baseline, in intrinsic measurement; user). Message text, an emoji under a quote or header, decryption errors and group invitations end with `metaReserveCopy`; after text it starts with a breaking space (`breakBefore`), so the time alone moves to the next line, except in group invitations, where the word joiner keeps the time with the last word (user); the size line of a file keeps the string of `reserveSpaceForMeta`.
++- Translation: the bilingual line of a translated message ([`TranslationUnderBubble`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt#L548-L603)) is rendered after `ItemWithMeta` inside the bubble's outer `Column`, so the bubble grows to contain it while the time stays on the message's last baseline; the line uses `chatTextStyle` at the `body1` size in `secondary`, `CHAT_ITEM_TEXT_PADDING` at the sides, 6dp below, and the tail width at the start or end when a tail is drawn.
+ - Gaps between rows: `BUBBLE_CLOSE_GAP` (2sp) between close messages, `BUBBLE_FAR_GAP` (8sp) at a large gap, half above and half below each row. Event rows (`isEvent`: items without a sender, `hasTerminalSender` false, other than the chat banner: event, feature, preference and end-to-end encryption items, also collapsed) form runs (user): `eventRunLargeGap` makes the gap between two events close and the gap between an event and another row large; `ChatItemsList` applies it to the gap above a row (`eventGapAbove`) and to the separation below it (`eventGapBelow`, a large gap with the time), so a message above an event shows its tail and time. The avatar column of an event has no 8dp top padding.
+ 
+ Both layouts: `MarkdownText` draws message text in [`messageTextColor()`](../../common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/TextItemView.kt#L54), `onSurface` at 95% in dark themes. A report whose blocks have no text ranges (only rules) is drawn as one text: the reason, then the source text of the rules.
+@@ -283,7 +285,7 @@ Context menu actions are built dynamically in `ChatItemView` based on message ty
+ | **Select** | Any selectable item | Enters multi-select mode (`selectedChatItems`) |
+ | **React** | Message content, reactions enabled | Opens emoji picker; calls `apiChatItemReaction` |
+ | **Report** | Received group message, reports enabled | Sets `ComposeContextItem.ReportedItem` with reason |
+-| **Translate** | Message content (text/link), translation configured | Calls `TranslationService.translateChatItem(itemId, text)`, auto-detects the source language and appends the result as a bilingual line under the original bubble; the `ChatItem` is not modified (PC47, RULE-31) |
++| **Translate** | Message content (text/link), translation configured | Calls `TranslationService.translateChatItem(itemId, text)`, auto-detects the source language and appends the result as a bilingual line below the message's own row (below its time and reactions); the `ChatItem` is not modified (PC47, RULE-31) |
+ | **Info** | Any message | Opens `ChatItemInfoView` in end modal |
+ | **Copy** | Text content present | Copies text to clipboard |
+ | **Save** | Image/video/file with completed download | Saves media to device |
+@@ -424,7 +426,7 @@ Wired sites: `ChatInfoView.kt` `ChatInfoHeader`, `group/GroupChatInfoView.kt` `G
+ | `CIVoiceView.kt` | Voice message (waveform + player) |
+ | `DeletedItemView.kt` | Deleted message placeholder; `ItemTextCard`, the card of deleted and error items |
+ | `EmojiItemView.kt` | Large emoji-only message |
+-| `FramedItemView.kt` | Message bubble frame (quoted item, text, media); renders the bilingual translation line for a translated message (PC47) |
++| `FramedItemView.kt` | Message bubble frame (quoted item, text, media); renders the bilingual translation line below the message's time/reactions in both layouts (PC47) |
+ | `ImageFullScreenView.kt` | Fullscreen image gallery |
+ | `MarkdownFileView.kt` | Markdown file viewer, formatted or as text |
+ | `IntegrityErrorItemView.kt` | Message integrity error |
+diff --git a/apps/multiplatform/spec/client/translation.md b/apps/multiplatform/spec/client/translation.md
+index cb9921b53..89bd49a5c 100644
+--- a/apps/multiplatform/spec/client/translation.md
++++ b/apps/multiplatform/spec/client/translation.md
+@@ -26,14 +26,15 @@
+ Translation turns a message (or the text being composed) into another language by calling an external
+ translation provider. It is a **pure-client** feature: it lives in
+ `common/src/commonMain/kotlin/chat/simplex/common/translation/`, never sends anything to the SimpleX core
+-and adds no protocol message. The translated text is shown as a two-line bubble below the original; the
+-`ChatItem` content is never rewritten (RULE-31 invariants 1 and 4).
++and adds no protocol message. The translated text is shown as a bilingual line below the original message (below its time and
++reactions, in both the classic bubble and the flat row); the `ChatItem` content is never rewritten
++(RULE-31 invariants 1 and 4).
+ 
+ Three entry points share one service:
+ 
+ | Entry point | Trigger | Result |
+ |---|---|---|
+-| Message menu | Long-press / right-click a message bubble → **Translate** | Auto-detect source language, append the translation under the bubble |
++| Message menu | Long-press / right-click a message bubble → **Translate** | Auto-detect source language, append the translation below the message's time/reactions |
+ | Compose button | `ic_translate` button left of the send button (tap / long-press) | Translate the compose text; tap = the configured compose target language (`targetLang`), long-press = pick one for this message |
+ | Received messages | The two rows above plus automatic mode | Always translated into the **interface language** (`TranslationService.incomingTargetLang()`), never into `targetLang` |
+ | Automatic | `translationAutoTranslate` on | Translate the messages currently visible in the viewport, rate-limited and cancelled on scroll-out |
+@@ -157,7 +158,7 @@ with the `ic_translate` icon. Selecting it:
+ 1. reads the message text from `ChatItem.content.text`,
+ 2. calls `TranslationService.translateChatItem(itemId, text)` (the source language is detected and the
+    target is the interface language, see §7),
+-3. appends the result as a bilingual line (原文 + 译文) rendered inside `FramedItemView` under the bubble.
++3. appends the result as a bilingual line (原文 + 译文) rendered by `FramedItemView` below the message's own row — below its time and reactions, inside the classic bubble and below the flat row.
+ 
+ The original message is untouched — this is a display-only decoration of the item, not an edit.
+ 
+diff --git a/apps/multiplatform/spec/impact.md b/apps/multiplatform/spec/impact.md
+index 9882670fa..242b94506 100644
+--- a/apps/multiplatform/spec/impact.md
++++ b/apps/multiplatform/spec/impact.md
+@@ -157,7 +157,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
+ | `views/chat/item/ChatItemView.kt` | PC2, PC3, PC5, PC6, PC7, PC8, PC32, PC42, PC47 | High | Root chat item renderer with context menus; the single-message Copy action passes `ciTextWithQuote` to `copyItemToClipboard`, and the context menu adds a Translate action |
+ | `views/chat/item/TextItemView.kt` | PC2, PC3, PC4, PC32, PC45 | Medium | Text message bubble rendering; `MarkdownText` resolves its default text color through `rememberRainbowMessageTextColor`, so rainbow message text reaches every markdown surface |
+ | `views/chat/item/MarkdownBlocks.kt` | PC4, PC32 | Medium | Block Markdown rendering; terminal block gaps and headings |
+-| `views/chat/item/FramedItemView.kt` | PC4, PC6, PC10, PC11, PC32, PC47 | Medium | Framed (quoted/forwarded) message container; renders the bilingual translation line under a translated message |
++| `views/chat/item/FramedItemView.kt` | PC4, PC6, PC10, PC11, PC32, PC47 | Medium | Framed (quoted/forwarded) message container; renders the bilingual translation line below the message's time/reactions in both layouts |
+ | `views/chat/item/TerminalItemView.kt` | PC2, PC3, PC32 | Medium | Terminal layout rows, sender rows, time placement |
+ | `views/chat/item/CIImageView.kt` | PC10 | Medium | Image message rendering |
+ | `views/chat/item/CIVideoView.kt` | PC10 | Medium | Video message rendering |

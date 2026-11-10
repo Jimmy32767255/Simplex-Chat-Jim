@@ -157,7 +157,7 @@ Path prefix: `common/src/commonMain/kotlin/chat/simplex/common/`
 | `views/chat/item/ChatItemView.kt` | PC2, PC3, PC5, PC6, PC7, PC8, PC32, PC42, PC47 | High | Root chat item renderer with context menus; the single-message Copy action passes `ciTextWithQuote` to `copyItemToClipboard`, and the context menu adds a Translate action |
 | `views/chat/item/TextItemView.kt` | PC2, PC3, PC4, PC32, PC45 | Medium | Text message bubble rendering; `MarkdownText` resolves its default text color through `rememberRainbowMessageTextColor`, so rainbow message text reaches every markdown surface |
 | `views/chat/item/MarkdownBlocks.kt` | PC4, PC32 | Medium | Block Markdown rendering; terminal block gaps and headings |
-| `views/chat/item/FramedItemView.kt` | PC4, PC6, PC10, PC11, PC32, PC47 | Medium | Framed (quoted/forwarded) message container; renders the bilingual translation line under a translated message |
+| `views/chat/item/FramedItemView.kt` | PC4, PC6, PC10, PC11, PC32, PC47 | Medium | Framed (quoted/forwarded) message container; renders the bilingual translation line below the message's time/reactions in both layouts |
 | `views/chat/item/TerminalItemView.kt` | PC2, PC3, PC32 | Medium | Terminal layout rows, sender rows, time placement |
 | `views/chat/item/CIImageView.kt` | PC10 | Medium | Image message rendering |
 | `views/chat/item/CIVideoView.kt` | PC10 | Medium | Video message rendering |

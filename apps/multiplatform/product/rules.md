@@ -768,7 +768,8 @@ Enforcement:
    MUST never be exported and MUST never be written unencrypted.
 
 4. **Translation never mutates the message.** A message-menu translation appends the translated text
-   below the original as a two-line bubble; it MUST NOT edit or replace the `ChatItem` content. The
+   below the original message (below its time and reactions) as a display-only bilingual line; it MUST
+   NOT edit or replace the `ChatItem` content. The
    compose-bar translation keeps the original in `ComposeState.translateOriginal` and the translation in
    `translateResult`, and can be undone only while the two agree with the current text (editing the text
    after translating disables undo and the button re-translates instead).

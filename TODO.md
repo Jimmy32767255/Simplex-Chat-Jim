@@ -292,6 +292,14 @@ none
   - 验证：脚本运行后两个 ABI 均报告 `simplex-chat-7.1.2.0`，复制出的库与成功构建所用文件 SHA-256 一致；`./gradlew :android:assembleFossDebug` 通过（`BUILD SUCCESSFUL in 4m 38s`，产出 `android-foss-arm64-v8a-debug.apk` 与 `android-foss-armeabi-v7a-debug.apk`，APK 内 `libsimplex.so` 为 7.1.2 大小）。
   - 文档：`apps/multiplatform/README.md` 的构建命令新增说明；本条目见 `diff/0031-android-core-libs-per-version.patch`。
 
+- [x] 修复译文行在经典气泡与 7.1.2 扁平聊天布局中重叠、时间戳错位
+  - **已完成（2026-11-10，基于 7.1.2）**：7.1.2 把消息元信息重构成 `ItemWithMeta(meta = …)` 后，译文行被留在 `Box(BottomEnd)` 内、成了正文 `Column` 的兄弟节点，于是译文与最后一行文字重叠，时间/表情也被 `TerminalMetaLayout`/`bubbleMeta()` 对齐到译文上；同时译文仍用固定的 `lineHeight = 22.sp`，在 7.1.2 随字号缩放的 `chatTextStyle` 下多行译文行高不足而叠字，扁平布局也从未按 `CHAT_ITEM_TEXT_PADDING` 对齐。
+  - 修复：`FramedItemView` 把 `ItemWithMeta` 与译文行放进同一个外层 `Column`，译文始终位于整行（原文 + 时间/表情）下方。经典气泡因此重新包住译文，时间回到原文最后一行；扁平布局由 `TerminalMetaLayout` 只测量原文，时间/表情留在原文行，译文在下方按文本边距对齐。译文样式改为 `chatTextStyle(body1.fontSize, secondary)` 合并，并保留气泡尾巴的缩进；未改翻译服务、偏好、核心与协议。
+  - 改动文件：`apps/multiplatform/common/src/commonMain/kotlin/chat/simplex/common/views/chat/item/FramedItemView.kt`（`FramedItemView` 的布局、`Content` 抽取、`TranslationUnderBubble` 的样式与内边距）。
+  - 文档：`spec/client/chat-view.md`、`spec/client/translation.md`、`spec/impact.md`、`product/views/chat.md`、`product/README.md`、`product/concepts.md`、`product/rules.md`（RULE-31 第 4 条）、`plans/2026-11-10-translation-chat-layout-fix.md`。
+  - 测试：`./gradlew :common:compileKotlinDesktop` 通过；`./gradlew :common:desktopTest` 全套通过（含 BubbleLayoutTest、PriorityLayoutTest、TerminalMetaLayoutTest、TerminalMarkdownGapsTest、TerminalMetaCopyTest、TerminalChatItemRowTest）；另用一次性渲染探针在经典/扁平预览中确认时间戳留在原文行、译文在下一行且不重叠（探针已删除；桌面测试环境缺 Linux 核心库，DONE 状态无法在测试中渲染）。
+  - 差异补丁：`diff/0032-translation-chat-layout.patch`。
+
 ## del:
 
 none

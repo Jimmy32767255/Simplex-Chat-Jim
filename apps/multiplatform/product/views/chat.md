@@ -84,7 +84,7 @@ Long-press context menu on any message:
 | Moderate | Group moderators can delete messages for all members (`moderateMessagesAlertDialog`) |
 | React | Emoji reaction picker |
 | Report | Report message to group moderators (`ComposeContextItem.ReportedItem` with `ReportReason`) |
-| Translate | Translate the message with the configured provider and show the result as a bilingual bubble (原文 + 译文) below the message, without touching the original (RULE-31) |
+| Translate | Translate the message with the configured provider and show the result as a bilingual line (原文 + 译文) below the message's time/reactions, without touching the original (RULE-31) |
 | Select multiple | Enters multi-select mode (`selectedChatItems`) with bulk delete/forward/archive/copy toolbar |
 | Archive | Archive selected reports (moderators) |
 

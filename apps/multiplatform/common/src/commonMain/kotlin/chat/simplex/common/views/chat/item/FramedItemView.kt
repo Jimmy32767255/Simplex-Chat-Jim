@@ -270,15 +270,12 @@ fun FramedItemView(
       }
     )) {
     var metaColor = MaterialTheme.colors.secondary
-    ItemWithMeta(
-      meta = { CIMetaView(ci, chatTTL, metaColor, showViaProxy = showViaProxy, showTimestamp = showTimestamp) },
-      overlayMeta = if (captionlessMedia) { { Box(Modifier.padding(end = CHAT_ITEM_TEXT_PADDING)) { CIMetaView(ci, chatTTL, Color.White, showViaProxy = showViaProxy, showTimestamp = showTimestamp, lineHeightColor = messageTextColor()) } } } else null,
-      metaReserved = metaReserved,
-      gapBelowCard = terminalReactionsGap(ci).toDp(),
-      endButton = endButton
-    ) { inlineMeta ->
+    val meta: @Composable () -> Unit = { CIMetaView(ci, chatTTL, metaColor, showViaProxy = showViaProxy, showTimestamp = showTimestamp) }
+    val overlayMeta: (@Composable () -> Unit)? = if (captionlessMedia) { { Box(Modifier.padding(end = CHAT_ITEM_TEXT_PADDING)) { CIMetaView(ci, chatTTL, Color.White, showViaProxy = showViaProxy, showTimestamp = showTimestamp, lineHeightColor = messageTextColor()) } } } else null
+    val tailRendered = chatItemTailRendered(ci, tailVisible, revealed = true)
+    @Composable
+    fun Content(inlineMeta: (@Composable () -> Unit)?) {
       Box(contentAlignment = Alignment.BottomEnd) {
-        val tailRendered = chatItemTailRendered(ci, tailVisible, revealed = true)
         Column(
           Modifier
             .width(IntrinsicSize.Max)
@@ -481,6 +478,16 @@ fun FramedItemView(
             inlineMeta()
           }
         }
+      }
+    }
+    Column {
+      ItemWithMeta(meta, overlayMeta, metaReserved, endButton = endButton, gapBelowCard = terminalReactionsGap(ci).toDp()) { Content(it) }
+      Box(
+        Modifier.padding(
+          start = if (!sent && tailRendered) msgTailWidthDp else 0.dp,
+          end = if (sent && tailRendered) msgTailWidthDp else 0.dp
+        )
+      ) {
         TranslationUnderBubble(ci, linkMode)
       }
     }
@@ -533,7 +540,8 @@ fun CIMarkdownText(
 }
 
 /**
- * Renders the translation of a received/sent message underneath its bubble (bilingual, non-destructive).
+ * Renders the bilingual translation of a received/sent message below the item's time/reactions (inside the
+ * classic bubble, below the flat row); display-only and non-destructive.
  * Shares the observable [TranslationService] registry with both manual (context menu) and automatic
  * translation, so it needs no extra wiring. Renders nothing when there is no entry yet.
  */
@@ -541,18 +549,27 @@ fun CIMarkdownText(
 fun TranslationUnderBubble(ci: ChatItem, linkMode: SimplexLinkMode) {
   if (ci.id < 0 || ci.content.text.isEmpty()) return
   val entry = TranslationService.entry(ci.id) ?: return
+  val terminal = LocalTerminalLayout.current
   val scope = rememberCoroutineScope()
   val secondary = MaterialTheme.colors.secondary
+  val body1 = MaterialTheme.typography.body1
+  val translationStyle = body1.copy(color = secondary, lineHeight = 22.sp).merge(chatTextStyle(body1.fontSize, secondary))
+  val retryStyle = translationStyle.copy(color = MaterialTheme.colors.primary)
   Column(
     Modifier
       .widthIn(min = 80.dp)
-      .padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
+      .padding(
+        start = CHAT_ITEM_TEXT_PADDING,
+        end = CHAT_ITEM_TEXT_PADDING,
+        top = if (terminal) 2.dp else 0.dp,
+        bottom = 6.dp,
+      )
   ) {
     when {
       entry.isLoading -> {
         Text(
           TranslationStrings.translating,
-          style = MaterialTheme.typography.body1.copy(color = secondary, lineHeight = 22.sp),
+          style = translationStyle,
         )
       }
       entry.isDone -> {
@@ -563,7 +580,7 @@ fun TranslationUnderBubble(ci: ChatItem, linkMode: SimplexLinkMode) {
             parseToMarkdown(translated),
             toggleSecrets = true,
             linkMode = linkMode,
-            style = MaterialTheme.typography.body1.copy(color = secondary, lineHeight = 22.sp),
+            style = translationStyle,
           )
         }
       }
@@ -571,14 +588,14 @@ fun TranslationUnderBubble(ci: ChatItem, linkMode: SimplexLinkMode) {
         Row(verticalAlignment = Alignment.CenterVertically) {
           Text(
             "${TranslationStrings.translationFailed} ",
-            style = MaterialTheme.typography.body1.copy(color = secondary, lineHeight = 22.sp),
+            style = translationStyle,
           )
           Text(
             TranslationStrings.retry,
             Modifier.clickable {
               TranslationService.translateChatItem(ci.id, ci.content.text, scope = scope)
             },
-            style = MaterialTheme.typography.body1.copy(color = MaterialTheme.colors.primary, lineHeight = 22.sp),
+            style = retryStyle,
           )
         }
       }
